@@ -14,6 +14,11 @@ export interface RunRef extends Scope {
   runId: string;
 }
 
+/** 作用域内部寻址键（budget / context 等按 scope 分区的组件共用）。 */
+export function scopeKey(s: Scope): string {
+  return `${s.agentId}|${s.sessionId}`;
+}
+
 export const SCHEMA_VERSION = 1;
 
 /** 契约 §5 全部事件类型（含状态机 §9 三类增量），封闭集合。 */
