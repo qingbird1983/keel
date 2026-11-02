@@ -25,15 +25,15 @@
 
 ## 3. 文档类型与归属
 
-| 类型 | 目录 | 规则 |
-|---|---|---|
-| 决策记录 ADR | docs/adr/ | 编号递增、只增不改；推翻旧决策写新篇并注明取代关系 |
-| 架构设计 | docs/architecture/ | 描述"系统是什么、约束是什么"；与实现偏差即修订 |
-| 阶段详细设计 | docs/design/phase-N/ | 每阶段实现前定稿（phase 文档"交付物"列出清单） |
-| 路线图 | docs/roadmap/ | 阶段范围/验收；00-roadmap.md 是唯一进度看板 |
-| 规范 | docs/standards/ | 违反规范的行为要么改正、要么先改规范（走 ADR）；规范自身的复查与进化走 standards/09 |
-| 调研 | docs/research/ | 事实与数据沉淀；新调查追加新篇，不改旧篇结论（可加"更新"节） |
-| 阶段进度报告 | docs/design/phase-N/report.md | 每阶段收尾产出（模板见 design/_report-template.md） |
+| 类型         | 目录                          | 规则                                                                                |
+| ------------ | ----------------------------- | ----------------------------------------------------------------------------------- |
+| 决策记录 ADR | docs/adr/                     | 编号递增、只增不改；推翻旧决策写新篇并注明取代关系                                  |
+| 架构设计     | docs/architecture/            | 描述"系统是什么、约束是什么"；与实现偏差即修订                                      |
+| 阶段详细设计 | docs/design/phase-N/          | 每阶段实现前定稿（phase 文档"交付物"列出清单）                                      |
+| 路线图       | docs/roadmap/                 | 阶段范围/验收；00-roadmap.md 是唯一进度看板                                         |
+| 规范         | docs/standards/               | 违反规范的行为要么改正、要么先改规范（走 ADR）；规范自身的复查与进化走 standards/09 |
+| 调研         | docs/research/                | 事实与数据沉淀；新调查追加新篇，不改旧篇结论（可加"更新"节）                        |
+| 阶段进度报告 | docs/design/phase-N/report.md | 每阶段收尾产出（模板见 design/_report-template.md）                                 |
 
 > 另有 `briefs/`（仓库根，gitignore 不入库）存放所有者的参考与建议（与 AI 前期沟通的简报）：它**不是正式文档**，不承担事实来源职责；与 AI 对齐后的结论必须沉淀进上表对应区域（research / ADR / design / roadmap）才算数。规则见 `briefs/README.md`。
 

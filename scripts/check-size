@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 QUIET="${1:-}"
 
 # ───── 配置（与 standards/08 对齐）──────────────────────────────
-SRC_DIRS=(src)                    # 源码目录，初始化时回填（可多个，空格分隔）
+SRC_DIRS=(packages/*/src apps/*/src)   # 源码目录，monorepo 布局（standards/01 §2 预设 B）
 SOURCE_EXTS=(rs ts tsx js py go java c cpp h hpp)   # 计入行数统计的扩展名
 MAX_SOURCE_LINES=600              # 单源文件上限（standards/08 §4）
 MAX_DOC_LINES=300                 # docs 正式文档单篇上限（§2）
@@ -20,6 +20,8 @@ MAX_ADR_LINES=100                 # 单篇 ADR 上限（§2）
 MAX_CONTEXT_LINES=150             # .agents/CONTEXT.md 上限（§3）
 MAX_AGENTS_FILES=40               # .agents 文件数上限（不含 vendored 技能子目录）（§3）
 DOCS_SOFT_LIMIT=150               # docs 总篇数软上限（§2）——超标 WARN
+ARTIFACT_SOFT_KB=$((500 * 1024))  # 构建产物软上限（§6）——超标 WARN
+ARTIFACT_HARD_KB=$((2 * 1024 * 1024))   # 构建产物硬上限（§6）——超标阻断
 # ───────────────────────────────────────────────────────────────
 
 fails=0
@@ -99,6 +101,19 @@ doc_total=$(find docs -type f -name '*.md' ! -name '_*' ! -name '*template*' ! -
 say "INFO: docs 文档总数 ${doc_total} 篇（软上限 ${DOCS_SOFT_LIMIT}，standards/08 §2）"
 if [ "$doc_total" -gt "$DOCS_SOFT_LIMIT" ]; then
   warn "docs 总数超软上限 (${doc_total} > ${DOCS_SOFT_LIMIT}) —— 触发整合评审"
+fi
+
+# 7) 构建产物容量（standards/08 §6：按容量监控各包 dist/ 与 coverage/）
+artifact_kb=0
+while IFS= read -r d; do
+  kb=$(du -sk "$d" 2>/dev/null | cut -f1)
+  artifact_kb=$((artifact_kb + ${kb:-0}))
+done < <(find packages apps -mindepth 2 -maxdepth 2 -type d \( -name dist -o -name coverage \) 2>/dev/null)
+say "INFO: 构建产物 ${artifact_kb}KB（软上限 ${ARTIFACT_SOFT_KB}KB，硬上限 ${ARTIFACT_HARD_KB}KB，清理 pnpm clean）"
+if [ "$artifact_kb" -gt "$ARTIFACT_HARD_KB" ]; then
+  fail "构建产物 ${artifact_kb}KB 超硬上限 —— 先 pnpm clean 再收尾（standards/08 §6）"
+elif [ "$artifact_kb" -gt "$ARTIFACT_SOFT_KB" ]; then
+  warn "构建产物 ${artifact_kb}KB 超软上限 —— 建议执行 pnpm clean（standards/08 §6）"
 fi
 
 echo "──────────────────────────────"

@@ -1,20 +1,20 @@
 # 规范 04：代码规范
 
-- 状态：定稿（§1 工具链表格初始化时填写；修订走 ADR）
+- 状态：定稿（§1 工具链已实体化，2026-11-02；修订走 ADR）
 - 日期：2026-11-02
 
 ## 1. 工具链与硬门槛（初始化时回填）
 
 > 原则：**每个坑位必须有自动化工序**——格式化器管风格、linter 管坏味道、CI 管执行；没有工具支撑的规则等于没有规则。
 
-| 坑位 | 工具 | 命令 | CI 强度 |
-|---|---|---|---|
-| 格式化 | prettier | `pnpm format:check` | check 挂门禁 |
-| Lint | eslint（typescript-eslint，`--max-warnings 0`） | `pnpm lint` | error 级挂门禁 |
-| 类型检查 | tsc（strict） | `pnpm typecheck` | 挂门禁 |
-| 构建 | pnpm workspace | `pnpm -r build` | 挂门禁 |
+| 坑位     | 工具                                            | 命令                | CI 强度        |
+| -------- | ----------------------------------------------- | ------------------- | -------------- |
+| 格式化   | prettier                                        | `pnpm format:check` | check 挂门禁   |
+| Lint     | eslint（typescript-eslint，`--max-warnings 0`） | `pnpm lint`         | error 级挂门禁 |
+| 类型检查 | tsc（strict）                                   | `pnpm typecheck`    | 挂门禁         |
+| 构建     | pnpm workspace                                  | `pnpm -r build`     | 挂门禁         |
 
-> 工具链命令依赖 Phase 1 建立的 workspace 脚本；落地前本表为选型声明（ADR-0001）。
+> 上表命令已随 Phase 1 工具链脚手架实体化（2026-11-02，根 `package.json` scripts + CI）；选型依据见 ADR-0001，依赖登记见附录 A。
 
 - 锁文件（lockfile / requirements hash 等）一律提交入库；依赖版本锁定。
 - 本项目语言：TypeScript（strict）；运行时：Node.js ≥ 22 LTS；包管理：pnpm ≥ 9（workspace monorepo，ADR-0001）。
@@ -59,6 +59,14 @@
 
 ## 附录 A：依赖准入表
 
-| 依赖 | 版本线 | 用途 | 为何必须 | 维护方 | 备选与否决理由 |
-|---|---|---|---|---|---|
-| （暂无——首个依赖引入前按 §5 先登记后引入） | — | — | — | — | — |
+| 依赖              | 版本线 | 用途                  | 为何必须                                  | 维护方                 | 备选与否决理由                                                                  |
+| ----------------- | ------ | --------------------- | ----------------------------------------- | ---------------------- | ------------------------------------------------------------------------------- |
+| typescript        | ^5.9   | 类型检查与编译        | strict 门禁载体（§1）；全栈语言           | Microsoft              | TS 7 原生编译器暂否决：typescript-eslint 8.x peer 上限 <6.1，待适配后按 §5 升版 |
+| prettier          | ^3     | 格式化                | fmt 门禁（§1）                            | Prettier               | dprint / biome——生态与编辑器支持广度不及 prettier                               |
+| eslint            | ^10    | Lint 壳与 JS 规则     | lint 门禁（§1）                           | OpenJS Foundation      | —                                                                               |
+| @eslint/js        | ^10    | eslint 官方推荐规则集 | 平面配置引入 recommended                  | eslint 团队            | —                                                                               |
+| typescript-eslint | ^8     | TS 解析器与 lint 规则 | lint 门禁对 TS 生效（`--max-warnings 0`） | typescript-eslint 团队 | —                                                                               |
+| vitest            | ^5     | 测试框架              | test 门禁（standards/05 §1 选型）         | Vitest                 | jest——ESM/TS 原生支持差，需额外转译配置                                         |
+| @types/node       | ^26    | Node 运行时类型       | Node ≥ 22 API 类型（CLI / 宿主进程）      | DefinitelyTyped        | —                                                                               |
+
+> 运行零依赖（runtime dependencies 为空）是当前基线；引入首个运行时依赖前按 §5 先登记。

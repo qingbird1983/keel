@@ -9,7 +9,11 @@
   },
   "permissions": [
     { "cap": "tool.provide", "reason": "向 Cell 提供 fetch_url 工具" },
-    { "cap": "net.fetch", "allow": ["api.example.com", "*.example.org"], "reason": "仅允许示例域出站抓取" }
+    {
+      "cap": "net.fetch",
+      "allow": ["api.example.com", "*.example.org"],
+      "reason": "仅允许示例域出站抓取"
+    }
   ],
   "resources": {
     "toolCallTimeoutMs": 15000,

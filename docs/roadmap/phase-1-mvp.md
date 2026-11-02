@@ -39,11 +39,11 @@
 
 ## 4. 交付物
 
-| 类别 | 清单 |
-|---|---|
+| 类别 | 清单                                                                                                   |
+| ---- | ------------------------------------------------------------------------------------------------------ |
 | 代码 | packages/core、packages/host、packages/cell-runtime、packages/cordis-adapter（原型）、apps/keel（CLI） |
-| 文档 | design/phase-1/ 三份设计稿（已定稿 ✅）；design/phase-1/report.md（阶段进度报告） |
-| 其他 | fixtures 三组；基准测量脚本与数据（账本吞吐 / 网关延迟 / Cell 冷启动，验收 A8 附带产出） |
+| 文档 | design/phase-1/ 三份设计稿（已定稿 ✅）；design/phase-1/report.md（阶段进度报告）                      |
+| 其他 | fixtures 三组；基准测量脚本与数据（账本吞吐 / 网关延迟 / Cell 冷启动，验收 A8 附带产出）               |
 
 ## 5. 验收场景（逐条可执行；结果记入 report.md）
 

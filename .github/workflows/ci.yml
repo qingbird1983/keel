@@ -1,6 +1,6 @@
-# CI —— 门禁流水线（TypeScript / pnpm workspace，与 docs/standards/04 §1、05 §1 的表格保持一致）
-# 门禁组合固定四连：格式化检查 / lint（error 级）/ 测试 / check-size（体量哨兵）。
-# 说明：命令依赖 Phase 1 建立的 workspace 脚本；仓库启用 git 并推送后本流水线才实际触发。
+# CI —— 门禁流水线（TypeScript / pnpm workspace，与 docs/standards/04 §1 表格一致）
+# 门禁组合：格式化检查 / lint（error 级，--max-warnings 0）/ 类型检查 / 构建 / 测试 / check-size（体量哨兵）。
+# 仓库启用 git 并配置远端后本流水线才实际触发；本地命令与 CI 完全一致（standards/05 §5）。
 
 name: CI
 
@@ -16,10 +16,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ── 环境准备：Node 22 + pnpm 9 ───────────────────────
+      # ── 环境准备：Node 22 + pnpm（版本由 package.json packageManager 锁定）──
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -27,11 +25,15 @@ jobs:
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 
-      # ── 门禁四连 ──────────────────────────────────────────
+      # ── 门禁（与本地 `pnpm <script>` 一致）─────────────────
       - name: fmt（格式化检查）
         run: pnpm format:check
       - name: lint（硬门槛）
-        run: pnpm lint --max-warnings 0
+        run: pnpm lint
+      - name: typecheck（strict）
+        run: pnpm typecheck
+      - name: build
+        run: pnpm build
       - name: test
         run: pnpm test
       - name: check-size（体量哨兵）

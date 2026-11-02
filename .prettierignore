@@ -1,0 +1,4 @@
+# 构建产物与依赖不参与格式化（node_modules 为 prettier 默认忽略，此处显式列出产物目录）
+dist/
+coverage/
+pnpm-lock.yaml

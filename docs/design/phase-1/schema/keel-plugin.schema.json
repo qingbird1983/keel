@@ -17,8 +17,16 @@
       "required": ["name", "version", "title", "description"],
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$", "description": "插件名，kebab-case，全局唯一" },
-        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$", "description": "自身版本，semver 精确值（禁止范围/标签漂移）；不支持 build metadata（如 +build）；如需追溯构建信息，写入插件包元数据而非 manifest" },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "插件名，kebab-case，全局唯一"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$",
+          "description": "自身版本，semver 精确值（禁止范围/标签漂移）；不支持 build metadata（如 +build）；如需追溯构建信息，写入插件包元数据而非 manifest"
+        },
         "title": { "type": "string", "maxLength": 80 },
         "description": { "type": "string", "maxLength": 400 }
       }
@@ -32,7 +40,14 @@
         "additionalProperties": false,
         "properties": {
           "cap": {
-            "enum": ["tool.provide", "model.adapter", "net.fetch", "fs.read", "fs.write", "memory.backend"],
+            "enum": [
+              "tool.provide",
+              "model.adapter",
+              "net.fetch",
+              "fs.read",
+              "fs.write",
+              "memory.backend"
+            ],
             "description": "封闭词表首版（03-plugin-manifest.md §5.2）；新增须 ADR"
           },
           "allow": {
@@ -55,8 +70,18 @@
           "maximum": 600000,
           "description": "单次工具调用超时（capability 必填，硬强制；超时→结果未知→补偿核对）"
         },
-        "memoryMbSoft": { "type": "integer", "minimum": 16, "maximum": 4096, "description": "内存软限（渐进强制）" },
-        "maxToolCallsPerRound": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "每轮工具调用数上限（软限）" }
+        "memoryMbSoft": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 4096,
+          "description": "内存软限（渐进强制）"
+        },
+        "maxToolCallsPerRound": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "description": "每轮工具调用数上限（软限）"
+        }
       }
     },
     "compensation": {
@@ -72,18 +97,32 @@
             "required": ["kind", "class", "action", "idempotency"],
             "additionalProperties": false,
             "properties": {
-              "kind": { "type": "string", "pattern": "^[a-z][a-z0-9.-]*$", "description": "效果种类标识，运行时引用键" },
-              "class": { "enum": ["reversible", "mitigable", "record-only"], "description": "补偿分级（补偿状态机 §7）" },
+              "kind": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9.-]*$",
+                "description": "效果种类标识，运行时引用键"
+              },
+              "class": {
+                "enum": ["reversible", "mitigable", "record-only"],
+                "description": "补偿分级（补偿状态机 §7）"
+              },
               "action": {
                 "type": "object",
                 "required": ["type", "ref"],
                 "additionalProperties": false,
                 "properties": {
                   "type": { "enum": ["plugin", "builtin"] },
-                  "ref": { "type": "string", "minLength": 1, "description": "补偿动作引用：插件内模块路径或内核内建名" }
+                  "ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "补偿动作引用：插件内模块路径或内核内建名"
+                  }
                 }
               },
-              "idempotency": { "enum": ["natural", "keyed", "probe-guarded"], "description": "幂等策略（补偿状态机 §6）" },
+              "idempotency": {
+                "enum": ["natural", "keyed", "probe-guarded"],
+                "description": "幂等策略（补偿状态机 §6）"
+              },
               "probe": {
                 "type": "object",
                 "required": ["ref"],
@@ -113,7 +152,11 @@
       "additionalProperties": false,
       "required": ["from", "steps"],
       "properties": {
-        "from": { "type": "string", "pattern": "^(\\^|~|>=)?\\d+\\.\\d+(\\.\\d+)?$", "description": "适用旧版本范围" },
+        "from": {
+          "type": "string",
+          "pattern": "^(\\^|~|>=)?\\d+\\.\\d+(\\.\\d+)?$",
+          "description": "适用旧版本范围"
+        },
         "steps": {
           "type": "array",
           "minItems": 1,
