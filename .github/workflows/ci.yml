@@ -13,14 +13,22 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # 双 Node 门禁（standards/05 §5）：22 = engines 下限（用户环境），26 = 当前开发机同 major。
+    # 只跑下限会放行"新版本才现形"的缺陷——账本浮空 close 在 Node 24+ 是硬错误、在 22 上静默，
+    # 就是靠这台 26 的机器才撞出来的。
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 26]
+    name: gate（Node ${{ matrix.node-version }}）
     steps:
       - uses: actions/checkout@v4
 
-      # ── 环境准备：Node 22 + pnpm（版本由 package.json packageManager 锁定）──
+      # ── 环境准备：Node（矩阵）+ pnpm（版本由 package.json packageManager 锁定）──
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node-version }}
           cache: pnpm
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
