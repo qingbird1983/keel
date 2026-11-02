@@ -1,0 +1,15 @@
+{
+  "$schema": "https://keel.dev/schema/keel-plugin.schema.json",
+  "kind": "policy",
+  "meta": {
+    "name": "budget-guard",
+    "version": "0.3.1",
+    "title": "Budget Guard",
+    "description": "预算耗尽时在给定选项中选择优雅收尾；工具调用前做审批否决预检"
+  },
+  "permissions": [],
+  "resources": {},
+  "compensation": { "templates": [] },
+  "compat": { "keelContract": "^1.0" },
+  "hooks": ["toolApproval", "budgetExhaustedChoice"]
+}

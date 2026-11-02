@@ -1,0 +1,31 @@
+{
+  "$schema": "https://keel.dev/schema/keel-plugin.schema.json",
+  "kind": "capability",
+  "meta": {
+    "name": "webfetch",
+    "version": "1.2.0",
+    "title": "Web Fetch",
+    "description": "受控网页抓取工具：仅允许白名单域，携带请求类副作用的补偿模板"
+  },
+  "permissions": [
+    { "cap": "tool.provide", "reason": "向 Cell 提供 fetch_url 工具" },
+    { "cap": "net.fetch", "allow": ["api.example.com", "*.example.org"], "reason": "仅允许示例域出站抓取" }
+  ],
+  "resources": {
+    "toolCallTimeoutMs": 15000,
+    "memoryMbSoft": 128,
+    "maxToolCallsPerRound": 20
+  },
+  "compensation": {
+    "templates": [
+      {
+        "kind": "webfetch.request-sent",
+        "class": "mitigable",
+        "action": { "type": "plugin", "ref": "compensations/cancelOrMark" },
+        "idempotency": "keyed",
+        "probe": { "ref": "probes/requestStatus" }
+      }
+    ]
+  },
+  "compat": { "keelContract": "^1.0" }
+}

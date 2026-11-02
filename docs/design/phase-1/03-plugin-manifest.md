@@ -1,0 +1,158 @@
+# 插件 Manifest 设计（keel-plugin.json）
+
+- 状态：定稿（2026-11-02 所有者确认；同日按所有者修复清单落实 A1~D3）
+- 日期：2026-11-02
+- 日期：2026-11-02
+- 关联：[01-core-api-contract](01-core-api-contract.md)（§3.3 可见面矩阵、§4.8 hook 白名单）；[02-compensation-state-machine](02-compensation-state-machine.md)（§9 效果声明）；[ADR-0003](../../adr/ADR-0003-model-gateway.md)；[ADR-0005](../../adr/ADR-0005-cell-isolation.md)；standards/06 §4；[phase-0](../../roadmap/phase-0-design-baseline.md)（验收 A5）
+
+## 1. 背景
+
+DSH 症状 V5（热插拔依赖全局注册表突变）的根源：插件进入系统没有"报关单"——能力、权限、资源、收尾责任全靠运行时行为即兴呈现。本文定义插件的声明式入口 **manifest**：装配前静态校验，校验不过 = 不存在。设计简报四要素为硬约束：**权限声明、资源需求、补偿语义、版本约束**缺一不可。
+
+设计输入（所有者已确认，2026-11-02）：
+
+- **C-D1 权限粒度**：封闭能力词表 + 每项资源限定符，未声明 = 拒绝装配（fail-closed）。
+- **C-D2 版本策略**：自身 semver 精确版本 + 宿主契约版本范围；可选 migration 迁移钩（新 Cell 内执行，失败回退）。
+- **C-D3 资源强制**：工具调用超时必填且硬强制；内存/调用数上限声明先行、强制渐进。
+
+## 2. 目标与不覆盖
+
+**覆盖**：manifest 结构与 JSON Schema；权限词表首版；补偿模板制；版本与迁移语义；装配器五步校验；热装配切换时序；两个过审示例。
+
+**不覆盖**：运行时授权执行（契约 §4.2 授权器）；补偿执行（状态机）；Cordis 存量插件的合成 manifest（Phase 2 Adapter）；观测插件的订阅语义细节（MVP 只保留 schema 位置）。
+
+## 3. 决策记录
+
+| # | 决策 | 来源 |
+|---|---|---|
+| C-D1 | 封闭能力词表（6 项首版）+ allow 限定符；词表新增须 ADR | 所有者确认 |
+| C-D2 | semver 精确版本 + `compat.keelContract` 范围 + 可选 migration | 所有者确认 |
+| C-D3 | `toolCallTimeoutMs` 必填硬强制；其余资源维度渐进 | 所有者确认 |
+| C-M1 | 补偿模板制：运行时 `EFFECT_DECLARED` 必须引用 manifest 已声明模板，临场编造即拒绝 | 本文（焊死任务 D） |
+| C-M2 | Schema = draft 2020-12；文件 `schema/keel-plugin.schema.json`；结构校验（Schema）与语义校验（装配器）分层 | 本文 |
+| C-M3 | fail-closed：任一校验失败拒绝装配；未声明的能力不存在 | standards/06 §4 |
+
+## 4. Manifest 结构总览
+
+| 节 | 必填 | 内容 | 约束来源 |
+|---|---|---|---|
+| `kind` | ✅ | `capability` \| `policy` \| `observation` | 条件分支（§5.6） |
+| `meta` | ✅ | name / version（semver 精确）/ title / description | Schema |
+| `permissions` | ✅ | 能力词表项 + allow 限定符 | C-D1；词表见 §5.2 |
+| `resources` | ✅ | toolCallTimeoutMs（capability 必填）/ memoryMbSoft / maxToolCallsPerRound；**policy/observation 必须为空对象 `{}`** | C-D3 |
+| `compensation` | ✅ | templates[]（kind → class/action/idempotency/probe） | C-M1；语义对齐状态机 §9 |
+| `compat` | ✅ | keelContract 版本范围 | C-D2 |
+| `migration` | 可选 | from 范围 + steps[]（有状态插件升级迁移） | C-D2；执行者见 §5.5 |
+| `hooks` | policy 必填 | 契约 §4.8 四 hook 的非空子集 | 契约白名单 |
+| `subscriptions` | observation 必填 | 只读事件订阅模式列表 | 契约 §3.3 |
+
+## 5. 各节详解
+
+### 5.2 permissions（C-D1）
+
+首版能力词表（**封闭**，新增须 ADR）：
+
+| cap | 语义 | allow 限定 | 补偿完备性要求 |
+|---|---|---|---|
+| `tool.provide` | 向本 Cell 私有工具表提供工具 | —（工具清单在代码内） | — |
+| `model.adapter` | 模型适配（无凭证、无直连，ADR-0003） | — | — |
+| `net.fetch` | 出站网络 | **必填**：主机名列表（精确或 `*.domain` 前缀） | templates 非空 |
+| `fs.read` | 读文件系统 | **必填**：路径 glob | — |
+| `fs.write` | 写文件系统 | **必填**：路径 glob | templates 非空 |
+| `memory.backend` | 提供私有记忆后端 | — | templates 非空 |
+
+规则：未声明 = 不存在；`net.fetch`/`fs.write`/`memory.backend`（越界能力）必须携带 ≥1 条补偿模板（语义校验，装配器执行）；每项权限建议附 `reason`（审计归因）。
+
+allow 的必填性由装配器语义校验执行，Schema 层不强制——这是结构校验与语义校验分层的设计选择（C-M2），不是 Schema 遗漏。
+
+### 5.3 resources（C-D3）
+
+- `toolCallTimeoutMs`：capability 必填；硬强制——超时即按契约 §6 `TRANSPORT/TIMEOUT` 处理（结果未知 → 补偿核对路径），并作为 ADR-0005 `killed` 强杀的计时依据。
+- `memoryMbSoft` / `maxToolCallsPerRound`：装配期静态校验 + 运行时软限（超限告警）；硬强制待 Phase 1 资源计量基建后回评（待决 §12）。
+
+数值上限一览（与 Schema 现值一致）：
+
+| 字段 | Schema 上限 | 来源 | 备注 |
+|---|---|---|---|
+| toolCallTimeoutMs | 600000 | 所有者确认（2026-11-02） | 契约 §7 管核心接口交互超时，工具执行超时按设计由 manifest 声明，无冲突；若有冲突以契约 §7 为准并回填 |
+| memoryMbSoft | 4096 | 所有者确认（2026-11-02） | 软限，硬强制待 Phase 1 资源计量 |
+| maxToolCallsPerRound | 1000 | 所有者确认（2026-11-02） | 软限 |
+
+### 5.4 compensation（C-M1，焊点）
+
+- 模板字段与状态机 §9 效果声明一一对应：`kind`（效果种类）、`class`（三级分级）、`action`（plugin 内补偿动作引用或 builtin）、`idempotency`（natural/keyed/probe-guarded）、可选 `probe`。
+- **运行时约束**：Cell 发起 `EFFECT_DECLARED` 时 `effectKind` 必须命中 manifest 模板——未声明的效果种类被 Core 拒绝，副作用无法发生。补偿因此**不可能被临场编造或省略**。
+- `record-only` 申报显式入装配记录与账本（状态机 §7：申报压力设计）。
+
+### 5.5 compat + migration（C-D2）
+
+- `compat.keelContract`：semver 范围（如 `^1.0`），必须包含当前 Core 契约版本，否则拒绝装配——宿主升级与插件兼容显式协商，不靠漂移。
+- `migration`（可选，有状态插件专用）：`{ from: "<semver-range>", steps: [{ to, action: { type: "hook", ref } }] }`。
+- 迁移执行者（回应设计简报遗留 S6）：**Supervisor 在新 Cell 内、快照挂载后首轮前**调用迁移钩；入参 = 旧版本状态快照，出参 = 新版本状态。迁移失败 → 新 Cell 丢弃、旧作用域继续服务（回退，V5）。无 `migration` 节 = 插件声明跨版本无状态，升级时快照不迁移（结构不兼容直接拒绝装配）。
+
+迁移钩由 Supervisor 经 Core 结构化请求通道调用，在新 Cell 内、快照挂载后首轮前执行；执行结果入账本。迁移钩不直接访问旧 Cell 或外部网络，仅通过 Cell 内声明的能力接口操作。
+
+### 5.6 kind 条件分支（Schema allOf/if-then）
+
+- capability：`resources.toolCallTimeoutMs` 必填；禁 `hooks`；
+- policy：`hooks` 必填非空（白名单子集）；`permissions` 必须为空数组（策略插件只插话，不持能力）；
+- observation：`subscriptions` 必填非空；`permissions` 必须为空数组（只读，契约 §3.3）。
+
+## 6. 装配与校验流程（fail-closed，C-M3）
+
+装配器五步（任一失败 = 拒绝装配，写 `SCHED/MANIFEST-INVALID`）：
+
+1. **结构校验**：JSON Schema（draft 2020-12）；
+2. **权限交叉校验**：越界能力（net.fetch/fs.write/memory.backend）allow 必填、补偿模板完备（§5.2 表）；
+3. **资源校验**：toolCallTimeoutMs 在契约 §7 上限内；
+4. **版本校验**：keelContract 范围含当前契约版本；升级场景另验 migration.from 匹配已装版本；
+5. **记录**：装配清单入账本（权限、补偿 class、record-only 标记）——审计基线。
+
+**热装配切换时序（V5 的正面表达）**：
+
+```text
+新版本 manifest → 五步校验 → 新 Cell spawn（IsolationProvider，ADR-0005）
+  → context.alloc 新 scope → 迁移钩（如有，新 Cell 内）→ 原子作用域切换
+  → 旧 Cell drain → reaped
+任一步失败 → 新 Cell 丢弃，旧作用域不动（回退）
+全程无全局注册表突变——被切换的是作用域绑定，账本逐事件留痕
+```
+
+## 7. Schema 文件与校验
+
+- 位置：`docs/design/phase-1/schema/keel-plugin.schema.json`（draft 2020-12；`$id` = `https://keel.dev/schema/keel-plugin.schema.json`——占位标识 URI，不要求可解析；两示例 `$schema` 与之一致）；
+- 示例：`schema/examples/capability-webfetch.json`、`schema/examples/policy-budget-guard.json`（验收 A5）；
+- CI 义务（Phase 1 落地）：两示例必须过 Schema（示例即 fixtures，防 Schema 与文档漂移）；Schema 变更 = 契约语义级变更，走注记修订。
+
+## 8. 验收（对应 phase-0 A5、V5）
+
+- [ ] **A5 结构**：两个示例通过 `keel-plugin.schema.json` 校验；schema 含权限/资源/补偿/版本四要素必填约束
+- [ ] **A5 语义（负路径）**：缺 `net.fetch` allow、越界能力零补偿模板、policy 带 permissions、hook 名超出白名单——四类畸形 manifest 均被拒
+- [ ] **V5 升级回退**：migration 钩注入失败 → 新 Cell 丢弃、旧作用域继续服务、账本无全局突变痕迹（仅装配尝试事件）
+- [ ] **C-M1 焊点**：运行时 `EFFECT_DECLARED` 引用未声明 effectKind → 拒绝且不留副作用
+
+## 9. 自检清单（五大不变量对照）
+
+- **I1**：manifest 是声明不是权力——hooks ∈ 契约白名单（§5.6）；运行时授权仍由授权器执行（§2）；
+- **I2**：toolCallTimeoutMs 硬强制 + ADR-0005 killed 语义 = 单插件失控有界（§5.3）；
+- **I3**：版本精确 + 契约范围 → 可复现装配；迁移失败回退，快照由 Host 持有（§5.5，D3 链路）；
+- **I4**：越界能力强制补偿模板 + 运行时模板引用校验（C-M1）——补偿不可能被省略；
+- **I5**：无全局注册表突变——热装配 = 作用域切换（§6）；observation 只读订阅（§5.6）。
+
+## 10. 风险
+
+| 风险 | 预案 |
+|---|---|
+| 词表膨胀压力 | 封闭词表 + 新增须 ADR（C-D1）；拒绝理由归因为装配审计事件 |
+| Schema 与文档漂移 | 示例即 fixtures 入 CI（§7） |
+| Cordis 存量插件无 manifest | Phase 2 Adapter 合成 manifest（权限从运行观察收敛）；登记 Phase 2 待决 |
+| 迁移钩成攻击面 | 迁移代码运行在新 Cell（隔离内）；失败即回退；入参仅快照 |
+
+## 11. 待决问题
+
+| 问题 | 决定时限 |
+|---|---|
+| `allow` 模式语法细节（fs glob 方言、域名通配边界） | Phase 1 实现期定稿并补测试 |
+| memoryMbSoft / maxToolCallsPerRound 硬强制时点 | Phase 1 资源计量基建后回评 |
+| migration 多步链（跨多版本升级）是否 MVP | MVP 单步 from→current；多步登记 backlog |
+| 三个资源上限数值（600000 / 4096 / 1000） | ✅ 已确认（2026-11-02）：维持现值 |

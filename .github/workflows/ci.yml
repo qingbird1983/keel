@@ -1,0 +1,38 @@
+# CI —— 门禁流水线（TypeScript / pnpm workspace，与 docs/standards/04 §1、05 §1 的表格保持一致）
+# 门禁组合固定四连：格式化检查 / lint（error 级）/ 测试 / check-size（体量哨兵）。
+# 说明：命令依赖 Phase 1 建立的 workspace 脚本；仓库启用 git 并推送后本流水线才实际触发。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── 环境准备：Node 22 + pnpm 9 ───────────────────────
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      # ── 门禁四连 ──────────────────────────────────────────
+      - name: fmt（格式化检查）
+        run: pnpm format:check
+      - name: lint（硬门槛）
+        run: pnpm lint --max-warnings 0
+      - name: test
+        run: pnpm test
+      - name: check-size（体量哨兵）
+        run: bash scripts/check-size

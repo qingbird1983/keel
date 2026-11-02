@@ -1,0 +1,80 @@
+# ===== 通用（任何项目都建议保留）=====
+
+# 环境变量与密钥——永不入库（standards/06）
+.env
+.env.*
+!.env.example
+
+# 操作系统杂项
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 编辑器 / IDE（可共享的配置另用 ! 排除）
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+
+# 日志与临时文件
+*.log
+tmp/
+.cache/
+
+# ===== 按语言启用（删除注释符号即可）=====
+
+# --- Node / TypeScript ---
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.npm/
+.pnpm-store/
+
+# --- Python ---
+# __pycache__/
+# *.py[cod]
+# .venv/
+# venv/
+# .pytest_cache/
+# .mypy_cache/
+# .ruff_cache/
+# *.egg-info/
+# dist/
+
+# --- Rust ---
+# target/
+# **/*.rs.bk
+
+# --- Go ---
+# bin/
+# *.exe
+# *.test
+# *.out
+
+# --- Java / Kotlin ---
+# target/          (Maven)
+# build/           (Gradle)
+# *.class
+# .gradle/
+
+# --- C / C++ ---
+# build/
+# out/
+# *.o
+# *.obj
+# *.exe
+# *.dll
+# *.so
+# *.dylib
+
+# ===== 项目约定 =====
+
+# 所有者本地输入区（参考/建议/简报）——整目录永不推送（规则见 briefs/README.md）
+briefs/
+
+# 大文件二进制资产须先写 ADR 方可入库（standards/08）
+# 构建产物目录一律不入库（名称按项目布局回填，如 target/、dist/、out/）

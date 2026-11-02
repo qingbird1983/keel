@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://keel.dev/schema/keel-plugin.schema.json",
+  "title": "Keel Plugin Manifest",
+  "description": "Keel 插件清单：能力/策略/观测三类插件的声明式装配入口。结构校验用本 Schema；语义校验（补偿完备性、版本协商）由 Host 装配器执行（见 03-plugin-manifest.md §6）。",
+  "type": "object",
+  "required": ["kind", "meta", "permissions", "resources", "compensation", "compat"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "kind": {
+      "enum": ["capability", "policy", "observation"],
+      "description": "插件类型：能力（Cell 内运行）/ 策略（受控 hook）/ 观测（只读账本）"
+    },
+    "meta": {
+      "type": "object",
+      "required": ["name", "version", "title", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$", "description": "插件名，kebab-case，全局唯一" },
+        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$", "description": "自身版本，semver 精确值（禁止范围/标签漂移）；不支持 build metadata（如 +build）；如需追溯构建信息，写入插件包元数据而非 manifest" },
+        "title": { "type": "string", "maxLength": 80 },
+        "description": { "type": "string", "maxLength": 400 }
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "description": "能力声明：未列出 = 不存在（fail-closed）。policy/observation 必须为空数组。",
+      "items": {
+        "type": "object",
+        "required": ["cap"],
+        "additionalProperties": false,
+        "properties": {
+          "cap": {
+            "enum": ["tool.provide", "model.adapter", "net.fetch", "fs.read", "fs.write", "memory.backend"],
+            "description": "封闭词表首版（03-plugin-manifest.md §5.2）；新增须 ADR"
+          },
+          "allow": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 },
+            "description": "资源限定符：net.fetch=主机名（精确或 *.domain 前缀）；fs.*=路径 glob。越界能力必填（语义校验由装配器执行）"
+          },
+          "reason": { "type": "string", "maxLength": 200, "description": "申请理由（审计归因）" }
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "toolCallTimeoutMs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 600000,
+          "description": "单次工具调用超时（capability 必填，硬强制；超时→结果未知→补偿核对）"
+        },
+        "memoryMbSoft": { "type": "integer", "minimum": 16, "maximum": 4096, "description": "内存软限（渐进强制）" },
+        "maxToolCallsPerRound": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "每轮工具调用数上限（软限）" }
+      }
+    },
+    "compensation": {
+      "type": "object",
+      "required": ["templates"],
+      "additionalProperties": false,
+      "properties": {
+        "templates": {
+          "type": "array",
+          "description": "补偿模板池：运行时 EFFECT_DECLARED 的 effectKind 必须命中其一（C-M1 焊点）。越界能力的插件必须非空（语义校验由装配器执行）。",
+          "items": {
+            "type": "object",
+            "required": ["kind", "class", "action", "idempotency"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": { "type": "string", "pattern": "^[a-z][a-z0-9.-]*$", "description": "效果种类标识，运行时引用键" },
+              "class": { "enum": ["reversible", "mitigable", "record-only"], "description": "补偿分级（补偿状态机 §7）" },
+              "action": {
+                "type": "object",
+                "required": ["type", "ref"],
+                "additionalProperties": false,
+                "properties": {
+                  "type": { "enum": ["plugin", "builtin"] },
+                  "ref": { "type": "string", "minLength": 1, "description": "补偿动作引用：插件内模块路径或内核内建名" }
+                }
+              },
+              "idempotency": { "enum": ["natural", "keyed", "probe-guarded"], "description": "幂等策略（补偿状态机 §6）" },
+              "probe": {
+                "type": "object",
+                "required": ["ref"],
+                "additionalProperties": false,
+                "properties": { "ref": { "type": "string", "minLength": 1 } },
+                "description": "可选核验动作（结果未知时判定是否已发生）"
+              }
+            }
+          }
+        }
+      }
+    },
+    "compat": {
+      "type": "object",
+      "required": ["keelContract"],
+      "additionalProperties": false,
+      "properties": {
+        "keelContract": {
+          "type": "string",
+          "pattern": "^(\\^|~|>=)?\\d+\\.\\d+(\\.\\d+)?$",
+          "description": "宿主契约版本范围（如 ^1.0）；必须包含当前 Core 契约版本，否则拒绝装配"
+        }
+      }
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "steps"],
+      "properties": {
+        "from": { "type": "string", "pattern": "^(\\^|~|>=)?\\d+\\.\\d+(\\.\\d+)?$", "description": "适用旧版本范围" },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["to", "action"],
+            "additionalProperties": false,
+            "properties": {
+              "to": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+              "action": {
+                "type": "object",
+                "required": ["type", "ref"],
+                "additionalProperties": false,
+                "properties": {
+                  "type": { "enum": ["hook"] },
+                  "ref": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        }
+      },
+      "description": "可选：有状态插件升级迁移。Supervisor 在新 Cell 内、快照挂载后首轮前执行；失败回退旧作用域。无本节 = 声明跨版本无状态"
+    },
+    "hooks": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "enum": ["toolApproval", "stopAdvice", "retryAdvice", "budgetExhaustedChoice"] },
+      "description": "policy 专用：订阅的受控 hook（契约 §4.8 白名单子集，非空）"
+    },
+    "subscriptions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "observation 专用：只读事件订阅模式列表"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "capability" } } },
+      "then": {
+        "properties": {
+          "resources": { "required": ["toolCallTimeoutMs"] },
+          "hooks": { "maxItems": 0 },
+          "subscriptions": { "maxItems": 0 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "policy" } } },
+      "then": {
+        "required": ["hooks"],
+        "properties": {
+          "permissions": { "maxItems": 0 },
+          "subscriptions": { "maxItems": 0 },
+          "resources": { "maxProperties": 0 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "observation" } } },
+      "then": {
+        "required": ["subscriptions"],
+        "properties": {
+          "permissions": { "maxItems": 0 },
+          "hooks": { "maxItems": 0 },
+          "resources": { "maxProperties": 0 },
+          "compensation": { "properties": { "templates": { "maxItems": 0 } } }
+        }
+      }
+    }
+  ]
+}
