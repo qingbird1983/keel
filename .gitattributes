@@ -1,0 +1,8 @@
+# 行尾规范：仓库与工作区统一 LF（配合 .editorconfig 与 prettier endOfLine=lf；
+# 根治 autocrlf 混用导致的假性全库改动。2026-11-02 修订 standards/01 §1 入清单）
+* text=auto eol=lf
+
+# 二进制类型显式声明（新增类型随用随加）
+*.png binary
+*.jpg binary
+*.ico binary
