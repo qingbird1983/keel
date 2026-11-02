@@ -1,6 +1,6 @@
 # Keel Core API 契约
 
-- 状态：定稿（2026-11-02 所有者确认；同日修订三处：① ADR-0005 定稿，回填 §7 隔离敏感超时；② 任务 D 成稿，§5 补充三类补偿事件；③ 所有者评审勘误与澄清——§4.3 configure 边界、§4.5 恢复补偿作用域、§6 错误码拆分；切片③实现期注记两处：§4.1 ④⑤、§5 ASSEMBLY_RECORDED；**2026-11-03 Phase 2 切片①追加：§3.3 与 §4.6 增 `tool.register`/`tool.remove` 两个 Cell→Core op，依据 [ADR-0010](../../adr/ADR-0010-runtime-tool-registration-channel.md)**）
+- 状态：定稿（2026-11-02 所有者确认；同日修订三处：① ADR-0005 定稿，回填 §7 隔离敏感超时；② 任务 D 成稿，§5 补充三类补偿事件；③ 所有者评审勘误与澄清——§4.3 configure 边界、§4.5 恢复补偿作用域、§6 错误码拆分；切片③实现期注记两处：§4.1 ④⑤、§5 ASSEMBLY_RECORDED；**2026-11-03 Phase 2 切片①追加：§3.3 与 §4.6 增 `tool.register`/`tool.remove` 两个 Cell→Core op，依据 [ADR-0010](../../adr/ADR-0010-runtime-tool-registration-channel.md)**；**2026-11-03 Phase 2 切片②追加：§3.1 增 Cell 装载门、§7 增就绪探测口径，依据 [ADR-0011](../../adr/ADR-0011-cell-load-gate.md)**）
 - 日期：2026-11-02
 - 关联：[architecture/01](../../architecture/01-keel-overview.md)；[ADR-0001](../../adr/ADR-0001-implementation-stack.md) ~ [ADR-0005](../../adr/ADR-0005-cell-isolation.md)；[phase-0](../../roadmap/phase-0-design-baseline.md)（验收 A2/A3）
 
@@ -28,6 +28,8 @@ DSH 三类症状直接源于控制面缺少硬契约：**V6** Agent Loop 被插�
 - 请求：`{"id":"req-...","op":"auth.check","params":{...},"timeoutMs":50}`；响应：`{"id":"req-...","ok":true,"result":{...}}` 或 `{"id":"req-...","ok":false,"error":{"code":"AUTH/DENIED","message":"...","detail":{}}}`。
 - 事件（单向通知）：`{"ev":"ROUND_STARTED","seq":123,...}`——即账本事件（§5）按订阅分发；订阅方（观测插件、Supervisor）不得反向写。
 - 一切请求必须携带 `timeoutMs`（缺省用 §7 默认表）；`id` 在 Run 内唯一，幂等重试凭 `id` 去重。
+
+> 实现期细化（2026-11-03 Phase 2 切片②，[ADR-0011](../../adr/ADR-0011-cell-load-gate.md)）：**Cell 装载门**——插件装载完成之前，本侧对端请求排队而**不予应答**（帧照常读取，不丢不报错），装载完成即开闸。默认入口在装载末尾开闸；承接层入口在旧插件 activation 完成之后开闸，于是"第一轮决策看见空工具表"这条路被结构性关掉。开闸凭据不新增接口：宿主以一次既有 Host→Cell 查询（`cell.snapshot`，§4.5 的 D3 快照面）得到应答作为"此舱可用"的唯一事实（超时口径见 §7）。异常路径不悬挂：activation 抛错 = 舱非零退出（§4.1 注记④ + ADR-0005 的崩溃分类），通道关闭使在途请求按帧规则回落。
 
 ### 3.2 ID 与作用域模型
 
@@ -189,15 +191,16 @@ Cell 侧适配器无凭证、无直连网络能力；网关故障 = 发起 Cell 
 
 ## 7. 超时与重试基线
 
-| 交互                                          | 默认超时                                     | 重试                                       |
-| --------------------------------------------- | -------------------------------------------- | ------------------------------------------ |
-| `auth.check` / `budget.*`                     | 50ms                                         | 幂等重试 ≤2 次，退避 20ms 起               |
-| `tool.discover` / `context.*` / `run.status`  | 100~200ms                                    | 同上                                       |
-| hook 四件套                                   | 200ms                                        | 不重试（fallback=默认策略）                |
-| `run.start`                                   | 5s（含 Cell 进程冷启动，ADR-0005）           | 幂等重试安全；容器后端启用时重估并修订本表 |
-| `model.invoke` 非流式 / 流式首字节 / 流式总长 | 120s / 30s / 300s                            | 幂等（同 id 不重复计费）/ 不重试           |
-| `recover.execute`                             | 30s（含 Cell 进程重建 + 快照挂载，ADR-0005） | 幂等                                       |
-| `ledger.append`（内部）                       | 缓冲写，<10ms                                | CHECKPOINT 强制 flush                      |
+| 交互                                          | 默认超时                                                         | 重试                                                    |
+| --------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------- |
+| `auth.check` / `budget.*`                     | 50ms                                                             | 幂等重试 ≤2 次，退避 20ms 起                            |
+| `tool.discover` / `context.*` / `run.status`  | 100~200ms                                                        | 同上                                                    |
+| hook 四件套                                   | 200ms                                                            | 不重试（fallback=默认策略）                             |
+| `run.start`                                   | 5s（含 Cell 进程冷启动，ADR-0005）                               | 幂等重试安全；容器后端启用时重估并修订本表              |
+| Cell 就绪探测 `cell.snapshot`（切片②追加）    | 5s（与 `run.start` 同口径：含进程起飞 + 插件装载，门未开则排队） | **不重试**——超时/通道断即拒绝装配并 dispose（ADR-0011） |
+| `model.invoke` 非流式 / 流式首字节 / 流式总长 | 120s / 30s / 300s                                                | 幂等（同 id 不重复计费）/ 不重试                        |
+| `recover.execute`                             | 30s（含 Cell 进程重建 + 快照挂载，ADR-0005）                     | 幂等                                                    |
+| `ledger.append`（内部）                       | 缓冲写，<10ms                                                    | CHECKPOINT 强制 flush                                   |
 
 重试总闸：hook③ 的 retry 建议被 Core 钳制（≤3 次、退避 ≤30s）；一切重试与结果入账本。
 
