@@ -48,11 +48,11 @@
 
 ## 3. 开工前置条件
 
-- [ ] 本合同 + 其引用设计稿全部定稿（standards/03：architecture/01、契约、状态机、manifest 均已定稿 ✅；本合同待确认）
+- [x] 本合同 + 其引用设计稿全部定稿（standards/03：architecture/01、契约、状态机、manifest 均已定稿 ✅；本合同 2026-11-02 所有者确认定稿）
 
-- [ ] 工具链脚手架落地（pnpm workspace + 门禁四连可跑）
+- [x] 工具链脚手架落地（pnpm workspace + 门禁四连可跑；切片①首事达成）
 
-- [ ] git 已启用、LICENSE 已定（standards/02 全文生效；两项在所有者待决策表——不阻塞设计冻结，阻塞首次提交与 phase-1.start tag）
+- [x] git 已启用、LICENSE 已定（standards/02 全文生效；Phase 0 收官轮落盘 MIT 并启用 git）
 
 ## 4. 交付物
 
@@ -64,23 +64,16 @@
 
 ## 5. 验收场景（逐条可执行；结果记入 report.md）
 
-> 标注【一票否决】的场景未通过时不得打 `phase-1.end` tag。
+> 标注【一票否决】的场景未通过时不得打 `phase-1.end` tag。**执行结果与证据：[design/phase-1/report.md](../design/phase-1/report.md)（2026-11-02 阶段验收轮，八条全过）。**
 
-- [ ] A1【一票否决】（V1）20 个会话并发运行动态增删工具：各 scope 工具表互不可见，缓存命中率稳定，无跨会话污染
-
-- [ ] A2【一票否决】（V2）注入抛未捕获异常的插件：仅该 Cell 失败（RUN\_FAILED + crash 原因码），其他会话不受影响
-
-- [ ] A3【一票否决】（V3）长程任务中途 `kill -9` Cell 进程：`recover.plan` 给出最近一致点与未决补偿清单，`recover.execute` 后以新 runId 延续
-
-- [ ] A4【一票否决】（V4）工具调用失败触发回滚：全部已发生效果有对应 COMPENSATION\_EXECUTED（或有意识豁免记录），补偿三路径（自身失败升级 / 幂等重入 / record-only 降级）实测通过
-
-- [ ] A5（V5）热装配升级：manifest 新版本 → 新 Cell 验证 → 原子切换；注入迁移钩失败 → 回退旧作用域，全程无全局注册表突变痕迹
-
-- [ ] A6【一票否决】（V6）审计归因：任选一个 Run，从账本重放完整决策序列，含每次 hook 介入与 AUTH\_DENIED 留痕
-
-- [ ] A7 预算权威记账：模型调用经网关预扣/实结、同 id 重放不重复计费；Cell 内直连路径被授权器拒绝（fail-closed 实测）
-
-- [ ] A8 质量门禁：契约 §9 五个契约级测试点全绿；门禁四连（fmt/lint/test/check-size）通过；三项基准数据入 report.md
+- [x] A1【一票否决】（V1）20 个会话并发运行动态增删工具：各 scope 工具表互不可见，缓存命中率稳定，无跨会话污染
+- [x] A2【一票否决】（V2）注入抛未捕获异常的插件：仅该 Cell 失败（RUN\_FAILED + crash 原因码），其他会话不受影响
+- [x] A3【一票否决】（V3）长程任务中途 `kill -9` Cell 进程：`recover.plan` 给出最近一致点与未决补偿清单，`recover.execute` 后以新 runId 延续
+- [x] A4【一票否决】（V4）工具调用失败触发回滚：全部已发生效果有对应 COMPENSATION\_EXECUTED（或有意识豁免记录），补偿三路径（自身失败升级 / 幂等重入 / record-only 降级）实测通过
+- [x] A5（V5）热装配升级：manifest 新版本 → 新 Cell 验证 → 原子切换；注入迁移钩失败 → 回退旧作用域，全程无全局注册表突变痕迹
+- [x] A6【一票否决】（V6）审计归因：任选一个 Run，从账本重放完整决策序列，含每次 hook 介入与 AUTH\_DENIED 留痕
+- [x] A7 预算权威记账：模型调用经网关预扣/实结、同 id 重放不重复计费；Cell 内直连路径被授权器拒绝（fail-closed 实测）
+- [x] A8 质量门禁：契约 §9 五个契约级测试点全绿；门禁四连（fmt/lint/test/check-size）通过；三项基准数据入 report.md
 
 ## 6. 依赖与风险
 

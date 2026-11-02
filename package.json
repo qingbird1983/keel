@@ -20,6 +20,7 @@
   "devDependencies": {
     "@keel/cell-runtime": "workspace:*",
     "@keel/core": "workspace:*",
+    "@keel/cordis-adapter": "workspace:*",
     "@keel/host": "workspace:*",
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.6",

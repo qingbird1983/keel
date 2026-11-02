@@ -20,7 +20,7 @@ Cordis 存量插件生态的兼容适配原型：验证"旧插件不改代码迁
 
 ## 当前状态
 
-🚧 **Phase 1 脚手架占位**——接口原型随纵向切片落地。施工顺序见 [docs/roadmap/phase-1-mvp.md](../../docs/roadmap/phase-1-mvp.md)。
+✅ **接口级原型已落地（2026-11-02，Phase 1 阶段验收轮）**——`createCordisCtx({ctx, ref})` 提供 `tools.register/remove/list`，映射不到的旧语义显式报错。口径与有损边界清单见 [design/phase-1/05](../../docs/design/phase-1/05-cordis-adapter-prototype.md)；全量语义承接仍在 Phase 2（须先产出显式迁移边界文档）。
 
 ## 目录与开发
 

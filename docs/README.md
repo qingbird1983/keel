@@ -50,6 +50,9 @@ docs/
 | design/phase-1/01-core-api-contract          | 定稿 | Core API 契约：可见面矩阵、接口/事件表、错误码、超时重试、授权×预算时序、hook 白名单                           |
 | design/phase-1/02-compensation-state-machine | 定稿 | 补偿事务状态机：效果生命周期、触发与编排、幂等契约、三级分级、升级与豁免                                       |
 | design/phase-1/03-plugin-manifest            | 定稿 | 插件 manifest 设计：四要素、能力词表、补偿模板制、版本迁移、装配五步校验（附 schema/ 下 JSON Schema 与两示例） |
+| design/phase-1/04-cli-benchmarks-fixtures    | 定稿 | 切片⑤实现口径：CLI 七命令面、A8 四项基准测量口径、fixtures 三组收全清单与实现期定案                            |
+| design/phase-1/05-cordis-adapter-prototype   | 定稿 | Cordis Adapter 原型口径：旧 API → scope 注册的最小映射、三条规则、有损边界显式报错清单                         |
+| design/phase-1/report                        | 定稿 | Phase 1 阶段进度报告：A1~A8 逐条验收结果与证据、A8 基准数据、契约级测试点核对、体量核对与规范复查              |
 | adr/ADR-0005-cell-isolation                  | 定稿 | Cell 隔离选型：MVP 进程级，演进期 IsolationProvider 抽象 + 容器后端                                            |
 | adr/ADR-0006-mit-license                     | 定稿 | 许可证选用 MIT（版权主体占位可改）                                                                             |
 | design/phase-0/report                        | 定稿 | Phase 0 阶段进度报告：验收 A1~A7 通过、体量与规范复查                                                          |
