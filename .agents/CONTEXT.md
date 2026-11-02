@@ -14,6 +14,7 @@
 ## 上一轮完成了什么（3~5 条）
 
 - 仓库结构调整：12 个测试文件迁至 `packages/*/test/`（git mv 保留历史），root vitest include 同步；构建产物不再含测试代码
+- 五包 README 落地（core 组件表/不变量落点，占位包如实标注状态与预计切片）；包级不设 CHANGELOG（进展流水唯一在根 CHANGELOG）
 
 - scheduler.ts：轮循环固定序列（ROUND_STARTED→读上下文→DECISION+hook②→执行→CHECKPOINT→ROUND_ENDED）；耗尽三档处置（hard-stop→RUN_FAILED / graceful→RUN_HALTED / policy→hook④）；hook③ 重试钳制 ≤3 次、退避 ≤30s；cancel 语义（停派发新轮，在途轮收束）
 - context.ts：scope 分区 + tool.discover；TOOL_SCHEMA_CHANGED 经 scope 级挂起日志 + 各 run 游标传播（同 scope 多 run 不丢事件）；换页原语顺延（契约已注记）
