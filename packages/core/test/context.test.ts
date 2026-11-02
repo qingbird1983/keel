@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { ContextManager } from "./context.js";
-import { KeelError } from "./errors.js";
-import type { RunRef } from "./events.js";
+import { ContextManager } from "../src/context.js";
+import { KeelError } from "../src/errors.js";
+import type { RunRef } from "../src/events.js";
 
 const scopeA = { agentId: "agent-1", sessionId: "sess-a" };
 const scopeB = { agentId: "agent-1", sessionId: "sess-b" };

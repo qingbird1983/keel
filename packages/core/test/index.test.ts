@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import * as mod from "./index.js";
+import * as mod from "../src/index.js";
 
 describe("@keel/core", () => {
   it("公共出口暴露核心组件与契约常量", () => {

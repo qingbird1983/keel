@@ -34,7 +34,7 @@ tests/        集成测试（单元测试随源码）
 **预设 B —— 单仓多模块**（monorepo：一个仓多种语言或多个包）：
 
 ```
-packages/     各库/模块（每包自带清单与测试）
+packages/     各库/模块（每包自带清单与测试；包内 src/ 实现 + test/ 单元测试，构建只编 src/，见 standards/05 §1）
 apps/         可执行应用（薄壳，业务逻辑下沉 packages/）
 ```
 

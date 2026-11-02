@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Ledger } from "./ledger.js";
+import { Ledger } from "../src/ledger.js";
 
 let dir: string;
 let tick = 0;

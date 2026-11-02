@@ -2,8 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Authorizer, type AuthPolicyInput } from "./authorizer.js";
-import { Ledger } from "./ledger.js";
+import { Authorizer, type AuthPolicyInput } from "../src/authorizer.js";
+import { Ledger } from "../src/ledger.js";
 
 let dir: string;
 const ledgers: Ledger[] = [];

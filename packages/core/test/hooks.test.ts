@@ -2,9 +2,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { HookBus } from "./hooks.js";
-import { Ledger } from "./ledger.js";
-import type { RunRef } from "./events.js";
+import { HookBus } from "../src/hooks.js";
+import { Ledger } from "../src/ledger.js";
+import type { RunRef } from "../src/events.js";
 
 let dir: string;
 const ledgers: Ledger[] = [];
