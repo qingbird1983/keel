@@ -41,6 +41,8 @@ class FakeProvider implements IsolationProvider {
   readonly spawned: {
     handle: CellHandle | null;
     process: FakeCellProcess;
+    /** 实际用于 spawn 的入口（断言 per-spawn 覆盖形状用）。 */
+    entryPath: string;
   }[] = [];
 
   spawn(spec: SpawnSpec): FakeCellProcess {
@@ -56,7 +58,7 @@ class FakeProvider implements IsolationProvider {
       });
     }
     const proc = new FakeCellProcess({ input: cellToHost, output: hostToCell });
-    this.spawned.push({ handle, process: proc });
+    this.spawned.push({ handle, process: proc, entryPath: spec.entryPath });
     return proc;
   }
 }
@@ -264,5 +266,43 @@ describe("Supervisor：效果结算与快照索取（切片④）", () => {
     await expect(cell.pullSnapshot()).resolves.toBeNull();
     provider.spawned[0].handle!.setSnapshotProvider(() => ({ counters: 3 }));
     await expect(cell.pullSnapshot()).resolves.toEqual({ counters: 3 });
+  });
+});
+
+describe("Supervisor：per-spawn cellEntry 覆盖（切片① seam，ADR-0010 决策 8）", () => {
+  function sup() {
+    const provider = new FakeProvider();
+    return {
+      provider,
+      supervisor: new CellSupervisor({ provider, cellEntryPath: "/default/cell-main.js" }),
+    };
+  }
+
+  it("缺省走 supervisor 的入口；给了 cellEntry 就用它——bootstrap 载荷形状不变", () => {
+    const { provider, supervisor } = sup();
+    supervisor.spawnCell({ manifest: manifest(), pluginPath: "ok-plugin.mjs" });
+    supervisor.spawnCell({
+      manifest: manifest(),
+      pluginPath: "legacy.cjs",
+      cellEntry: "/adapter/dist/cell-entry.js",
+    });
+    expect(provider.spawned[0].entryPath).toBe("/default/cell-main.js");
+    expect(provider.spawned[1].entryPath).toBe("/adapter/dist/cell-entry.js");
+    // 入口只决定舱内装载形状，生命周期管理与默认入口完全同源
+    expect(provider.spawned[1].handle).not.toBeNull();
+  });
+
+  it("同一 supervisor 混装两类插件：入口不同不影响彼此生命周期（崩溃只伤本舱）", async () => {
+    const { provider, supervisor } = sup();
+    const fresh = supervisor.spawnCell({ manifest: manifest(), pluginPath: "ok-plugin.mjs" });
+    const legacy = supervisor.spawnCell({
+      manifest: manifest(),
+      pluginPath: "legacy.cjs",
+      cellEntry: "/adapter/dist/cell-entry.js",
+    });
+    expect(legacy.phase).toBe("ready");
+    provider.spawned[0].process.crash(1);
+    expect(fresh.phase).toBe("exited");
+    expect(legacy.phase).toBe("ready"); // 换入口不改变隔离语义
   });
 });

@@ -66,6 +66,10 @@ export function serveCellChannel(
         });
       case "tool.discover":
         return deps.ctx.discover(binding.ref);
+      case "tool.register":
+        return registerTool(binding, p, deps);
+      case "tool.remove":
+        return removeTool(binding, p, deps);
       case "ledger.read": {
         // §3.3：仅本 run——filter.runId 强制覆盖，Cell 传入值一律忽略
         const f = (p.filter ?? {}) as Record<string, unknown>;
@@ -88,6 +92,53 @@ export function serveCellChannel(
         throw new KeelError("TRANSPORT/BADFRAME", `op not visible to Cell: ${op}`, { op });
     }
   });
+}
+
+/**
+ * 运行期注册（契约 §4.6 切片①，ADR-0010 决策 1/4/6）：
+ * **先裁决后写状态**——未声明 `tool.provide` 即拒并落 `AUTH_DENIED`，两半都不写；
+ * 版本号由内核按本 scope 现有条目指派，Cell 提交的任何版本号一律忽略（单一事实源）；
+ * 载荷只取 name/schema，**handler 永不进分区**（执行体留在 Cell 私有表）。
+ */
+async function registerTool(
+  binding: CellChannelBinding,
+  p: Record<string, unknown>,
+  deps: CellServerDeps,
+): Promise<{ name: string; schemaVersion: number }> {
+  const name = str(p, "name");
+  const decision = await deps.auth.check(binding.ref, binding.subject, "tool.register", name);
+  if (!decision.allowed) {
+    throw new KeelError("AUTH/DENIED", `tool.register denied: ${decision.reason ?? name}`, {
+      name,
+      action: "tool.register",
+    });
+  }
+  const current = deps.ctx.discover(binding.ref).find((t) => t.name === name);
+  deps.ctx.registerTool(binding.scope, {
+    name,
+    schemaVersion: (current?.schemaVersion ?? 0) + 1,
+    schema: p.schema ?? null,
+  });
+  return { name, schemaVersion: (current?.schemaVersion ?? 0) + 1 };
+}
+
+/** 撤名（同上先裁决后写）；返回是否真的存在过——旧框架据此判断是否报错，不静默给 false。 */
+async function removeTool(
+  binding: CellChannelBinding,
+  p: Record<string, unknown>,
+  deps: CellServerDeps,
+): Promise<boolean> {
+  const name = str(p, "name");
+  const decision = await deps.auth.check(binding.ref, binding.subject, "tool.remove", name);
+  if (!decision.allowed) {
+    throw new KeelError("AUTH/DENIED", `tool.remove denied: ${decision.reason ?? name}`, {
+      name,
+      action: "tool.remove",
+    });
+  }
+  const existed = deps.ctx.discover(binding.ref).some((t) => t.name === name);
+  if (existed) deps.ctx.removeTool(binding.scope, name);
+  return existed;
 }
 
 /** C-M1 焊点：effectKind 命中模板才落 EFFECT_DECLARED（拒绝 = 无副作用）。 */

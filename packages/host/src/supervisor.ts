@@ -69,18 +69,25 @@ export class CellSupervisor {
     manifest: LoadedManifest;
     pluginPath: string;
     tracker?: EffectTracker;
+    /**
+     * 本 Cell 的进程入口（切片① seam，ADR-0010 决策 8）：缺省 = supervisor 的 `cellEntryPath`
+     * （新生态插件 = @keel/cell-runtime 入口）；承接存量插件时宿主传承接层自带入口。
+     * **bootstrap 载荷形状不变**（`{pluginPath, toolCallTimeoutMs}`）——入口本身即"这是旧插件"的信号。
+     */
+    cellEntry?: string;
   }): SupervisedCell {
     return new SupervisedCell({
       supervisor: this,
       manifest: spec.manifest,
       pluginPath: spec.pluginPath,
       tracker: spec.tracker,
+      cellEntry: spec.cellEntry,
     });
   }
 
   /* internal */
-  spawnProcess(bootstrap: string): CellProcess {
-    return this.provider.spawn({ entryPath: this.cellEntryPath, bootstrap });
+  spawnProcess(bootstrap: string, entryPath?: string): CellProcess {
+    return this.provider.spawn({ entryPath: entryPath ?? this.cellEntryPath, bootstrap });
   }
 
   get graceMs(): number {
@@ -113,6 +120,7 @@ export class SupervisedCell implements ManagedCell {
     manifest: LoadedManifest;
     pluginPath: string;
     tracker?: EffectTracker;
+    cellEntry?: string;
   }) {
     this.supervisor = params.supervisor;
     this.manifest = params.manifest;
@@ -121,7 +129,7 @@ export class SupervisedCell implements ManagedCell {
       pluginPath: params.pluginPath,
       toolCallTimeoutMs: params.manifest.resources.toolCallTimeoutMs ?? 0,
     });
-    this.process = this.supervisor.spawnProcess(boot);
+    this.process = this.supervisor.spawnProcess(boot, params.cellEntry);
     this.conn = new FrameConn({ input: this.process.stdout, output: this.process.stdin });
     this.phase = "ready";
     this.process.onExit(({ code }) => {
