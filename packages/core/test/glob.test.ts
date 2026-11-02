@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { globMatch } from "./glob.js";
+import { globMatch } from "../src/glob.js";
 
 describe("globMatch（allow 限定符方言）", () => {
   it("`*` 段内匹配，不跨 `/`", () => {

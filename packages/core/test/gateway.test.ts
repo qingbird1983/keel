@@ -2,11 +2,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Authorizer, type AuthPolicyInput } from "./authorizer.js";
-import { Budgeter } from "./budget.js";
-import { ModelGateway, type ModelUpstream } from "./gateway.js";
-import { Ledger } from "./ledger.js";
-import type { RunRef } from "./events.js";
+import { Authorizer, type AuthPolicyInput } from "../src/authorizer.js";
+import { Budgeter } from "../src/budget.js";
+import { ModelGateway, type ModelUpstream } from "../src/gateway.js";
+import { Ledger } from "../src/ledger.js";
+import type { RunRef } from "../src/events.js";
 
 let dir: string;
 const ledgers: Ledger[] = [];

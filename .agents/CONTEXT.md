@@ -2,15 +2,18 @@
 
 > 模板文件：每轮会话收尾**整体重写**本卡（覆盖式，不追加），≤ 150 行（规范见 `.agents/README.md`）。
 
-- 更新：2026-11-02（会话主题：Phase 1 切片②——core 控制面主体：调度/上下文/网关/策略 hook）
+- 更新：2026-11-02（会话主题：Phase 1 切片②控制面落地 + 仓库结构调整——实现/测试分目录）
 
 ## 当前阶段与状态（对照 roadmap 看板）
 
 - **Phase 1 🔄 进行中（tag `phase-1.start`）**——切片①② 已落地；施工顺序唯一来源：`docs/roadmap/phase-1-mvp.md`
 - 已落地：工具链脚手架（六道门禁全绿）+ core 七组件（ledger / authorizer / budget / context / gateway / hooks / scheduler，66 测试全绿，零运行时依赖）
+- 包结构（2026-11-02 起）：每包 `src/` 仅实现 + `test/` 仅测试；typecheck 用 `tsconfig.json`（含 src+test）、build 用 `tsconfig.build.json`（仅 src）；约定成文 standards/05 §1、04 §6、01 §2 预设 B
 - 版本控制：git main（本地无远端）；行尾 LF（.gitattributes）
 
 ## 上一轮完成了什么（3~5 条）
+
+- 仓库结构调整：12 个测试文件迁至 `packages/*/test/`（git mv 保留历史），root vitest include 同步；构建产物不再含测试代码
 
 - scheduler.ts：轮循环固定序列（ROUND_STARTED→读上下文→DECISION+hook②→执行→CHECKPOINT→ROUND_ENDED）；耗尽三档处置（hard-stop→RUN_FAILED / graceful→RUN_HALTED / policy→hook④）；hook③ 重试钳制 ≤3 次、退避 ≤30s；cancel 语义（停派发新轮，在途轮收束）
 - context.ts：scope 分区 + tool.discover；TOOL_SCHEMA_CHANGED 经 scope 级挂起日志 + 各 run 游标传播（同 scope 多 run 不丢事件）；换页原语顺延（契约已注记）
