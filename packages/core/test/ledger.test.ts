@@ -167,4 +167,51 @@ describe("Ledger", () => {
       round: 1,
     });
   });
+
+  it("fixture 回放组：决策序列样例全事件可读，归因关键事件齐备（A6 样例）", async () => {
+    const fixtureRoot = fileURLToPath(
+      new URL("../../../fixtures/ledger/replay-decision-sequence", import.meta.url),
+    );
+    const cold = new Ledger({ rootDir: fixtureRoot, now: () => 0 });
+    ledgers.push(cold);
+    const page = await cold.read({ runId: "run-a" });
+    expect(page.events.map((e) => e.seq)).toEqual([...Array(22)].map((_, i) => i + 1));
+    const types = page.events.map((e) => e.type);
+    for (const t of ["AUTH_DENIED", "HOOK_CALLED", "HOOK_VERDICT", "COMPENSATION_EXECUTED"]) {
+      expect(types).toContain(t);
+    }
+    const denied = page.events.find((e) => e.type === "AUTH_DENIED");
+    expect(denied?.payload).toMatchObject({ subject: "plugin:demo-audit", action: "tool.invoke" });
+    expect(
+      await cold.lastCheckpoint({ agentId: "agent-a", sessionId: "sess-a", runId: "run-a" }),
+    ).toEqual({ seq: 17, round: 1 });
+  });
+
+  it("fixture 回放组：跨段样例 seq 连续、读取透明", async () => {
+    const fixtureRoot = fileURLToPath(
+      new URL("../../../fixtures/ledger/replay-multi-seg", import.meta.url),
+    );
+    const cold = new Ledger({ rootDir: fixtureRoot, now: () => 0 });
+    ledgers.push(cold);
+    const page = await cold.read({ runId: "run-b" });
+    expect(page.events.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(page.events.at(-1)?.type).toBe("RUN_HALTED");
+    expect(
+      await cold.lastCheckpoint({ agentId: "agent-b", sessionId: "sess-b", runId: "run-b" }),
+    ).toEqual({ seq: 4, round: 1 });
+  });
+
+  it("fixture 回放组：撕裂尾样例止于最后完整行（崩溃安全格式主张）", async () => {
+    const fixtureRoot = fileURLToPath(
+      new URL("../../../fixtures/ledger/replay-torn-tail", import.meta.url),
+    );
+    const cold = new Ledger({ rootDir: fixtureRoot, now: () => 0 });
+    ledgers.push(cold);
+    const page = await cold.read({ runId: "run-c" });
+    expect(page.events.map((e) => e.seq)).toEqual([1, 2, 3]);
+    expect(page.events.at(-1)?.type).toBe("CHECKPOINT");
+    expect(
+      await cold.lastCheckpoint({ agentId: "agent-c", sessionId: "sess-c", runId: "run-c" }),
+    ).toEqual({ seq: 3, round: 1 });
+  });
 });

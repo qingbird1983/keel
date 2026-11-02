@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { KeelError } from "@keel/core";
@@ -175,6 +175,29 @@ describe("manifest 稿 §5.6（切片③ N1/N4 收口）", () => {
     });
     expect(codeOf(() => assemble(policy))).toBe("SCHED/MANIFEST-INVALID");
     expect(codeOf(() => assemble(observation))).toBe("SCHED/MANIFEST-INVALID");
+  });
+});
+
+describe("manifest 负路径 fixtures 组（A5 语义，manifest 稿 §8）", () => {
+  const NEG_DIR = path.resolve("fixtures/manifest-negative");
+  const files = readdirSync(NEG_DIR)
+    .filter((f) => f.endsWith(".json"))
+    .sort();
+
+  it("组内有预期的六枚负例（防目录漂移）", () => {
+    expect(files).toEqual([
+      "bad-meta-name.json",
+      "boundary-no-template.json",
+      "hook-unknown-name.json",
+      "missing-net-allow.json",
+      "policy-with-permissions.json",
+      "unknown-top-field.json",
+    ]);
+  });
+
+  it.each(files)("负例 %s 被装配器拒绝（SCHED/MANIFEST-INVALID）", (file) => {
+    const raw = JSON.parse(readFileSync(path.join(NEG_DIR, file), "utf-8"));
+    expect(codeOf(() => assemble(raw))).toBe("SCHED/MANIFEST-INVALID");
   });
 });
 

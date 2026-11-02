@@ -196,3 +196,4 @@ stateDiagram-v2
 - **record-only 闭环**：无需进程通道——执行器直写 `COMPENSATION_EXECUTED{resultDigest:{recordOnly:true}}` + 宿主告警回调缝，闭环以审计持久为准（§7）。
 - **触发模式三态**：`verify`（T4：只核验未决不回滚）/ `round`（T1：最近一致点后本轮回滚）/ `run`（T3/T5：全 Run 回滚），映射契约 §4.1 切片④注记⑥的调度三缝。
 - **快照 MVP**：宿主内存持有（D3），账本仅 `STATE_SNAPSHOT_REF{ref, version, round}` 元数据；CHECKPOINT → STATE_SNAPSHOT_REF → ROUND_ENDED 落点序（契约 I3）。
+- **补偿桩组收全**（2026-11-02 切片⑤）：`tests/fixtures/compensate-plugin.mjs` 补齐 `always-slow`（超时分类）/ `dedup-keyed`（按 effectId 真实去重）/ `mitigate`（mitigable 缓解）三 handler + `dependsOn` 参数透传；probe-guarded 与 builtin 桩不收——probe 通道与 builtin 分发未实现（backlog），口径见 [04-cli-benchmarks-fixtures](04-cli-benchmarks-fixtures.md) §4。

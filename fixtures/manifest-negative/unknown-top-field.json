@@ -1,0 +1,24 @@
+{
+  "$schema": "https://keel.dev/schema/keel-plugin.schema.json",
+  "kind": "capability",
+  "meta": {
+    "name": "neg-unknown-top-field",
+    "version": "1.0.0",
+    "title": "Negative: unknown top-level field",
+    "description": "负例：顶层未知字段 tools（Schema additionalProperties:false——manifest 是声明不是自由 JSON）"
+  },
+  "permissions": [{ "cap": "tool.provide", "reason": "提供 demo 工具" }],
+  "resources": { "toolCallTimeoutMs": 15000 },
+  "compensation": {
+    "templates": [
+      {
+        "kind": "demo.thing",
+        "class": "reversible",
+        "action": { "type": "plugin", "ref": "compensations/undo" },
+        "idempotency": "natural"
+      }
+    ]
+  },
+  "compat": { "keelContract": "^1.0" },
+  "tools": []
+}

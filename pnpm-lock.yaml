@@ -172,6 +172,9 @@ importers:
       '@keel/cell-runtime':
         specifier: workspace:*
         version: link:packages/cell-runtime
+      '@keel/cordis-adapter':
+        specifier: workspace:*
+        version: link:packages/cordis-adapter
       '@keel/core':
         specifier: workspace:*
         version: link:packages/core
@@ -197,11 +200,25 @@ importers:
         specifier: ^5.0.5
         version: 5.0.5(@types/node@26.6.6)(vite@8.3.5(@types/node@26.6.6))
 
-  apps/keel: {}
+  apps/keel:
+    dependencies:
+      '@keel/cell-runtime':
+        specifier: workspace:*
+        version: link:../../packages/cell-runtime
+      '@keel/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@keel/host':
+        specifier: workspace:*
+        version: link:../../packages/host
 
   packages/cell-runtime: {}
 
-  packages/cordis-adapter: {}
+  packages/cordis-adapter:
+    dependencies:
+      '@keel/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/core: {}
 
