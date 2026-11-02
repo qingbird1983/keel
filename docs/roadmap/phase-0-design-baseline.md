@@ -36,10 +36,10 @@
 
 ## 4. 交付物
 
-| 类别 | 清单 |
-|---|---|
+| 类别 | 清单                                                                                          |
+| ---- | --------------------------------------------------------------------------------------------- |
 | 文档 | architecture/01-keel-overview.md；ADR-0005；design/phase-1/01、02、03；roadmap/phase-1-mvp.md |
-| 其他 | manifest JSON Schema 文件（随 03 附 `schema/` 目录）+ 2 个示例 manifest |
+| 其他 | manifest JSON Schema 文件（随 03 附 `schema/` 目录）+ 2 个示例 manifest                       |
 
 ## 5. 验收场景（逐条可执行；验收结果记入 report.md）
 

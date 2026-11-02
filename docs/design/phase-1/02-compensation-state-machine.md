@@ -30,40 +30,40 @@
 
 ### 4.1 状态定义
 
-| 状态 | 含义 | 进入事件 |
-|---|---|---|
-| `declared` | 已声明未派发 | EFFECT_DECLARED |
-| `executing` | 已派发，执行中 | —（派发不单独立事件，EFFECT_SETTLED 前即 executing） |
-| `settled-done` | 结果确定：已发生 | EFFECT_SETTLED{done} |
-| `settled-failed` | 结果确定：未发生且干净失败 | EFFECT_SETTLED{failed-clean} |
-| `verify-pending` | 结果未知（超时），待核验 | EFFECT_SETTLED{unknown} |
-| `compensable` | 已发生且被纳入回滚集合 | —（投影态，由触发点标记） |
-| `released` | 终态：无需补偿 | —（投影终态；账本以 SETTLED 事件为凭） |
-| `compensating` | 补偿动作已派发 | —（投影态） |
-| `compensated` | 终态：补偿完成 | COMPENSATION_EXECUTED |
-| `escalated` | 终态-阻塞：补偿失败升级 | COMPENSATION_ESCALATED |
-| `waived` | 终态：所有者豁免 | COMPENSATION_WAIVED |
+| 状态             | 含义                       | 进入事件                                             |
+| ---------------- | -------------------------- | ---------------------------------------------------- |
+| `declared`       | 已声明未派发               | EFFECT_DECLARED                                      |
+| `executing`      | 已派发，执行中             | —（派发不单独立事件，EFFECT_SETTLED 前即 executing） |
+| `settled-done`   | 结果确定：已发生           | EFFECT_SETTLED{done}                                 |
+| `settled-failed` | 结果确定：未发生且干净失败 | EFFECT_SETTLED{failed-clean}                         |
+| `verify-pending` | 结果未知（超时），待核验   | EFFECT_SETTLED{unknown}                              |
+| `compensable`    | 已发生且被纳入回滚集合     | —（投影态，由触发点标记）                            |
+| `released`       | 终态：无需补偿             | —（投影终态；账本以 SETTLED 事件为凭）               |
+| `compensating`   | 补偿动作已派发             | —（投影态）                                          |
+| `compensated`    | 终态：补偿完成             | COMPENSATION_EXECUTED                                |
+| `escalated`      | 终态-阻塞：补偿失败升级    | COMPENSATION_ESCALATED                               |
+| `waived`         | 终态：所有者豁免           | COMPENSATION_WAIVED                                  |
 
 > 投影态（compensable/compensating/released）不立账本事件——由事件流重放可推导；账本只记事实（声明/结果/补偿闭环/升级/豁免）。
 
 ### 4.2 状态转移表
 
-| # | 从 | 触发 | 守卫 | 到 | 动作/事件 |
-|---|---|---|---|---|---|
-| T01 | declared | 派发成功 | — | executing | — |
-| T02 | declared | 回滚触发（尚未派发） | — | released | 取消派发 |
-| T03 | executing | EFFECT_SETTLED{done} | — | settled-done | — |
-| T04 | executing | EFFECT_SETTLED{failed-clean} | — | settled-failed → released | 失败原因入账本 |
-| T05 | executing | EFFECT_SETTLED{unknown}（超时） | — | verify-pending | 契约 §6：结果未知必须核对 |
-| T06 | verify-pending | probe 返回"已发生"或**无 probe（保守，D2）** | — | compensable | 核验结论入账本 |
-| T07 | verify-pending | probe 返回"未发生" | probe 必须已声明 | released | 核验结论入账本 |
-| T08 | settled-done | 回滚触发（T1/T2/T3，见 §5） | compensationClass ≠ 免除 | compensable | — |
-| T09 | compensable | 补偿派发（按 §5 编排序） | — | compensating | — |
-| T10 | compensating | 补偿成功 | attempts ≤ 3 | compensated | COMPENSATION_EXECUTED{attempt} |
-| T11 | compensating | 补偿失败，attempts < 3 | — | compensable | 退避后重派（≤30s） |
-| T12 | compensating | 补偿失败，attempts ≥ 3 | — | escalated | COMPENSATION_ESCALATED；Run 标记恢复阻断 |
-| T13 | escalated | 所有者豁免 | 所有者显式通道 | waived | COMPENSATION_WAIVED{reason} |
-| T14 | escalated | 所有者修复后重补偿 | 管理通道 | compensating | attempts 归零 |
+| #   | 从             | 触发                                         | 守卫                     | 到                        | 动作/事件                                |
+| --- | -------------- | -------------------------------------------- | ------------------------ | ------------------------- | ---------------------------------------- |
+| T01 | declared       | 派发成功                                     | —                        | executing                 | —                                        |
+| T02 | declared       | 回滚触发（尚未派发）                         | —                        | released                  | 取消派发                                 |
+| T03 | executing      | EFFECT_SETTLED{done}                         | —                        | settled-done              | —                                        |
+| T04 | executing      | EFFECT_SETTLED{failed-clean}                 | —                        | settled-failed → released | 失败原因入账本                           |
+| T05 | executing      | EFFECT_SETTLED{unknown}（超时）              | —                        | verify-pending            | 契约 §6：结果未知必须核对                |
+| T06 | verify-pending | probe 返回"已发生"或**无 probe（保守，D2）** | —                        | compensable               | 核验结论入账本                           |
+| T07 | verify-pending | probe 返回"未发生"                           | probe 必须已声明         | released                  | 核验结论入账本                           |
+| T08 | settled-done   | 回滚触发（T1/T2/T3，见 §5）                  | compensationClass ≠ 免除 | compensable               | —                                        |
+| T09 | compensable    | 补偿派发（按 §5 编排序）                     | —                        | compensating              | —                                        |
+| T10 | compensating   | 补偿成功                                     | attempts ≤ 3             | compensated               | COMPENSATION_EXECUTED{attempt}           |
+| T11 | compensating   | 补偿失败，attempts < 3                       | —                        | compensable               | 退避后重派（≤30s）                       |
+| T12 | compensating   | 补偿失败，attempts ≥ 3                       | —                        | escalated                 | COMPENSATION_ESCALATED；Run 标记恢复阻断 |
+| T13 | escalated      | 所有者豁免                                   | 所有者显式通道           | waived                    | COMPENSATION_WAIVED{reason}              |
+| T14 | escalated      | 所有者修复后重补偿                           | 管理通道                 | compensating              | attempts 归零                            |
 
 ### 4.3 状态图
 
@@ -95,13 +95,13 @@ stateDiagram-v2
 
 ### 5.1 触发点
 
-| 触发 | 场景 | 回滚集合 |
-|---|---|---|
-| T1 | 轮失败且不再重试（含 hook③ give-up） | 本轮 compensable 效果 |
-| T2 | 轮失败且重试 | 本轮效果先补偿清空，再重试轮（干净重试）；**若清空补偿中出现 escalated 未豁免效果，重试轮同样被阻断，走升级处置路径（§8）** |
-| T3 | Run 失败 / 恢复对账（ADR-0005 `exited` 态、契约 §4.5） | 全 Run compensable 效果；**先核验 verify-pending，再补偿，最后才准续跑** |
-| T4 | 预算耗尽 graceful（契约 §4.3） | 只核验 unknown，**不回滚已完成**（语义：收尾，非撤销） |
-| T5 | `run.cancel` | 全 Run compensable（halt 语义） |
+| 触发 | 场景                                                   | 回滚集合                                                                                                                    |
+| ---- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| T1   | 轮失败且不再重试（含 hook③ give-up）                   | 本轮 compensable 效果                                                                                                       |
+| T2   | 轮失败且重试                                           | 本轮效果先补偿清空，再重试轮（干净重试）；**若清空补偿中出现 escalated 未豁免效果，重试轮同样被阻断，走升级处置路径（§8）** |
+| T3   | Run 失败 / 恢复对账（ADR-0005 `exited` 态、契约 §4.5） | 全 Run compensable 效果；**先核验 verify-pending，再补偿，最后才准续跑**                                                    |
+| T4   | 预算耗尽 graceful（契约 §4.3）                         | 只核验 unknown，**不回滚已完成**（语义：收尾，非撤销）                                                                      |
+| T5   | `run.cancel`                                           | 全 Run compensable（halt 语义）                                                                                             |
 
 ### 5.2 编排顺序
 
@@ -114,22 +114,22 @@ stateDiagram-v2
 - **effectId** = `runId + 单调序号`，Run 内唯一；一切补偿动作以 effectId 为引用键。
 - 声明必填**幂等策略**三选一：
 
-| 策略 | 语义 | 适用 |
-|---|---|---|
-| `natural` | 动作天然幂等（同参重放无额外效果） | 删除类、状态置位类 |
-| `keyed` | 目标系统按 effectId 去重（动作携带 effectId 作为幂等键） | 支付冲正、外部 API 写 |
-| `probe-guarded` | 先 probe 查目标再动作（check-then-act） | 无幂等键的外部系统 |
+| 策略            | 语义                                                     | 适用                  |
+| --------------- | -------------------------------------------------------- | --------------------- |
+| `natural`       | 动作天然幂等（同参重放无额外效果）                       | 删除类、状态置位类    |
+| `keyed`         | 目标系统按 effectId 去重（动作携带 effectId 作为幂等键） | 支付冲正、外部 API 写 |
+| `probe-guarded` | 先 probe 查目标再动作（check-then-act）                  | 无幂等键的外部系统    |
 
 - **硬规则**：补偿动作必须容忍"目标不存在/未发生"（T06 保守补偿的安全前提）。
 - **崩溃重入（A6 路径二）**：执行器在任意点崩溃 → 重放账本事件流重建投影 → 无 `COMPENSATION_EXECUTED` 的 compensable 效果一律重派——幂等策略保证重派无害。
 
 ## 7. 补偿分级（D3，A6 路径三）
 
-| class | 语义 | 补偿动作示例 | 闭环条件 |
-|---|---|---|---|
-| `reversible` | 存在真逆动作，逆后系统回到前态 | 删除已建临时文件；调用外部系统的撤销/删除 API | 逆动作成功 |
-| `mitigable` | 不可逆但可缓解：降低或标注既有影响 | 发更正函；支付冲正；外部记录标记作废 | 缓解动作成功 |
-| `record-only` | 完全不可逆：无任何外部补救手段 | —（动作即"强制留痕 + 告警"） | 审计记录持久化 + 告警发出 |
+| class         | 语义                               | 补偿动作示例                                  | 闭环条件                  |
+| ------------- | ---------------------------------- | --------------------------------------------- | ------------------------- |
+| `reversible`  | 存在真逆动作，逆后系统回到前态     | 删除已建临时文件；调用外部系统的撤销/删除 API | 逆动作成功                |
+| `mitigable`   | 不可逆但可缓解：降低或标注既有影响 | 发更正函；支付冲正；外部记录标记作废          | 缓解动作成功              |
+| `record-only` | 完全不可逆：无任何外部补救手段     | —（动作即"强制留痕 + 告警"）                  | 审计记录持久化 + 告警发出 |
 
 - record-only 不是"放弃补偿"：它的补偿动作 = 观测通道告警 + 账本留痕（保持"所有操作必须有补偿路径"字面成立）；其执行器闭环以审计持久为准。
 - 三级为 manifest **必填枚举**（任务 C 校验）：声明者必须逐个副作用回答"出了事怎么收尾"；record-only 申报在账本中显式可见（审计归因要点）。
@@ -145,13 +145,13 @@ stateDiagram-v2
 
 公共信封见契约 §5。载荷要点：
 
-| 事件 | 载荷 |
-|---|---|
-| `EFFECT_DECLARED` | effectId、kind、targetSummary、compensationClass、compensation{actionRef, paramsDigest, idempotency: natural\|keyed\|probe-guarded}、probe{ref}\|null、dependsOn[]、retention（账本载荷留存级别） |
-| `EFFECT_SETTLED` | effectId、outcome: done\|failed-clean\|unknown、error?、usageDigest? |
-| `COMPENSATION_EXECUTED` | effectId、attempt、resultDigest、durationMs |
-| `COMPENSATION_ESCALATED` | effectId、attempts、lastError、blockedResume: true |
-| `COMPENSATION_WAIVED` | effectId、waivedBy（所有者通道标识）、reason |
+| 事件                     | 载荷                                                                                                                                                                                              |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EFFECT_DECLARED`        | effectId、kind、targetSummary、compensationClass、compensation{actionRef, paramsDigest, idempotency: natural\|keyed\|probe-guarded}、probe{ref}\|null、dependsOn[]、retention（账本载荷留存级别） |
+| `EFFECT_SETTLED`         | effectId、outcome: done\|failed-clean\|unknown、error?、usageDigest?                                                                                                                              |
+| `COMPENSATION_EXECUTED`  | effectId、attempt、resultDigest、durationMs                                                                                                                                                       |
+| `COMPENSATION_ESCALATED` | effectId、attempts、lastError、blockedResume: true                                                                                                                                                |
+| `COMPENSATION_WAIVED`    | effectId、waivedBy（所有者通道标识）、reason                                                                                                                                                      |
 
 > 声明中 `paramsDigest` / `retention` 落实 standards/06 脱敏纪律：副作用参数按声明级别留存，敏感载荷默认摘要。
 
@@ -173,17 +173,17 @@ stateDiagram-v2
 
 ## 12. 风险
 
-| 风险 | 预案 |
-|---|---|
-| 声明负担迫使 plugin 作者乱填 class | 任务 C 校验 + 示例库；record-only 显式可见形成申报压力（§7） |
-| probe 实现成本高 | probe 可选；保守补偿兜底正确性，probe 只是减少误补偿的优化（D2） |
-| LIFO 依赖序在长链效果上补偿耗时长 | 有界并行；编排延迟入 Phase 1 基准；超长链属设计味道（提示拆轮） |
-| key 外部系统不支持幂等键 | probe-guarded 兜底策略（§6） |
+| 风险                               | 预案                                                             |
+| ---------------------------------- | ---------------------------------------------------------------- |
+| 声明负担迫使 plugin 作者乱填 class | 任务 C 校验 + 示例库；record-only 显式可见形成申报压力（§7）     |
+| probe 实现成本高                   | probe 可选；保守补偿兜底正确性，probe 只是减少误补偿的优化（D2） |
+| LIFO 依赖序在长链效果上补偿耗时长  | 有界并行；编排延迟入 Phase 1 基准；超长链属设计味道（提示拆轮）  |
+| key 外部系统不支持幂等键           | probe-guarded 兜底策略（§6）                                     |
 
 ## 13. 待决问题
 
-| 问题 | 决定时限 |
-|---|---|
+| 问题                                                              | 决定时限                                             |
+| ----------------------------------------------------------------- | ---------------------------------------------------- |
 | 未决污染清单的巡检/清理工具形态（现在 = 账本查询 + 手工豁免通道） | Phase 1 实现期；若所有者要求专用命令行，登记 backlog |
-| `keyed` 策略在目标系统不支持去重时的探测方法 | 实现期按插件沉淀示例 |
-| 补偿动作的重试/退避参数可配置面（当前固定 ≤3 次 / ≤30s） | Phase 1 基准后回评 |
+| `keyed` 策略在目标系统不支持去重时的探测方法                      | 实现期按插件沉淀示例                                 |
+| 补偿动作的重试/退避参数可配置面（当前固定 ≤3 次 / ≤30s）          | Phase 1 基准后回评                                   |

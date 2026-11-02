@@ -49,13 +49,13 @@ apps/             各入口（CLI / 桌面 / Web，只做薄壳）
 
 ## 3. 命名约定
 
-| 对象 | 规则 | 示例 |
-|---|---|---|
-| 文档文件 | 两位序号 + kebab-case（adr 用 `ADR-NNNN` 前缀，roadmap 阶段用 `phase-N-` 前缀） | `03-critical-seams.md` |
-| 源码文件/模块 | 按语言生态惯例（snake_case / camelCase / kebab-case），全仓一致 | kebab-case（TypeScript） |
-| 目录 | kebab-case（语言生态另有强约定时从惯例并在本表注明） | `tool-registry` |
-| 分支 | `feat\|fix\|docs\|refactor\|test\|chore/<短横线描述>` | `feat/session-writer` |
-| tag | 阶段：`phase-N.start` / `phase-N.end`（annotated）；发布：`vX.Y.Z` | `phase-1.end` |
+| 对象          | 规则                                                                            | 示例                     |
+| ------------- | ------------------------------------------------------------------------------- | ------------------------ |
+| 文档文件      | 两位序号 + kebab-case（adr 用 `ADR-NNNN` 前缀，roadmap 阶段用 `phase-N-` 前缀） | `03-critical-seams.md`   |
+| 源码文件/模块 | 按语言生态惯例（snake_case / camelCase / kebab-case），全仓一致                 | kebab-case（TypeScript） |
+| 目录          | kebab-case（语言生态另有强约定时从惯例并在本表注明）                            | `tool-registry`          |
+| 分支          | `feat\|fix\|docs\|refactor\|test\|chore/<短横线描述>`                           | `feat/session-writer`    |
+| tag           | 阶段：`phase-N.start` / `phase-N.end`（annotated）；发布：`vX.Y.Z`              | `phase-1.end`            |
 
 ## 4. 内容纪律
 

@@ -24,23 +24,23 @@ Phase 0 (design baseline) complete — four key designs finalized, six decision 
 
 Project documentation is maintained in **Chinese** under [`docs/`](docs/README.md) (this README pair is the bilingual entry point):
 
-| Directory | Contents |
-|---|---|
-| [`docs/research/`](docs/research/) | Research notes: facts and data behind decisions |
-| [`docs/adr/`](docs/adr/) | Decision records — why things are the way they are |
-| [`docs/architecture/`](docs/architecture/) | System design and key constraints |
-| [`docs/roadmap/`](docs/roadmap/) | Phases, scope, acceptance scenarios; `00-roadmap.md` hosts the board |
-| [`docs/standards/`](docs/standards/) | 9 repo standards: how work gets done |
-| [`docs/design/`](docs/design/) | Per-phase detailed designs and progress reports |
-| [`docs/glossary.md`](docs/glossary.md) | Glossary (for non-technical readers) |
+| Directory                                  | Contents                                                             |
+| ------------------------------------------ | -------------------------------------------------------------------- |
+| [`docs/research/`](docs/research/)         | Research notes: facts and data behind decisions                      |
+| [`docs/adr/`](docs/adr/)                   | Decision records — why things are the way they are                   |
+| [`docs/architecture/`](docs/architecture/) | System design and key constraints                                    |
+| [`docs/roadmap/`](docs/roadmap/)           | Phases, scope, acceptance scenarios; `00-roadmap.md` hosts the board |
+| [`docs/standards/`](docs/standards/)       | 9 repo standards: how work gets done                                 |
+| [`docs/design/`](docs/design/)             | Per-phase detailed designs and progress reports                      |
+| [`docs/glossary.md`](docs/glossary.md)     | Glossary (for non-technical readers)                                 |
 
 ## Pending decisions (matters requiring the project owner)
 
 > Owner decisions are collected in this table (mirrored in both READMEs) and flagged in CHANGELOG entries; once decided, write an ADR and remove the row.
 
-| Item | Raised | Status |
-|---|---|---|
-| (none — register items here as they arise) | — | — |
+| Item                                       | Raised | Status |
+| ------------------------------------------ | ------ | ------ |
+| (none — register items here as they arise) | —      | —      |
 
 ## License
 

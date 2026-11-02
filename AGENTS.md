@@ -6,18 +6,18 @@
 
 ## 文档索引（按需进入）
 
-| 你要做什么 | 去哪里 |
-|---|---|
-| 了解项目 / 对外介绍 | [README.md](README.md)（英）/ [README.zh-CN.md](README.zh-CN.md)（中，两份内容一致） |
-| 接手工作 / 看当前状态 | [.agents/CONTEXT.md](.agents/CONTEXT.md) → 交接规则见 [.agents/README.md](.agents/README.md) |
-| 看进度 / 阶段规划 | [docs/roadmap/00-roadmap.md](docs/roadmap/00-roadmap.md)（唯一看板）+ 当前 phase 文档 |
-| 查"为什么这么设计" | [docs/adr/](docs/adr/)（编号递增，只增不改） |
-| 查系统设计与约束 | [docs/architecture/](docs/architecture/)（先读 01 总览） |
-| 查做事规则 | [docs/standards/](docs/standards/)（9 篇；规范自身的复查与进化见 [standards/09](docs/standards/09-standards-review.md)） |
-| 写码纪律（写代码时的默认工作方式） | [.agents/skills/ponytail/](.agents/skills/ponytail/SKILL.md)——最小完整改动（MIT，vendored，语言无关） |
-| 查术语 | [docs/glossary.md](docs/glossary.md) |
-| 读所有者的参考/建议材料 | [briefs/](briefs/README.md)——本地输入区（不入库）；对齐后结论必须沉淀进 docs/ 对应区域 |
-| 新增文档登记 | [docs/README.md](docs/README.md)（文档地图，禁止孤儿文档） |
+| 你要做什么                         | 去哪里                                                                                                                   |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| 了解项目 / 对外介绍                | [README.md](README.md)（英）/ [README.zh-CN.md](README.zh-CN.md)（中，两份内容一致）                                     |
+| 接手工作 / 看当前状态              | [.agents/CONTEXT.md](.agents/CONTEXT.md) → 交接规则见 [.agents/README.md](.agents/README.md)                             |
+| 看进度 / 阶段规划                  | [docs/roadmap/00-roadmap.md](docs/roadmap/00-roadmap.md)（唯一看板）+ 当前 phase 文档                                    |
+| 查"为什么这么设计"                 | [docs/adr/](docs/adr/)（编号递增，只增不改）                                                                             |
+| 查系统设计与约束                   | [docs/architecture/](docs/architecture/)（先读 01 总览）                                                                 |
+| 查做事规则                         | [docs/standards/](docs/standards/)（9 篇；规范自身的复查与进化见 [standards/09](docs/standards/09-standards-review.md)） |
+| 写码纪律（写代码时的默认工作方式） | [.agents/skills/ponytail/](.agents/skills/ponytail/SKILL.md)——最小完整改动（MIT，vendored，语言无关）                    |
+| 查术语                             | [docs/glossary.md](docs/glossary.md)                                                                                     |
+| 读所有者的参考/建议材料            | [briefs/](briefs/README.md)——本地输入区（不入库）；对齐后结论必须沉淀进 docs/ 对应区域                                   |
+| 新增文档登记                       | [docs/README.md](docs/README.md)（文档地图，禁止孤儿文档）                                                               |
 
 ## 铁律（细则见链接，违反即返工）
 

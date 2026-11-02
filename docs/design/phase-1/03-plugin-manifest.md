@@ -23,28 +23,28 @@ DSH 症状 V5（热插拔依赖全局注册表突变）的根源：插件进入�
 
 ## 3. 决策记录
 
-| # | 决策 | 来源 |
-|---|---|---|
-| C-D1 | 封闭能力词表（6 项首版）+ allow 限定符；词表新增须 ADR | 所有者确认 |
-| C-D2 | semver 精确版本 + `compat.keelContract` 范围 + 可选 migration | 所有者确认 |
-| C-D3 | `toolCallTimeoutMs` 必填硬强制；其余资源维度渐进 | 所有者确认 |
-| C-M1 | 补偿模板制：运行时 `EFFECT_DECLARED` 必须引用 manifest 已声明模板，临场编造即拒绝 | 本文（焊死任务 D） |
-| C-M2 | Schema = draft 2020-12；文件 `schema/keel-plugin.schema.json`；结构校验（Schema）与语义校验（装配器）分层 | 本文 |
-| C-M3 | fail-closed：任一校验失败拒绝装配；未声明的能力不存在 | standards/06 §4 |
+| #    | 决策                                                                                                      | 来源               |
+| ---- | --------------------------------------------------------------------------------------------------------- | ------------------ |
+| C-D1 | 封闭能力词表（6 项首版）+ allow 限定符；词表新增须 ADR                                                    | 所有者确认         |
+| C-D2 | semver 精确版本 + `compat.keelContract` 范围 + 可选 migration                                             | 所有者确认         |
+| C-D3 | `toolCallTimeoutMs` 必填硬强制；其余资源维度渐进                                                          | 所有者确认         |
+| C-M1 | 补偿模板制：运行时 `EFFECT_DECLARED` 必须引用 manifest 已声明模板，临场编造即拒绝                         | 本文（焊死任务 D） |
+| C-M2 | Schema = draft 2020-12；文件 `schema/keel-plugin.schema.json`；结构校验（Schema）与语义校验（装配器）分层 | 本文               |
+| C-M3 | fail-closed：任一校验失败拒绝装配；未声明的能力不存在                                                     | standards/06 §4    |
 
 ## 4. Manifest 结构总览
 
-| 节 | 必填 | 内容 | 约束来源 |
-|---|---|---|---|
-| `kind` | ✅ | `capability` \| `policy` \| `observation` | 条件分支（§5.6） |
-| `meta` | ✅ | name / version（semver 精确）/ title / description | Schema |
-| `permissions` | ✅ | 能力词表项 + allow 限定符 | C-D1；词表见 §5.2 |
-| `resources` | ✅ | toolCallTimeoutMs（capability 必填）/ memoryMbSoft / maxToolCallsPerRound；**policy/observation 必须为空对象 `{}`** | C-D3 |
-| `compensation` | ✅ | templates[]（kind → class/action/idempotency/probe） | C-M1；语义对齐状态机 §9 |
-| `compat` | ✅ | keelContract 版本范围 | C-D2 |
-| `migration` | 可选 | from 范围 + steps[]（有状态插件升级迁移） | C-D2；执行者见 §5.5 |
-| `hooks` | policy 必填 | 契约 §4.8 四 hook 的非空子集 | 契约白名单 |
-| `subscriptions` | observation 必填 | 只读事件订阅模式列表 | 契约 §3.3 |
+| 节              | 必填             | 内容                                                                                                                | 约束来源                |
+| --------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `kind`          | ✅               | `capability` \| `policy` \| `observation`                                                                           | 条件分支（§5.6）        |
+| `meta`          | ✅               | name / version（semver 精确）/ title / description                                                                  | Schema                  |
+| `permissions`   | ✅               | 能力词表项 + allow 限定符                                                                                           | C-D1；词表见 §5.2       |
+| `resources`     | ✅               | toolCallTimeoutMs（capability 必填）/ memoryMbSoft / maxToolCallsPerRound；**policy/observation 必须为空对象 `{}`** | C-D3                    |
+| `compensation`  | ✅               | templates[]（kind → class/action/idempotency/probe）                                                                | C-M1；语义对齐状态机 §9 |
+| `compat`        | ✅               | keelContract 版本范围                                                                                               | C-D2                    |
+| `migration`     | 可选             | from 范围 + steps[]（有状态插件升级迁移）                                                                           | C-D2；执行者见 §5.5     |
+| `hooks`         | policy 必填      | 契约 §4.8 四 hook 的非空子集                                                                                        | 契约白名单              |
+| `subscriptions` | observation 必填 | 只读事件订阅模式列表                                                                                                | 契约 §3.3               |
 
 ## 5. 各节详解
 
@@ -52,14 +52,14 @@ DSH 症状 V5（热插拔依赖全局注册表突变）的根源：插件进入�
 
 首版能力词表（**封闭**，新增须 ADR）：
 
-| cap | 语义 | allow 限定 | 补偿完备性要求 |
-|---|---|---|---|
-| `tool.provide` | 向本 Cell 私有工具表提供工具 | —（工具清单在代码内） | — |
-| `model.adapter` | 模型适配（无凭证、无直连，ADR-0003） | — | — |
-| `net.fetch` | 出站网络 | **必填**：主机名列表（精确或 `*.domain` 前缀） | templates 非空 |
-| `fs.read` | 读文件系统 | **必填**：路径 glob | — |
-| `fs.write` | 写文件系统 | **必填**：路径 glob | templates 非空 |
-| `memory.backend` | 提供私有记忆后端 | — | templates 非空 |
+| cap              | 语义                                 | allow 限定                                     | 补偿完备性要求 |
+| ---------------- | ------------------------------------ | ---------------------------------------------- | -------------- |
+| `tool.provide`   | 向本 Cell 私有工具表提供工具         | —（工具清单在代码内）                          | —              |
+| `model.adapter`  | 模型适配（无凭证、无直连，ADR-0003） | —                                              | —              |
+| `net.fetch`      | 出站网络                             | **必填**：主机名列表（精确或 `*.domain` 前缀） | templates 非空 |
+| `fs.read`        | 读文件系统                           | **必填**：路径 glob                            | —              |
+| `fs.write`       | 写文件系统                           | **必填**：路径 glob                            | templates 非空 |
+| `memory.backend` | 提供私有记忆后端                     | —                                              | templates 非空 |
 
 规则：未声明 = 不存在；`net.fetch`/`fs.write`/`memory.backend`（越界能力）必须携带 ≥1 条补偿模板（语义校验，装配器执行）；每项权限建议附 `reason`（审计归因）。
 
@@ -72,11 +72,11 @@ allow 的必填性由装配器语义校验执行，Schema 层不强制——这�
 
 数值上限一览（与 Schema 现值一致）：
 
-| 字段 | Schema 上限 | 来源 | 备注 |
-|---|---|---|---|
-| toolCallTimeoutMs | 600000 | 所有者确认（2026-11-02） | 契约 §7 管核心接口交互超时，工具执行超时按设计由 manifest 声明，无冲突；若有冲突以契约 §7 为准并回填 |
-| memoryMbSoft | 4096 | 所有者确认（2026-11-02） | 软限，硬强制待 Phase 1 资源计量 |
-| maxToolCallsPerRound | 1000 | 所有者确认（2026-11-02） | 软限 |
+| 字段                 | Schema 上限 | 来源                     | 备注                                                                                                 |
+| -------------------- | ----------- | ------------------------ | ---------------------------------------------------------------------------------------------------- |
+| toolCallTimeoutMs    | 600000      | 所有者确认（2026-11-02） | 契约 §7 管核心接口交互超时，工具执行超时按设计由 manifest 声明，无冲突；若有冲突以契约 §7 为准并回填 |
+| memoryMbSoft         | 4096        | 所有者确认（2026-11-02） | 软限，硬强制待 Phase 1 资源计量                                                                      |
+| maxToolCallsPerRound | 1000        | 所有者确认（2026-11-02） | 软限                                                                                                 |
 
 ### 5.4 compensation（C-M1，焊点）
 
@@ -141,18 +141,18 @@ allow 的必填性由装配器语义校验执行，Schema 层不强制——这�
 
 ## 10. 风险
 
-| 风险 | 预案 |
-|---|---|
-| 词表膨胀压力 | 封闭词表 + 新增须 ADR（C-D1）；拒绝理由归因为装配审计事件 |
-| Schema 与文档漂移 | 示例即 fixtures 入 CI（§7） |
+| 风险                       | 预案                                                                   |
+| -------------------------- | ---------------------------------------------------------------------- |
+| 词表膨胀压力               | 封闭词表 + 新增须 ADR（C-D1）；拒绝理由归因为装配审计事件              |
+| Schema 与文档漂移          | 示例即 fixtures 入 CI（§7）                                            |
 | Cordis 存量插件无 manifest | Phase 2 Adapter 合成 manifest（权限从运行观察收敛）；登记 Phase 2 待决 |
-| 迁移钩成攻击面 | 迁移代码运行在新 Cell（隔离内）；失败即回退；入参仅快照 |
+| 迁移钩成攻击面             | 迁移代码运行在新 Cell（隔离内）；失败即回退；入参仅快照                |
 
 ## 11. 待决问题
 
-| 问题 | 决定时限 |
-|---|---|
-| `allow` 模式语法细节（fs glob 方言、域名通配边界） | Phase 1 实现期定稿并补测试 |
-| memoryMbSoft / maxToolCallsPerRound 硬强制时点 | Phase 1 资源计量基建后回评 |
-| migration 多步链（跨多版本升级）是否 MVP | MVP 单步 from→current；多步登记 backlog |
-| 三个资源上限数值（600000 / 4096 / 1000） | ✅ 已确认（2026-11-02）：维持现值 |
+| 问题                                               | 决定时限                                |
+| -------------------------------------------------- | --------------------------------------- |
+| `allow` 模式语法细节（fs glob 方言、域名通配边界） | Phase 1 实现期定稿并补测试              |
+| memoryMbSoft / maxToolCallsPerRound 硬强制时点     | Phase 1 资源计量基建后回评              |
+| migration 多步链（跨多版本升级）是否 MVP           | MVP 单步 from→current；多步登记 backlog |
+| 三个资源上限数值（600000 / 4096 / 1000）           | ✅ 已确认（2026-11-02）：维持现值       |

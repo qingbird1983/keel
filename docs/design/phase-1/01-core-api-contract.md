@@ -35,12 +35,12 @@ DSH 三类症状直接源于控制面缺少硬契约：**V6** Agent Loop 被插�
 
 ### 3.3 契约可见面矩阵（I1 的接口化）
 
-| 调用方 | 可见接口 | 明确不可见 |
-|---|---|---|
+| 调用方             | 可见接口                                                                                                                          | 明确不可见                                         |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
 | Cell（含能力插件） | `auth.check`、`budget.query`、`model.invoke`、`tool.discover`（仅本 scope）、`context.*`（仅本 scope）、`ledger.read`（仅本 run） | 账本写入、调度、恢复、hook 配置、他人 scope 的一切 |
-| 策略插件 | 四个 hook 被调用（被动），无主动接口 | 除 hook 入参外的一切 |
-| 观测插件 | `ledger.read`（全量只读）、事件订阅 | 一切写接口 |
-| Host Layer | `run.*`、`recover.*`、`context.alloc`、快照存取、装配相关 | 账本写入、授权/预算裁决（只能传递不能改判） |
+| 策略插件           | 四个 hook 被调用（被动），无主动接口                                                                                              | 除 hook 入参外的一切                               |
+| 观测插件           | `ledger.read`（全量只读）、事件订阅                                                                                               | 一切写接口                                         |
+| Host Layer         | `run.*`、`recover.*`、`context.alloc`、快照存取、装配相关                                                                         | 账本写入、授权/预算裁决（只能传递不能改判）        |
 
 账本 `append` 与 `checkpoint` 仅为 Core 内部函数，不出现在任何对外命名空间——调度器是唯一写入者（单写者，ADR-0004）。
 
@@ -50,31 +50,31 @@ DSH 三类症状直接源于控制面缺少硬契约：**V6** Agent Loop 被插�
 
 ### 4.1 调度器（Run 生命周期）
 
-| op | 方向 | 语义 | 默认超时 | 幂等性 | 主要错误 |
-|---|---|---|---|---|---|
-| `run.start` | Host→Core | 按 manifest 装配结果创建 Run；返回 runId；首轮调度随即开始 | 5s（含 Cell 冷启动，ADR-0005 后回填） | 是（同 runId 返回既有结果） | `SCHED/BACKPRESSURE`、`SCHED/MANIFEST-INVALID` |
-| `run.cancel` | Host→Core | 请求停止：停止派发新轮，触发在途副作用补偿（任务 D），写 `RUN_HALTED` | 2s | 是 | `SCHED/NOT-FOUND` |
-| `run.status` | Host→Core | 查询状态机位置（running/halting/halted/failed/recovering）与最近一致点 | 100ms | 是 | `SCHED/NOT-FOUND` |
+| op           | 方向      | 语义                                                                   | 默认超时                              | 幂等性                      | 主要错误                                       |
+| ------------ | --------- | ---------------------------------------------------------------------- | ------------------------------------- | --------------------------- | ---------------------------------------------- |
+| `run.start`  | Host→Core | 按 manifest 装配结果创建 Run；返回 runId；首轮调度随即开始             | 5s（含 Cell 冷启动，ADR-0005 后回填） | 是（同 runId 返回既有结果） | `SCHED/BACKPRESSURE`、`SCHED/MANIFEST-INVALID` |
+| `run.cancel` | Host→Core | 请求停止：停止派发新轮，触发在途副作用补偿（任务 D），写 `RUN_HALTED`  | 2s                                    | 是                          | `SCHED/NOT-FOUND`                              |
+| `run.status` | Host→Core | 查询状态机位置（running/halting/halted/failed/recovering）与最近一致点 | 100ms                                 | 是                          | `SCHED/NOT-FOUND`                              |
 
 调度轮内部序列（不可插件化，V6 的结构性防御）：`ROUND_STARTED → 读上下文 → 策略 hook（如触发）→ 决策 → 执行（工具/模型，经授权+预算）→ 账本 → CHECKPOINT`。任何 hook 响应都不含"下一动作"字段——schema 层面拒绝（§5 HOOK_VERDICT）。
 
 ### 4.2 授权器
 
-| op | 方向 | 语义 | 默认超时 | 幂等性 | 主要错误 |
-|---|---|---|---|---|---|
-| `auth.check` | Cell/网关→Core | 判定 `subject × action × resource`；结果必写 `AUTH_DENIED`（拒绝留痕） | 50ms | 是 | `AUTH/DENIED`、`AUTH/SCOPE-UNKNOWN` |
-| `auth.policy.get` | Host→Core | 读取当前生效授权策略版本（诊断用，只读） | 100ms | 是 | — |
+| op                | 方向           | 语义                                                                   | 默认超时 | 幂等性 | 主要错误                            |
+| ----------------- | -------------- | ---------------------------------------------------------------------- | -------- | ------ | ----------------------------------- |
+| `auth.check`      | Cell/网关→Core | 判定 `subject × action × resource`；结果必写 `AUTH_DENIED`（拒绝留痕） | 50ms     | 是     | `AUTH/DENIED`、`AUTH/SCOPE-UNKNOWN` |
+| `auth.policy.get` | Host→Core      | 读取当前生效授权策略版本（诊断用，只读）                               | 100ms    | 是     | —                                   |
 
 授权策略本身为 Core 配置（白名单 + 默认拒绝，fail-closed，standards/06 §4）；策略插件不参与授权裁决（审批类需求走 hook①，且仅"否决权"无"授予权"——不能放行 Core 策略已拒绝的调用）。
 
 ### 4.3 预算器（D2）
 
-| op | 方向 | 语义 | 默认超时 | 幂等性 | 主要错误 |
-|---|---|---|---|---|---|
-| `budget.reserve` | Core 内部（授权后调用） | 按估算预扣；返回 `reservationId`；作用域链自 Run 向上逐级检查并预留 | 50ms | 是（同 id 同额） | `BUDGET/EXHAUSTED`、`BUDGET/SCOPE-UNKNOWN` |
-| `budget.settle` | Core 内部 | 按权威计量实结，退还差额；写 `BUDGET_SETTLED` | 50ms | 是（同 id 结算一次） | `BUDGET/RESERVATION-UNKNOWN` |
-| `budget.query` | Cell（只读本 run） | 查询剩余额度与已耗用量 | 50ms | 是 | — |
-| `budget.configure` | Host→Core | 设置某 scope 限额（MVP：配置文件装载，接口预留热更新） | 200ms | 是 | `BUDGET/INVALID-LIMIT` |
+| op                 | 方向                    | 语义                                                                | 默认超时 | 幂等性               | 主要错误                                   |
+| ------------------ | ----------------------- | ------------------------------------------------------------------- | -------- | -------------------- | ------------------------------------------ |
+| `budget.reserve`   | Core 内部（授权后调用） | 按估算预扣；返回 `reservationId`；作用域链自 Run 向上逐级检查并预留 | 50ms     | 是（同 id 同额）     | `BUDGET/EXHAUSTED`、`BUDGET/SCOPE-UNKNOWN` |
+| `budget.settle`    | Core 内部               | 按权威计量实结，退还差额；写 `BUDGET_SETTLED`                       | 50ms     | 是（同 id 结算一次） | `BUDGET/RESERVATION-UNKNOWN`               |
+| `budget.query`     | Cell（只读本 run）      | 查询剩余额度与已耗用量                                              | 50ms     | 是                   | —                                          |
+| `budget.configure` | Host→Core               | 设置某 scope 限额（MVP：配置文件装载，接口预留热更新）              | 200ms    | 是                   | `BUDGET/INVALID-LIMIT`                     |
 
 - 层级模型：`agent ⊃ session ⊃ run`；子级 reserve 同时在祖先链预扣，settle 逐级实结。MVP 实现 run + session；`agent` 级接口签名保留（§12）。
 - 耗尽语义三档（按 scope 配置，默认 Run=hard-stop、Session=graceful）：**hard-stop** 立即停止派发并走补偿收尾；**graceful** 完成在途工具调用+补偿后停，不接受新副作用；**policy** 交 hook④ 在 Core 给定的 `{hardStop, graceful}` 中选（D1 与 D2 的衔接点）。
@@ -82,18 +82,18 @@ DSH 三类症状直接源于控制面缺少硬契约：**V6** Agent Loop 被插�
 
 ### 4.4 账本
 
-| op | 方向 | 语义 | 默认超时 | 幂等性 | 主要错误 |
-|---|---|---|---|---|---|
-| `ledger.read` | 观测插件 / Cell（本 run）/ Host | 按 filter（runId/scope/类型/seq 区间）+ cursor 流式读取 | 1s/批 | 是 | `LEDGER/CURSOR-INVALID` |
-| `ledger.checkpoint` | Core 内部 | 轮边界 flush+fsync，写 `CHECKPOINT`（ADR-0004） | — | — | `LEDGER/WRITE-FAILED` → fail-stop |
+| op                  | 方向                            | 语义                                                    | 默认超时 | 幂等性 | 主要错误                          |
+| ------------------- | ------------------------------- | ------------------------------------------------------- | -------- | ------ | --------------------------------- |
+| `ledger.read`       | 观测插件 / Cell（本 run）/ Host | 按 filter（runId/scope/类型/seq 区间）+ cursor 流式读取 | 1s/批    | 是     | `LEDGER/CURSOR-INVALID`           |
+| `ledger.checkpoint` | Core 内部                       | 轮边界 flush+fsync，写 `CHECKPOINT`（ADR-0004）         | —        | —      | `LEDGER/WRITE-FAILED` → fail-stop |
 
 写路径纪律：轮内事件异步缓冲追加；`CHECKPOINT` 强制落盘；写失败 = 本轮 fail-stop（`RUN_FAILED`，禁止"先跑后补记"）。事件 schema（§5）单调 `schemaVersion`，只追加不改写。
 
 ### 4.5 恢复器（D3）
 
-| op | 方向 | 语义 | 默认超时 | 幂等性 | 主要错误 |
-|---|---|---|---|---|---|
-| `recover.plan` | Host→Core | 给出恢复计划：最近一致点 seq、需核对的未决副作用清单（`EFFECT_DECLARED` 未闭环者）、快照引用+版本 | 1s | 是 | `RECOVER/RUN-UNKNOWN` |
+| op                | 方向      | 语义                                                                                                                                 | 默认超时               | 幂等性              | 主要错误                                                  |
+| ----------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- | ------------------- | --------------------------------------------------------- |
+| `recover.plan`    | Host→Core | 给出恢复计划：最近一致点 seq、需核对的未决副作用清单（`EFFECT_DECLARED` 未闭环者）、快照引用+版本                                    | 1s                     | 是                  | `RECOVER/RUN-UNKNOWN`                                     |
 | `recover.execute` | Host→Core | 执行恢复：核对/执行未决补偿（按任务 D 状态机）→ Supervisor 重建 Cell 并挂载快照 → 从一致点重放 → 以新 runId 延续，写 `RUN_RECOVERED` | 30s（ADR-0005 后回填） | 是（同 runId 幂等） | `RECOVER/COMPENSATION-FAILED`、`RECOVER/SNAPSHOT-MISSING` |
 
 顺序硬约束（ADR-0004 §4.4）：**先核对未决副作用补偿表，再续跑**——恢复流程不得跳过 `recover.plan` 的补偿清单。
@@ -101,31 +101,31 @@ DSH 三类症状直接源于控制面缺少硬契约：**V6** Agent Loop 被插�
 
 ### 4.6 上下文管理器
 
-| op | 方向 | 语义 | 默认超时 | 幂等性 | 主要错误 |
-|---|---|---|---|---|---|
-| `context.alloc` | Host→Core（Cell 建立时） | 创建 scope 私有分区（工具表视图、上下文页、记忆命名空间），返回分区句柄 | 200ms | 是（同 scope 幂等） | `CTX/SCOPE-EXISTS` |
-| `tool.discover` | Cell→Core | 返回**本 scope** 可见工具表（含 schema 版本）；无全局模式 | 100ms | 是 | `CTX/SCOPE-UNKNOWN` |
-| `context.page.out/in` | Core 内部 | 换页原语：旧页移出/按需移回，页版本入账本 | — | — | `CTX/PAGE-MISSING` |
+| op                    | 方向                     | 语义                                                                    | 默认超时 | 幂等性              | 主要错误            |
+| --------------------- | ------------------------ | ----------------------------------------------------------------------- | -------- | ------------------- | ------------------- |
+| `context.alloc`       | Host→Core（Cell 建立时） | 创建 scope 私有分区（工具表视图、上下文页、记忆命名空间），返回分区句柄 | 200ms    | 是（同 scope 幂等） | `CTX/SCOPE-EXISTS`  |
+| `tool.discover`       | Cell→Core                | 返回**本 scope** 可见工具表（含 schema 版本）；无全局模式               | 100ms    | 是                  | `CTX/SCOPE-UNKNOWN` |
+| `context.page.out/in` | Core 内部                | 换页原语：旧页移出/按需移回，页版本入账本                               | —        | —                   | `CTX/PAGE-MISSING`  |
 
 工具 schema 变更 = 显式事件 `TOOL_SCHEMA_CHANGED`，**仅传播到受影响 scope**（V1：动态增删工具不触碰其他会话缓存）。
 
 ### 4.7 模型网关（ADR-0003）
 
-| op | 方向 | 语义 | 默认超时 | 幂等性 | 主要错误 |
-|---|---|---|---|---|---|
-| `model.invoke` | Cell→Core | 授权 → `budget.reserve`（预扣估算）→ Core 持凭证代理调用 → `settle`（权威计量）→ 写 `MODEL_INVOKED/MODEL_USAGE` | 120s（非流式） | 是（同 id 不重复计费） | `GATEWAY/UPSTREAM-ERROR`、`AUTH/DENIED`、`BUDGET/EXHAUSTED` |
-| `model.stream` | Cell→Core | 同上，流式透传；用量以流结束时机网关计量为准 | 连接 300s / 首字节 30s | 否（流式不重放） | 同上 |
+| op             | 方向      | 语义                                                                                                            | 默认超时               | 幂等性                 | 主要错误                                                    |
+| -------------- | --------- | --------------------------------------------------------------------------------------------------------------- | ---------------------- | ---------------------- | ----------------------------------------------------------- |
+| `model.invoke` | Cell→Core | 授权 → `budget.reserve`（预扣估算）→ Core 持凭证代理调用 → `settle`（权威计量）→ 写 `MODEL_INVOKED/MODEL_USAGE` | 120s（非流式）         | 是（同 id 不重复计费） | `GATEWAY/UPSTREAM-ERROR`、`AUTH/DENIED`、`BUDGET/EXHAUSTED` |
+| `model.stream` | Cell→Core | 同上，流式透传；用量以流结束时机网关计量为准                                                                    | 连接 300s / 首字节 30s | 否（流式不重放）       | 同上                                                        |
 
 Cell 侧适配器无凭证、无直连网络能力；网关故障 = 发起 Cell 本轮失败（`RUN_FAILED`），不级联其他 Cell。
 
 ### 4.8 策略扩展点（D1：封闭白名单，仅此四个）
 
-| hook | 触发点 | 允许的响应 | 响应 schema 禁区 |
-|---|---|---|---|
-| `hook.toolApproval` | 工具执行前 | `{verdict:"approve"\|"deny", reason}` | 不可改写工具参数/目标 |
-| `hook.stopAdvice` | 每轮决策后 | `{suggestStop:bool, reason}` | Core 裁决是否采纳；不含动作 |
-| `hook.retryAdvice` | 工具/调用失败后 | `{policy:"give-up"\|"retry", backoffMs}` | 受 Core 上下限钳制（max 3 次、退避 ≤30s） |
-| `hook.budgetExhaustedChoice` | 预算耗尽且该 scope=policy | `{action:"hardStop"\|"graceful"}` | 只能在 Core 给定选项中选 |
+| hook                         | 触发点                    | 允许的响应                               | 响应 schema 禁区                          |
+| ---------------------------- | ------------------------- | ---------------------------------------- | ----------------------------------------- |
+| `hook.toolApproval`          | 工具执行前                | `{verdict:"approve"\|"deny", reason}`    | 不可改写工具参数/目标                     |
+| `hook.stopAdvice`            | 每轮决策后                | `{suggestStop:bool, reason}`             | Core 裁决是否采纳；不含动作               |
+| `hook.retryAdvice`           | 工具/调用失败后           | `{policy:"give-up"\|"retry", backoffMs}` | 受 Core 上下限钳制（max 3 次、退避 ≤30s） |
+| `hook.budgetExhaustedChoice` | 预算耗尽且该 scope=policy | `{action:"hardStop"\|"graceful"}`        | 只能在 Core 给定选项中选                  |
 
 共性硬规则：同步调用、默认超时 200ms；**hook 失败/超时 = 采用默认策略并记 `HOOK_VERDICT{fallback:true}`**；每次调用与裁决入账本（归因）；白名单封闭——新增 hook 类型必须 ADR（防"变相接管"，architecture/01 §10）。
 
@@ -133,50 +133,50 @@ Cell 侧适配器无凭证、无直连网络能力；网关故障 = 发起 Cell 
 
 公共信封：`{seq(单调), ts, runId, sessionId, agentId, type, schemaVersion, payload}`。
 
-| type | 载荷要点 | 备注 |
-|---|---|---|
-| RUN_STARTED / RUN_HALTED / RUN_FAILED / RUN_RECOVERED | 生命周期与原因码 | RUN_RECOVERED 含新 runId 与恢复自 seq |
-| ROUND_STARTED / ROUND_ENDED | 轮号 | ROUND_ENDED 前必见 CHECKPOINT |
-| DECISION | 决策内容摘要 + 依据事件 seq 引用 | V6 重放归因的锚点 |
-| TOOL_INVOKE / TOOL_RESULT | 工具、参数摘要、结果状态、耗时 | 参数全文按留存策略（任务 C manifest 声明） |
-| AUTH_DENIED / HOOK_CALLED / HOOK_VERDICT | 主体、hook 名、裁决、fallback 标记 | 拒绝与策略介入全留痕 |
-| BUDGET_RESERVED / BUDGET_SETTLED | reservationId、scope 链、估算/实结、层级余量 | |
-| MODEL_INVOKED / MODEL_USAGE | 模型、请求摘要；用量/费用权威计量 | 网关写入（ADR-0003） |
-| EFFECT_DECLARED / COMPENSATION_EXECUTED | 副作用声明与补偿闭环 | schema 归任务 D → **已细化**（[补偿状态机](02-compensation-state-machine.md) §9） |
-| EFFECT_SETTLED / COMPENSATION_ESCALATED / COMPENSATION_WAIVED | 效果结果 / 补偿升级 / 豁免 | 同上（任务 D 增量，载荷见其 §9） |
-| STATE_SNAPSHOT_REF | 快照引用 + 版本 + 轮号 | D3 元数据；Core 不含快照内容 |
-| TOOL_SCHEMA_CHANGED | 工具、旧/新 schema 版本、受影响 scope | |
-| CHECKPOINT | 一致点 seq、轮号 | ADR-0004；重放自校验锚 |
+| type                                                          | 载荷要点                                     | 备注                                                                              |
+| ------------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------- |
+| RUN_STARTED / RUN_HALTED / RUN_FAILED / RUN_RECOVERED         | 生命周期与原因码                             | RUN_RECOVERED 含新 runId 与恢复自 seq                                             |
+| ROUND_STARTED / ROUND_ENDED                                   | 轮号                                         | ROUND_ENDED 前必见 CHECKPOINT                                                     |
+| DECISION                                                      | 决策内容摘要 + 依据事件 seq 引用             | V6 重放归因的锚点                                                                 |
+| TOOL_INVOKE / TOOL_RESULT                                     | 工具、参数摘要、结果状态、耗时               | 参数全文按留存策略（任务 C manifest 声明）                                        |
+| AUTH_DENIED / HOOK_CALLED / HOOK_VERDICT                      | 主体、hook 名、裁决、fallback 标记           | 拒绝与策略介入全留痕                                                              |
+| BUDGET_RESERVED / BUDGET_SETTLED                              | reservationId、scope 链、估算/实结、层级余量 |                                                                                   |
+| MODEL_INVOKED / MODEL_USAGE                                   | 模型、请求摘要；用量/费用权威计量            | 网关写入（ADR-0003）                                                              |
+| EFFECT_DECLARED / COMPENSATION_EXECUTED                       | 副作用声明与补偿闭环                         | schema 归任务 D → **已细化**（[补偿状态机](02-compensation-state-machine.md) §9） |
+| EFFECT_SETTLED / COMPENSATION_ESCALATED / COMPENSATION_WAIVED | 效果结果 / 补偿升级 / 豁免                   | 同上（任务 D 增量，载荷见其 §9）                                                  |
+| STATE_SNAPSHOT_REF                                            | 快照引用 + 版本 + 轮号                       | D3 元数据；Core 不含快照内容                                                      |
+| TOOL_SCHEMA_CHANGED                                           | 工具、旧/新 schema 版本、受影响 scope        |                                                                                   |
+| CHECKPOINT                                                    | 一致点 seq、轮号                             | ADR-0004；重放自校验锚                                                            |
 
 ## 6. 错误码
 
 分域字符串 `DOMAIN/KIND`。完整表：
 
-| 码 | 语义 | 可重试 |
-|---|---|---|
-| `AUTH/DENIED` | 授权拒绝（必留痕） | 否（改请求或改策略） |
-| `AUTH/SCOPE-UNKNOWN`、`CTX/SCOPE-UNKNOWN`、`CTX/SCOPE-EXISTS`、`SCHED/NOT-FOUND` | 寻址类 | 否 |
-| `BUDGET/EXHAUSTED` | 作用域链额度耗尽 | 否——触发 §4.3 耗尽语义 |
-| `BUDGET/RESERVATION-UNKNOWN`、`LEDGER/CURSOR-INVALID`、`RECOVER/RUN-UNKNOWN`、`RECOVER/SNAPSHOT-MISSING` | 状态类 | 否 |
-| `SCHED/BACKPRESSURE`、`SCHED/MANIFEST-INVALID` | 准入类 | 退避后是 / 否（修 manifest） |
-| `GATEWAY/UPSTREAM-ERROR` | 模型上游失败 | 按 hook③ 策略 |
-| `LEDGER/WRITE-FAILED` | 账本写失败 | 否——fail-stop，走恢复 |
-| `RECOVER/COMPENSATION-FAILED` | 补偿失败 | 否——升级阻断（补偿状态机 §8），豁免或修复后可续 |
-| `TRANSPORT/TIMEOUT`、`TRANSPORT/BADFRAME` | 通道类 | 幂等请求是 |
+| 码                                                                                                       | 语义               | 可重试                                          |
+| -------------------------------------------------------------------------------------------------------- | ------------------ | ----------------------------------------------- |
+| `AUTH/DENIED`                                                                                            | 授权拒绝（必留痕） | 否（改请求或改策略）                            |
+| `AUTH/SCOPE-UNKNOWN`、`CTX/SCOPE-UNKNOWN`、`CTX/SCOPE-EXISTS`、`SCHED/NOT-FOUND`                         | 寻址类             | 否                                              |
+| `BUDGET/EXHAUSTED`                                                                                       | 作用域链额度耗尽   | 否——触发 §4.3 耗尽语义                          |
+| `BUDGET/RESERVATION-UNKNOWN`、`LEDGER/CURSOR-INVALID`、`RECOVER/RUN-UNKNOWN`、`RECOVER/SNAPSHOT-MISSING` | 状态类             | 否                                              |
+| `SCHED/BACKPRESSURE`、`SCHED/MANIFEST-INVALID`                                                           | 准入类             | 退避后是 / 否（修 manifest）                    |
+| `GATEWAY/UPSTREAM-ERROR`                                                                                 | 模型上游失败       | 按 hook③ 策略                                   |
+| `LEDGER/WRITE-FAILED`                                                                                    | 账本写失败         | 否——fail-stop，走恢复                           |
+| `RECOVER/COMPENSATION-FAILED`                                                                            | 补偿失败           | 否——升级阻断（补偿状态机 §8），豁免或修复后可续 |
+| `TRANSPORT/TIMEOUT`、`TRANSPORT/BADFRAME`                                                                | 通道类             | 幂等请求是                                      |
 
 约定：错误必须带 `code`；`TRANSPORT/TIMEOUT` 时**执行结果未知**——调用方不得假设未发生，必须经补偿核对路径确认（衔接任务 D）。
 
 ## 7. 超时与重试基线
 
-| 交互 | 默认超时 | 重试 |
-|---|---|---|
-| `auth.check` / `budget.*` | 50ms | 幂等重试 ≤2 次，退避 20ms 起 |
-| `tool.discover` / `context.*` / `run.status` | 100~200ms | 同上 |
-| hook 四件套 | 200ms | 不重试（fallback=默认策略） |
-| `run.start` | 5s（含 Cell 进程冷启动，ADR-0005） | 幂等重试安全；容器后端启用时重估并修订本表 |
-| `model.invoke` 非流式 / 流式首字节 / 流式总长 | 120s / 30s / 300s | 幂等（同 id 不重复计费）/ 不重试 |
-| `recover.execute` | 30s（含 Cell 进程重建 + 快照挂载，ADR-0005） | 幂等 |
-| `ledger.append`（内部） | 缓冲写，<10ms | CHECKPOINT 强制 flush |
+| 交互                                          | 默认超时                                     | 重试                                       |
+| --------------------------------------------- | -------------------------------------------- | ------------------------------------------ |
+| `auth.check` / `budget.*`                     | 50ms                                         | 幂等重试 ≤2 次，退避 20ms 起               |
+| `tool.discover` / `context.*` / `run.status`  | 100~200ms                                    | 同上                                       |
+| hook 四件套                                   | 200ms                                        | 不重试（fallback=默认策略）                |
+| `run.start`                                   | 5s（含 Cell 进程冷启动，ADR-0005）           | 幂等重试安全；容器后端启用时重估并修订本表 |
+| `model.invoke` 非流式 / 流式首字节 / 流式总长 | 120s / 30s / 300s                            | 幂等（同 id 不重复计费）/ 不重试           |
+| `recover.execute`                             | 30s（含 Cell 进程重建 + 快照挂载，ADR-0005） | 幂等                                       |
+| `ledger.append`（内部）                       | 缓冲写，<10ms                                | CHECKPOINT 强制 flush                      |
 
 重试总闸：hook③ 的 retry 建议被 Core 钳制（≤3 次、退避 ≤30s）；一切重试与结果入账本。
 
@@ -216,18 +216,18 @@ Cell        Core(auth)      Core(budget)     Gateway      账本
 
 ## 11. 风险
 
-| 风险 | 预案 |
-|---|---|
-| 契约过早冻结 | 本篇"评审中"；实现中发现缺陷先改本文（standards/03 §1.4），接口变更记 CHANGELOG |
-| hook 超时链累积（四 hook 串行最坏 +800ms/轮） | 白名单内触发条件互斥设计；实现期熔断；基准入 Phase 1 验收 |
-| stdio 帧与未来远程传输漂移 | §3.1 已按可远程化约束（id/显式超时）；Phase 2+ 仅换传输层 |
-| 快照 I/O 拖慢轮边界 | D3 快照异步预取 + CHECKPOINT 前完成性校验；基准不达标回评（登记 backlog） |
+| 风险                                          | 预案                                                                            |
+| --------------------------------------------- | ------------------------------------------------------------------------------- |
+| 契约过早冻结                                  | 本篇"评审中"；实现中发现缺陷先改本文（standards/03 §1.4），接口变更记 CHANGELOG |
+| hook 超时链累积（四 hook 串行最坏 +800ms/轮） | 白名单内触发条件互斥设计；实现期熔断；基准入 Phase 1 验收                       |
+| stdio 帧与未来远程传输漂移                    | §3.1 已按可远程化约束（id/显式超时）；Phase 2+ 仅换传输层                       |
+| 快照 I/O 拖慢轮边界                           | D3 快照异步预取 + CHECKPOINT 前完成性校验；基准不达标回评（登记 backlog）       |
 
 ## 12. 待决问题
 
-| 问题 | 决定时限 |
-|---|---|
-| `ledger.read` 游标语义（持续追加流的消费/滞留）细节 | Phase 1 实现期细化，不阻塞定稿 |
-| `model.stream` 背压与断流恢复语义 | Phase 1 基准后回填 |
-| `budget.configure` 的 Agent 级配置入口（所有者工具 or 配置文件热载） | MVP 用配置文件；接口已预留 |
-| 隔离敏感超时回填 | ✅ 已解决：ADR-0005 定稿，§7 已回填（2026-11-02）；容器后端启用时重估 |
+| 问题                                                                 | 决定时限                                                              |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `ledger.read` 游标语义（持续追加流的消费/滞留）细节                  | Phase 1 实现期细化，不阻塞定稿                                        |
+| `model.stream` 背压与断流恢复语义                                    | Phase 1 基准后回填                                                    |
+| `budget.configure` 的 Agent 级配置入口（所有者工具 or 配置文件热载） | MVP 用配置文件；接口已预留                                            |
+| 隔离敏感超时回填                                                     | ✅ 已解决：ADR-0005 定稿，§7 已回填（2026-11-02）；容器后端启用时重估 |

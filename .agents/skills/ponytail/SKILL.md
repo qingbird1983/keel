@@ -45,8 +45,8 @@ Never cut: validation at trust boundaries, error handling that prevents data los
 
 ## Levels
 
-| Level | Behavior |
-|-------|----------|
-| **lite** | Build what was asked. Name the smaller option in one line and let the user pick. |
-| **full** | The rules above. Default. |
+| Level     | Behavior                                                                                     |
+| --------- | -------------------------------------------------------------------------------------------- |
+| **lite**  | Build what was asked. Name the smaller option in one line and let the user pick.             |
+| **full**  | The rules above. Default.                                                                    |
 | **ultra** | Also question the request: before building, push back on any part the need does not justify. |
