@@ -10,7 +10,7 @@
  * ⑤ 交付入口可读：`keel replay` 子进程对同一 Run 输出上述全部归因行（逐事件一行）。
  */
 
-import { execSync, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -87,11 +87,6 @@ let ledger: Ledger;
 let cell: SupervisedCell;
 const events: LedgerEvent[] = [];
 let replayOut = "";
-
-beforeAll(() => {
-  // CLI bin 及其 workspace 依赖的 dist（replay 子进程只能跑 dist）
-  execSync("pnpm --filter keel... run build", { cwd: repoRoot, stdio: "pipe" });
-});
 
 beforeAll(async () => {
   dir = await mkdtemp(path.join(tmpdir(), "keel-a6-"));

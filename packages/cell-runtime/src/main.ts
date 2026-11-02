@@ -53,9 +53,13 @@ void (async () => {
     input: process.stdin,
     output: process.stdout,
     toolCallTimeoutMs: boot.toolCallTimeoutMs,
+    // 装载门（ADR-0011）：静态工具登记完成之前不受理宿主请求——显式开闸而不是依赖
+    // "startCell 本来就在 import 之后"的巧合，这样漏调 markReady 会表现为就绪超时（可见失败）。
+    loadGate: true,
   });
   for (const tool of mod.tools ?? []) cell.registerTool(tool);
   if (mod.migrate) cell.setMigration(mod.migrate);
   if (mod.compensations) cell.setCompensations(mod.compensations);
   if (mod.snapshot) cell.setSnapshotProvider(mod.snapshot);
+  cell.markReady();
 })().catch((err) => crash(err));

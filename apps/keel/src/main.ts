@@ -6,6 +6,7 @@
 import { pathToFileURL } from "node:url";
 import { cmdBench } from "./cmd-bench.js";
 import { cmdHotswap } from "./cmd-hotswap.js";
+import { cmdObserve } from "./cmd-observe.js";
 import { cmdRecover } from "./cmd-recover.js";
 import { cmdReplay } from "./cmd-replay.js";
 import { cmdRun } from "./cmd-run.js";
@@ -19,6 +20,7 @@ const USAGE = `keel — Phase 1 验收场景执行入口（命令面见 docs/des
   keel recover --data-dir <dir> --run <runId> [--plugin <path>] [--manifest <path>] [--tool get-state]
   keel replay --data-dir <dir> --run <runId>
   keel validate (--manifest <path> | --dir <dir>) [--expect accept|reject]
+  keel observe --plugin <path> [--entry legacy|default] [--out <dir>] [--tool-timeout 5000] [--data-dir <dir>]
   keel hotswap [--data-dir <dir>]
   keel bench
   keel scenario <a2|a3|a4|a5>
@@ -80,6 +82,14 @@ export async function main(argv: string[]): Promise<number> {
           expect: expect === "accept" || expect === "reject" ? expect : undefined,
         });
       }
+      case "observe":
+        return await cmdObserve({
+          plugin: str(a.plugin),
+          entry: str(a.entry) || undefined,
+          out: str(a.out) || undefined,
+          dataDir: str(a["data-dir"]) || undefined,
+          toolTimeoutMs: optNum(a["tool-timeout"]),
+        });
       case "hotswap":
         return await cmdHotswap({ dataDir: str(a["data-dir"]) || undefined });
       case "bench":

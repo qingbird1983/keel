@@ -15,7 +15,7 @@
 
 1. **装载门落在 `startCell`**：`CellHandle` 增加 `markReady()`；门未开时对端请求**排队不应答**（帧照常读取，不丢不报错）。默认入口在装载末尾调用（与现状行为等价），承接层入口在 `await activate(ctx)` 之后调用——旧 ctx 的注册调用因此一定先于第一次应答进入内核分区。
 2. **就绪凭据 = 一次 `cell.snapshot` 应答**（契约既有 Host→Cell op，不新增接口）。宿主侧新增收敛点 `wireCell()`（`spawn → serve → alloc → 就绪探测`），装配、热升级、起 run 三条路共用同一个就绪事实。
-3. **探测超时即拒绝装配**：超时口径进契约 §7 超时表；探测失败（超时或通道断）→ 宿主 `dispose` 该 Cell（退出分类 = `killed`）并明确拒绝装配，**不静默重试到成功为止**。activation 抛异常的旧代码路径不悬挂：承接层入口的崩溃语义（非零退出）会关闭通道，在途请求按既有帧规则以 `TRANSPORT/BADFRAME` 回落。
+3. **探测超时即拒绝装配**：超时口径进契约 §7 超时表；探测失败（超时或通道断）→ 宿主 `dispose` 该 Cell（退出分类 = `killed`）并明确拒绝装配，**不静默重试到成功为止**。错误码**沿用契约 §6 的封闭集合**（未得到应答 = `TRANSPORT/TIMEOUT`，通道已断 = `TRANSPORT/BADFRAME`，分类细节放 `detail.reason = "CELL_NOT_READY"`）——不为"就绪"新增错误码：§6 是封闭表，扩表要单独论证，而这里没有新语义要表达。activation 抛异常的旧代码路径不悬挂：承接层入口的崩溃语义（非零退出）会关闭通道，在途请求按既有帧规则以 `TRANSPORT/BADFRAME` 回落。
 4. **不动的东西写明白**：Supervisor 的生命周期阶段（`creating/ready/running/…`）语义不变——阶段描述进程与通道，不描述插件装载；bootstrap 载荷形状不变；不新增 op；事件帧继续无推送方。
 
 ## 被否方案

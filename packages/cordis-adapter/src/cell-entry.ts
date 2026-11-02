@@ -47,9 +47,13 @@ void (async () => {
     input: process.stdin,
     output: process.stdout,
     toolCallTimeoutMs: boot.toolCallTimeoutMs,
+    // 装载门（ADR-0011）：旧插件 activation 完成之前不受理宿主请求——
+    // 于是"第一轮决策看见空工具表"这条路被关掉（注册帧在 activation 里已写出，宿主先收到它们）。
+    loadGate: true,
   });
   const mod: unknown = await import(pathToFileURL(boot.pluginPath).href);
   const activate = normalizeLegacyModule(mod);
   // activation 里旧代码可以 await 注册；返回值不被解读（插件不接管控制流，I1/V6）
   await activate(createCordisCellCtx(cell));
+  cell.markReady();
 })().catch((err) => crash(err));

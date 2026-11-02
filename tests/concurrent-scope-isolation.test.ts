@@ -12,7 +12,6 @@
  * 附带采集规模观测（并发 Cell 数 / 总耗时 / 宿主 RSS 增量）供 roadmap §4 隔离成本风险登记。
  */
 
-import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -104,10 +103,6 @@ let scheduler: Scheduler;
 let supervisor: CellSupervisor;
 const cells: SupervisedCell[] = [];
 let rssBefore = 0;
-
-beforeAll(() => {
-  execSync("pnpm --filter @keel/cell-runtime build", { cwd: repoRoot, stdio: "pipe" });
-});
 
 beforeAll(async () => {
   dir = await mkdtemp(path.join(tmpdir(), "keel-a1-"));

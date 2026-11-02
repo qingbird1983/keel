@@ -8,7 +8,6 @@
  * ④ 同 reqId 重放 → replay=true、不重打上游、不重复计费（预算权威记账）。
  */
 
-import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -73,10 +72,6 @@ let cell: SupervisedCell;
 let events: LedgerEvent[] = [];
 let upstreamCalls = 0;
 let digest: Record<string, unknown> = {};
-
-beforeAll(() => {
-  execSync("pnpm --filter @keel/cell-runtime build", { cwd: repoRoot, stdio: "pipe" });
-});
 
 beforeAll(async () => {
   dir = await mkdtemp(path.join(tmpdir(), "keel-a7-"));

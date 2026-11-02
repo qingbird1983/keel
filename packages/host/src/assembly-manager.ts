@@ -22,7 +22,11 @@ export interface ManagedCell {
 }
 
 export interface CellFactory {
-  spawn(spec: { manifest: LoadedManifest; pluginPath: string }): ManagedCell;
+  /**
+   * `cellEntry`（切片②）：被编排的舱可以是承接层入口（存量插件）或默认入口（新生态）。
+   * Supervisor 侧的 per-spawn 覆盖已存在（ADR-0010 决策 8），此前编排层透不过来。
+   */
+  spawn(spec: { manifest: LoadedManifest; pluginPath: string; cellEntry?: string }): ManagedCell;
 }
 
 export interface ScopeBinding {
@@ -38,12 +42,16 @@ export interface ScopeBinding {
 export interface BindRequest {
   manifest: LoadedManifest;
   pluginPath: string;
+  /** 承接层入口（缺省 = 工厂自己的默认入口）。 */
+  cellEntry?: string;
 }
 
 export interface HotSwapRequest {
   /** 新版本 manifest 原始 JSON（五步校验在此执行）。 */
   rawManifest: unknown;
   pluginPath: string;
+  /** 承接层入口（缺省 = 工厂自己的默认入口）。 */
+  cellEntry?: string;
 }
 
 export class AssemblyManager {
@@ -60,7 +68,11 @@ export class AssemblyManager {
     if (this.bindings.has(key)) {
       throw new KeelError("CTX/SCOPE-EXISTS", "scope already bound", { scope });
     }
-    const cell = this.deps.factory.spawn({ manifest: req.manifest, pluginPath: req.pluginPath });
+    const cell = this.deps.factory.spawn({
+      manifest: req.manifest,
+      pluginPath: req.pluginPath,
+      cellEntry: req.cellEntry,
+    });
     const binding: ScopeBinding = { manifest: req.manifest, cell, state: null };
     this.bindings.set(key, binding);
     return binding;
@@ -80,7 +92,11 @@ export class AssemblyManager {
     const current = this.bindings.get(key);
     // 五步校验（含升级场景的 migration.from 匹配已装版本）
     const manifest = this.deps.assembler.assemble(req.rawManifest, current?.manifest.meta.version);
-    const newCell = this.deps.factory.spawn({ manifest, pluginPath: req.pluginPath });
+    const newCell = this.deps.factory.spawn({
+      manifest,
+      pluginPath: req.pluginPath,
+      cellEntry: req.cellEntry,
+    });
     try {
       let state: unknown = null;
       if (manifest.migration) {

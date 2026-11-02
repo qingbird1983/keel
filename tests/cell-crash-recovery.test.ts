@@ -9,7 +9,6 @@
  * 阶段验收时由 apps/keel CLI 复演。
  */
 
-import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -65,10 +64,6 @@ const bindings = new Map<
   string,
   { scope: { agentId: string; sessionId: string }; cell: SupervisedCell }
 >();
-
-beforeAll(() => {
-  execSync("pnpm --filter @keel/cell-runtime build", { cwd: repoRoot, stdio: "pipe" });
-});
 
 beforeAll(async () => {
   dir = await mkdtemp(path.join(tmpdir(), "keel-a3-"));

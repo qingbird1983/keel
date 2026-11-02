@@ -8,7 +8,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { RunDriver } from "@keel/core";
-import { assembleManifest, buildRuntime, closeRuntime, readRun, wireRun } from "./runtime.js";
+import {
+  assembleManifest,
+  buildRuntime,
+  closeRuntime,
+  readRun,
+  runPolicy,
+  wireRun,
+} from "./runtime.js";
 
 export interface RunOptions {
   /** manifest JSON 文件路径。 */
@@ -26,7 +33,7 @@ export interface RunOptions {
 export async function cmdRun(opts: RunOptions): Promise<number> {
   const manifest = assembleManifest(JSON.parse(readFileSync(opts.manifest, "utf-8")));
   const dataDir = opts.dataDir ?? (await mkdtemp(path.join(tmpdir(), "keel-run-")));
-  const rt = await buildRuntime(dataDir);
+  const rt = await buildRuntime(dataDir, { policy: runPolicy(manifest, "keel-cli") });
   try {
     const tool = opts.tool ?? "ok";
     const total = opts.rounds ?? 2;
