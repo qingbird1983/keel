@@ -45,6 +45,7 @@ export {
   type SupervisorOptions,
 } from "./supervisor.js";
 export { serveCellChannel, type CellChannelBinding, type CellServerDeps } from "./cell-server.js";
+export { manifestAuthRules, capabilitysWithoutRuntimeOp } from "./permission-rules.js";
 export {
   CompensationExecutor,
   type ActionCellFactory,

@@ -256,3 +256,103 @@ describe("cell-server：声明期 dependsOn 校验 + 效果追踪（切片④）
     expect((await readAll()).filter((e) => e.type === "EFFECT_DECLARED")).toHaveLength(2);
   });
 });
+
+describe("cell-server：运行期注册通道 tool.register / tool.remove（契约 §4.6，切片①·ADR-0010）", () => {
+  /** 放行注册与撤名的策略（= permission-rules 由 tool.provide 编译出来的形状）。 */
+  const regPolicy: AuthPolicyInput = {
+    version: "p-reg",
+    allow: [
+      { subject: "cell-1", action: "tool.register", resource: "*" },
+      { subject: "cell-1", action: "tool.remove", resource: "*" },
+    ],
+  };
+
+  it("注册：版本由内核按现有条目指派（重复调用 = 覆盖且 +1），Cell 提交的版本号被忽略", async () => {
+    const { deps, cellConn } = rig(regPolicy);
+    deps.ctx.alloc(scope);
+    await expect(
+      cellConn.request("tool.register", { name: "alpha", schema: { v: 1 } }, 500),
+    ).resolves.toEqual({ name: "alpha", schemaVersion: 1 });
+    // 恶意/陈旧版本号都不作数：线上只认内核自己算出来的那一个
+    await expect(
+      cellConn.request(
+        "tool.register",
+        { name: "alpha", schemaVersion: 99, schema: { v: 2 } },
+        500,
+      ),
+    ).resolves.toEqual({ name: "alpha", schemaVersion: 2 });
+    expect(deps.ctx.discover(ref)).toEqual([{ name: "alpha", schemaVersion: 2, schema: { v: 2 } }]);
+  });
+
+  it("未声明能力（策略无规则）→ AUTH/DENIED，可见表一字未动且拒绝留痕", async () => {
+    const { deps, cellConn, readAll } = rig(); // 默认 policy 不含 tool.register
+    deps.ctx.alloc(scope);
+    await expect(
+      cellConn.request("tool.register", { name: "alpha", schema: {} }, 500),
+    ).rejects.toMatchObject({ code: "AUTH/DENIED" });
+    expect(deps.ctx.discover(ref)).toEqual([]);
+    const denied = (await readAll()).find((e) => e.type === "AUTH_DENIED");
+    expect(denied?.payload).toMatchObject({
+      subject: "cell-1",
+      action: "tool.register",
+      resource: "alpha",
+      policyVersion: "p1",
+    });
+  });
+
+  it("作用域未分配 → CTX/SCOPE-UNKNOWN（适配器与通道都不擅自 alloc）", async () => {
+    const { cellConn } = rig(regPolicy);
+    await expect(
+      cellConn.request("tool.register", { name: "alpha", schema: {} }, 500),
+    ).rejects.toMatchObject({ code: "CTX/SCOPE-UNKNOWN" });
+  });
+
+  it("撤名：存在 → true 并传播下线（newSchemaVersion=0）；不存在 → false", async () => {
+    const { deps, cellConn } = rig(regPolicy);
+    deps.ctx.alloc(scope);
+    await cellConn.request("tool.register", { name: "alpha", schema: {} }, 500);
+    await expect(cellConn.request("tool.remove", { name: "alpha" }, 500)).resolves.toBe(true);
+    expect(deps.ctx.discover(ref)).toEqual([]);
+    await expect(cellConn.request("tool.remove", { name: "alpha" }, 500)).resolves.toBe(false);
+    const changes = deps.ctx.consumeSchemaChanges(ref);
+    expect(changes.map((c) => [c.tool, c.oldSchemaVersion, c.newSchemaVersion])).toEqual([
+      ["alpha", 0, 1],
+      ["alpha", 1, 0],
+    ]);
+    expect(changes.every((c) => c.affectedScope?.sessionId === scope.sessionId)).toBe(true);
+  });
+
+  it("注册只影响本 scope：他人分区结构上拿不到这个名字", async () => {
+    const { deps, cellConn } = rig(regPolicy);
+    const other: Scope = { agentId: "agent-2", sessionId: "sess-2" };
+    deps.ctx.alloc(scope);
+    deps.ctx.alloc(other);
+    await cellConn.request("tool.register", { name: "alpha", schema: {} }, 500);
+    expect(deps.ctx.discover({ ...other, runId: "run-2" })).toEqual([]);
+  });
+
+  it("缺 name / 非字符串 name → TRANSPORT/BADFRAME（帧语义误用，不进内核状态）", async () => {
+    const { deps, cellConn } = rig(regPolicy);
+    deps.ctx.alloc(scope);
+    await expect(cellConn.request("tool.register", { schema: {} }, 500)).rejects.toMatchObject({
+      code: "TRANSPORT/BADFRAME",
+    });
+    await expect(
+      cellConn.request("tool.register", { name: 42, schema: {} }, 500),
+    ).rejects.toMatchObject({ code: "TRANSPORT/BADFRAME" });
+    expect(deps.ctx.discover(ref)).toEqual([]);
+  });
+
+  it("handler 不得跨通道写入（注册载荷里的 handler 字段被丢弃，仅 name+schema 进分区）", async () => {
+    const { deps, cellConn } = rig(regPolicy);
+    deps.ctx.alloc(scope);
+    await cellConn.request(
+      "tool.register",
+      { name: "alpha", schema: { ok: true }, handler: "function(){...}" },
+      500,
+    );
+    expect(deps.ctx.discover(ref)).toEqual([
+      { name: "alpha", schemaVersion: 1, schema: { ok: true } },
+    ]);
+  });
+});

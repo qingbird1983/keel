@@ -2,3 +2,8 @@
 dist/
 coverage/
 pnpm-lock.yaml
+# 存量插件样本目录（A 档合成组 + 后续真样本落点）：书写风格本身是被测对象的一部分
+# （phase-2/02 稿 §7 判据 1：CommonJS 旧写法、不套 Keel 侧约定）。
+# 统一格式化会在某次 pnpm format 里静默改写这批文件，把"一行没改"这条主张的证据毁掉，
+# 所以这里长期排除，而不是每次手工还原。
+tests/fixtures/cordis-plugins/

@@ -216,6 +216,9 @@ importers:
 
   packages/cordis-adapter:
     dependencies:
+      '@keel/cell-runtime':
+        specifier: workspace:*
+        version: link:../cell-runtime
       '@keel/core':
         specifier: workspace:*
         version: link:../core

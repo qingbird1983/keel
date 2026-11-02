@@ -28,5 +28,6 @@ export {
   type CompensationExecInput,
   type CompensationHandler,
   type EffectDeclaration,
+  type RegisteredToolView,
   type ToolExecResult,
 } from "./cell.js";

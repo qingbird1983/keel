@@ -14,6 +14,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@keel/cell-runtime": "workspace:*",
     "@keel/core": "workspace:*"
   }
 }

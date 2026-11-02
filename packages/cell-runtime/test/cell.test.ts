@@ -1,6 +1,6 @@
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { FrameConn, type FrameError } from "../src/protocol.js";
+import { ChannelError, FrameConn, type FrameError } from "../src/protocol.js";
 import { startCell, type CellTool } from "../src/cell.js";
 
 /** 内存在场测试：cell 进程体 + 模拟 Core 侧（同进程双 FrameConn，契约 §3.1 帧通道）。 */
@@ -235,5 +235,67 @@ describe("Cell 进程体：补偿动作与快照面（切片④）", () => {
     });
     const bare = rig();
     await expect(bare.core.request("cell.snapshot", {}, 500)).resolves.toEqual({ state: null });
+  });
+});
+
+describe("Cell 客户端：运行期注册面（tool.register / tool.remove，契约 §4.6，ADR-0010）", () => {
+  /** 模拟 Core 侧应答，并记录 Cell 实际发出的帧（断言线上形状，不是本地假想）。 */
+  function coreSide(handler: (op: string, params: Record<string, unknown>) => unknown) {
+    const { cell, core } = rig();
+    const seen: { op: string; params: Record<string, unknown> }[] = [];
+    core.serve(async (op, params) => {
+      const p = (params ?? {}) as Record<string, unknown>;
+      seen.push({ op, params: p });
+      return handler(op, p);
+    });
+    return { cell, seen };
+  }
+
+  it("registerTool：发 tool.register{name, schema}；版本取内核返回值（Cell 侧不自算）", async () => {
+    const { cell, seen } = coreSide((_op, p) => ({ name: String(p.name), schemaVersion: 7 }));
+    await expect(cell.client.registerTool("alpha", { type: "object" })).resolves.toEqual({
+      name: "alpha",
+      schemaVersion: 7,
+    });
+    expect(seen).toEqual([
+      { op: "tool.register", params: { name: "alpha", schema: { type: "object" } } },
+    ]);
+  });
+
+  it("removeTool：发 tool.remove{name}，返回内核给出的是否真的存在过", async () => {
+    const { cell, seen } = coreSide(() => false);
+    await expect(cell.client.removeTool("alpha")).resolves.toBe(false);
+    expect(seen).toEqual([{ op: "tool.remove", params: { name: "alpha" } }]);
+  });
+
+  it("内核裁决错误原样抛出（AUTH/DENIED），承接层与 Cell 都不改写归因码", async () => {
+    const { cell } = coreSide(() => {
+      throw new ChannelError("AUTH/DENIED", "no allow rule matches tool.register");
+    });
+    expect(await errCode(cell.client.registerTool("x", {}))).toBe("AUTH/DENIED");
+    expect(await errCode(cell.client.removeTool("x"))).toBe("AUTH/DENIED");
+  });
+
+  it("handle.removeTool：撤执行表条目 → 之后 tool.exec = CELL/TOOL-UNKNOWN（回滚与运行期下线共用）", async () => {
+    const { cell, core } = rig();
+    cell.registerTool({ name: "echo", schema: {}, handler: (p) => p });
+    expect(cell.removeTool("echo")).toBe(true);
+    expect(cell.removeTool("echo")).toBe(false); // 二次撤 = 不存在（旧框架据此判断是否报错）
+    const r = await core.request<{ status: string; error?: { code?: string } }>(
+      "tool.exec",
+      { tool: "echo" },
+      500,
+    );
+    expect(r.status).toBe("error");
+    expect(r.error?.code).toBe("CELL/TOOL-UNKNOWN");
+  });
+
+  it("handle.getTool：读执行表条目（承接层覆盖注册失败时要把旧 handler 放回去，事实源仍在 Cell）", () => {
+    const { cell } = rig();
+    const tool: CellTool = { name: "echo", schema: { v: 1 }, handler: (p) => p };
+    cell.registerTool(tool);
+    expect(cell.getTool("echo")).toBe(tool);
+    cell.removeTool("echo");
+    expect(cell.getTool("echo")).toBeUndefined();
   });
 });

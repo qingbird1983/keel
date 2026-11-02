@@ -9,8 +9,10 @@
  *   （ADR-0005「新 Cell」路径），未知 actionRef 拒绝。
  * - cell.snapshot（切片④）：宿主轮边界索取私有状态（D3）；无快照面 = 无状态 Cell（{state:null}）。
  * - CellClient（Cell→Core 方向，契约 §3.3 可见面）：auth.check / budget.query / model.invoke /
- *   tool.discover / ledger.read（仅本 run）/ effect.declare（EFFECT_DECLARED 发起端，
+ *   tool.discover / tool.register / tool.remove（切片①：运行期按 scope 注册与撤名，**handler 不出舱**，
+ *   版本号由内核指派）/ ledger.read（仅本 run）/ effect.declare（EFFECT_DECLARED 发起端，
  *   "先声明后动手"；模板校验与落账在 Core 侧，C-M1）。
+ * - handle.client 暴露给承接层：旧框架形状 ctx 在舱内构造时唯一的内核出口（作用域由宿主盖章，本进程不持有）。
  * - 无凭证、无直连网络：模型调用必经 Core 网关；工具越权由 Core 授权器拒绝。
  * - 崩溃语义（ADR-0005 crash 分类前提）：未捕获异常 = 进程非零退出（main.ts 显式注册）。
  */
@@ -52,6 +54,12 @@ export interface CompensationExecInput {
 /** 插件补偿动作处理器（export const compensations 表项；必须容忍目标不存在，状态机 §6）。 */
 export type CompensationHandler = (input: CompensationExecInput) => Promise<unknown> | unknown;
 
+/** 内核指派的工具视图（tool.register 返回；Cell 侧不得自算版本，ADR-0010 决策 4）。 */
+export interface RegisteredToolView {
+  name: string;
+  schemaVersion: number;
+}
+
 /** Cell→Core 客户端（契约 §4 可见面矩阵 Cell 行；超时按 §7 默认表）。 */
 export interface CellClient {
   authCheck(action: string, resource: string): Promise<{ allowed: boolean; reason?: string }>;
@@ -63,6 +71,10 @@ export interface CellClient {
     estimate: number;
   }): Promise<unknown>;
   toolDiscover(): Promise<unknown[]>;
+  /** 本 scope 运行期注册/更新工具（契约 §4.6，切片①）：**只提交 name+schema，handler 不出舱**。 */
+  registerTool(name: string, schema: unknown): Promise<RegisteredToolView>;
+  /** 本 scope 撤名（契约 §4.6）；返回是否真的存在过。 */
+  removeTool(name: string): Promise<boolean>;
   ledgerRead(filter: { types?: string[]; seqFrom?: number; seqTo?: number }): Promise<unknown>;
   declareEffect(decl: EffectDeclaration): Promise<{ effectId: string; seq: number }>;
 }
@@ -75,6 +87,12 @@ export interface CellOptions extends ConnStreams {
 
 export interface CellHandle {
   registerTool(tool: CellTool): void;
+  /** 撤本 Cell 执行表条目（运行期下线与注册失败回滚共用）；返回是否真的存在过。 */
+  removeTool(name: string): boolean;
+  /** 读执行表条目（承接层在覆盖注册被内核拒绝时据此把旧 handler 放回；表本身仍只在 Cell 内）。 */
+  getTool(name: string): CellTool | undefined;
+  /** Cell→Core 客户端（承接层在舱内构造旧 API 面时的唯一出口；作用域由宿主通道盖章）。 */
+  readonly client: CellClient;
   /** 注册迁移钩（manifest migration.steps[].action.ref 对应的插件导出；无则 migrate 拒绝）。 */
   setMigration(fn: (oldState: unknown) => Promise<unknown> | unknown): void;
   /** 注册补偿动作表（插件 export const compensations；切片④）。 */
@@ -96,6 +114,9 @@ const TIMEOUT_DISCOVER = 100;
 const TIMEOUT_LEDGER = 1_000;
 const TIMEOUT_EFFECT = 200;
 const TIMEOUT_MODEL = 120_000;
+// 契约 §4.6 切片①新增两行（含一次 Core 状态写 + 挂起变更日志追加）
+const TIMEOUT_TOOL_REGISTER = 200;
+const TIMEOUT_TOOL_REMOVE = 200;
 
 export function startCell(opts: CellOptions): CellHandle {
   const conn = new FrameConn(opts);
@@ -110,6 +131,9 @@ export function startCell(opts: CellOptions): CellHandle {
     budgetQuery: () => conn.request("budget.query", {}, TIMEOUT_BUDGET),
     modelInvoke: (req) => conn.request("model.invoke", req, TIMEOUT_MODEL),
     toolDiscover: () => conn.request("tool.discover", {}, TIMEOUT_DISCOVER),
+    registerTool: (name, schema) =>
+      conn.request<RegisteredToolView>("tool.register", { name, schema }, TIMEOUT_TOOL_REGISTER),
+    removeTool: (name) => conn.request<boolean>("tool.remove", { name }, TIMEOUT_TOOL_REMOVE),
     ledgerRead: (filter) => conn.request("ledger.read", { filter }, TIMEOUT_LEDGER),
     declareEffect: (decl) => {
       const effectId = crypto.randomUUID();
@@ -202,8 +226,15 @@ export function startCell(opts: CellOptions): CellHandle {
   }
 
   return {
+    client,
     registerTool(tool) {
       tools.set(tool.name, tool);
+    },
+    removeTool(name) {
+      return tools.delete(name);
+    },
+    getTool(name) {
+      return tools.get(name);
     },
     setMigration(fn) {
       migration = fn;

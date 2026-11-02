@@ -185,9 +185,11 @@ function makeDriver(i: number, probe: Probe): RunDriver {
       probe.seen.push(got);
 
       if (!isStatic(i)) {
-        if (c.round === 1) probe.cordis.tools.register({ name: n.alpha, schema: { session: i } });
-        if (c.round === 2) probe.cordis.tools.remove(n.base);
-        if (c.round === 3) probe.cordis.tools.register({ name: "ok", schema: { bumped: i } });
+        // 承接层端口与真实迁入路径同形（async）：注册是"跨进程问内核"的一次往返（02 稿 §6）
+        if (c.round === 1)
+          await probe.cordis.tools.register({ name: n.alpha, schema: { session: i } });
+        if (c.round === 2) await probe.cordis.tools.remove(n.base);
+        if (c.round === 3) await probe.cordis.tools.register({ name: "ok", schema: { bumped: i } });
       }
       if (c.round >= ROUNDS) return { done: true, summary: `s${i}-end` };
       return {
@@ -198,7 +200,7 @@ function makeDriver(i: number, probe: Probe): RunDriver {
   };
 }
 
-function startSession(i: number): { probe: Probe; done: Promise<RunStatus> } {
+async function startSession(i: number): Promise<{ probe: Probe; done: Promise<RunStatus> }> {
   const scope: Scope = { agentId: "agent-a1", sessionId: `sess-${String(i).padStart(2, "0")}` };
   const runId = `run-${String(i).padStart(2, "0")}`;
   const ref: RunRef = { ...scope, runId };
@@ -220,8 +222,11 @@ function startSession(i: number): { probe: Probe; done: Promise<RunStatus> } {
   const cordis = createCordisCtx({ ctx: ctxMgr, ref });
   const probe: Probe = { scope, runId, cordis, seen: [], violations: [] };
   const n = toolNames(i);
-  cordis.tools.register({ name: n.base, schema: { session: i } });
-  cordis.tools.register({ name: "ok", schema: { session: i } });
+  // 开跑前两笔注册（与原口径一致：先有自身注册集，再进第一轮决策）
+  await Promise.all([
+    cordis.tools.register({ name: n.base, schema: { session: i } }),
+    cordis.tools.register({ name: "ok", schema: { session: i } }),
+  ]);
   const { done } = scheduler.start({
     ref,
     subject: scope.agentId,
@@ -240,7 +245,7 @@ async function readRun(runId: string): Promise<LedgerEvent[]> {
 describe(`A1（V1）：${SESSIONS} 会话并发 + 动态增删工具（真实进程规模级）`, () => {
   it("各 scope 工具表互不可见 / 指纹只因自身变更而变 / 无跨会话污染", async () => {
     const t0 = Date.now();
-    const sessions = Array.from({ length: SESSIONS }, (_, i) => startSession(i));
+    const sessions = await Promise.all(Array.from({ length: SESSIONS }, (_, i) => startSession(i)));
     const statuses = await Promise.all(sessions.map((s) => s.done));
     const elapsedMs = Date.now() - t0;
 
