@@ -1,10 +1,11 @@
 /**
  * @keel/host —— Host Layer：IsolationProvider（进程后端，ADR-0005）、Cell Supervisor、
- * 装配器（五步校验 + 热装配，manifest 稿 §6）、Core 侧 Cell 通道服务（契约 §3.3）。
+ * 装配器（五步校验 + 热装配，manifest 稿 §6）、Core 侧 Cell 通道服务（契约 §3.3）、
+ * 补偿执行器（补偿稿 T01~T14）、恢复管理器（契约 §4.5）、快照存储（D3）。
  *
- * 已落地（切片③）：进程后端 / Supervisor 生命周期与退出三分类 / 装配五步校验 /
- * 热装配与回退 / effect.declare 服务端（C-M1 焊点）。
- * 补偿执行器随切片④（补偿状态机 T01~T14 + recover.*）接入。
+ * 已落地（切片③④）：进程后端 / Supervisor 生命周期与退出三分类 / 装配五步校验 /
+ * 热装配与回退 / effect.declare 服务端（C-M1 焊点）/ 效果追踪与结算 / 补偿投影与编排 /
+ * recover.plan/execute / 轮边界快照索取缝。
  */
 
 export {
@@ -44,3 +45,15 @@ export {
   type SupervisorOptions,
 } from "./supervisor.js";
 export { serveCellChannel, type CellChannelBinding, type CellServerDeps } from "./cell-server.js";
+export {
+  CompensationExecutor,
+  type ActionCellFactory,
+  type CompensationActionCell,
+  type CompensationExecutorOptions,
+  type EffectProjectionEntry,
+  type EffectState,
+  type ToolResultLike,
+} from "./compensator.js";
+export { EffectTracker } from "./effects.js";
+export { SnapshotStore, type SnapshotEntry } from "./snapshot.js";
+export { RecoveryManager, type RecoveredContinuation, type RecoveryPlan } from "./recovery.js";

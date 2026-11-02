@@ -79,4 +79,49 @@ describe("ContextManager（V1 / I5：按 scope 分区）", () => {
     }
     expect(cm.discover(runA1).map((t) => t.name)).toEqual(["a", "b", "c"]);
   });
+
+  /* ── 换页原语（切片④，契约 context.page.out/in）───────────────────── */
+
+  it("pageOut → pageIn：版本单调、内容往返；pageIn 已移入/不存在的页 = CTX/PAGE-MISSING", () => {
+    const cm = new ContextManager();
+    const v1 = cm.pageOut(runA1, "ctx", { messages: [1, 2] });
+    expect(v1).toEqual({ pageId: "ctx", version: 1 });
+    const back = cm.pageIn(runA1, "ctx");
+    expect(back).toEqual({ pageId: "ctx", version: 1, state: { messages: [1, 2] } });
+    // 已在工作集内：无可移回
+    expect(() => cm.pageIn(runA1, "ctx")).toThrowError(
+      expect.objectContaining({ code: "CTX/PAGE-MISSING" }),
+    );
+    // 不存在的页
+    expect(() => cm.pageIn(runA1, "nope")).toThrowError(
+      expect.objectContaining({ code: "CTX/PAGE-MISSING" }),
+    );
+  });
+
+  it("重复 pageOut 版本递增且更新内容；pageVersion 诊断读取", () => {
+    const cm = new ContextManager();
+    cm.pageOut(runA1, "ctx", { a: 1 });
+    cm.pageIn(runA1, "ctx");
+    const v2 = cm.pageOut(runA1, "ctx", { a: 2 }); // 再次移出（新内容）
+    expect(v2.version).toBe(2);
+    expect(cm.pageVersion(runA1, "ctx")).toBe(2);
+    expect(cm.pageIn(runA1, "ctx").state).toEqual({ a: 2 });
+    // pageOut 无 state：保留旧内容，版本仍递增
+    expect(cm.pageOut(runA1, "ctx").version).toBe(3);
+    expect(cm.pageIn(runA1, "ctx").state).toEqual({ a: 2 });
+    expect(() => cm.pageVersion(runA1, "nope")).toThrowError(
+      expect.objectContaining({ code: "CTX/PAGE-MISSING" }),
+    );
+  });
+
+  it("页按 run 隔离：runA1 的页对 runA2 不可见（I5 同构）", () => {
+    const cm = new ContextManager();
+    cm.pageOut(runA1, "ctx", { mine: true });
+    expect(() => cm.pageIn(runA2, "ctx")).toThrowError(
+      expect.objectContaining({ code: "CTX/PAGE-MISSING" }),
+    );
+    expect(() => cm.pageVersion(runA2, "ctx")).toThrowError(
+      expect.objectContaining({ code: "CTX/PAGE-MISSING" }),
+    );
+  });
 });

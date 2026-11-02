@@ -21,6 +21,7 @@ export {
   type CompensationEscalatedPayload,
   type CompensationExecutedPayload,
   type CompensationWaivedPayload,
+  type ContextPagedPayload,
   type DecisionPayload,
   type EffectDeclaredPayload,
   type EffectSettledPayload,
@@ -81,6 +82,7 @@ export {
 export {
   Scheduler,
   type ActionOutcome,
+  type CompensationScope,
   type DriverAction,
   type DriverDecision,
   type PendingCompensator,

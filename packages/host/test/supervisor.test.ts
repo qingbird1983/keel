@@ -1,12 +1,23 @@
 import { readFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startCell, type CellHandle, type CellTool } from "@keel/cell-runtime";
-import type { RunRef } from "@keel/core";
+import { Ledger, type RunRef } from "@keel/core";
 import type { CellProcess, IsolationProvider, SpawnSpec } from "../src/isolation.js";
 import { CellSupervisor, SupervisedCell, type CellExit } from "../src/supervisor.js";
 import { Assembler, type LoadedManifest } from "../src/assembler.js";
+import { EffectTracker } from "../src/effects.js";
+
+let snapDir: string;
+beforeEach(async () => {
+  snapDir = await mkdtemp(path.join(tmpdir(), "keel-sup-"));
+});
+afterEach(async () => {
+  await rm(snapDir, { recursive: true, force: true });
+});
 
 const SCHEMA_PATH = path.resolve("docs/design/phase-1/schema/keel-plugin.schema.json");
 const schema = JSON.parse(readFileSync(SCHEMA_PATH, "utf-8"));
@@ -93,7 +104,12 @@ class FakeCellProcess implements CellProcess {
   }
 }
 
-function rig(toolCallTimeoutMs = 5_000, graceMs = 5_000, pluginPath = "mem://plug") {
+function rig(
+  toolCallTimeoutMs = 5_000,
+  graceMs = 5_000,
+  pluginPath = "mem://plug",
+  tracker?: EffectTracker,
+) {
   const provider = new FakeProvider();
   const exits: CellExit[] = [];
   const supervisor = new CellSupervisor({
@@ -102,7 +118,11 @@ function rig(toolCallTimeoutMs = 5_000, graceMs = 5_000, pluginPath = "mem://plu
     toolKillGraceMs: graceMs,
     onCellExit: (e) => exits.push(e),
   });
-  const cell = supervisor.spawnCell({ manifest: manifest(toolCallTimeoutMs), pluginPath });
+  const cell = supervisor.spawnCell({
+    manifest: manifest(toolCallTimeoutMs),
+    pluginPath,
+    tracker,
+  });
   return { supervisor, provider, cell: cell as SupervisedCell, exits };
 }
 
@@ -190,5 +210,59 @@ describe("Supervisor：生命周期", () => {
     expect(cell.ref).toBe(ref);
     provider.spawned[0].process.crash(1);
     expect(cell.phase).toBe("exited");
+  });
+});
+
+describe("Supervisor：效果结算与快照索取（切片④）", () => {
+  const ref: RunRef = { agentId: "a", sessionId: "s", runId: "r-1" };
+
+  it("executor ok 结果经 tracker 结算 EFFECT_SETTLED{done}（落点序在 TOOL_RESULT 前）", async () => {
+    const ledger = new Ledger({ rootDir: snapDir, now: () => 0 });
+    const tracker = new EffectTracker({ ledger });
+    tracker.declared(ref, "e-1", []);
+    const { provider, cell } = rig(5_000, 5_000, "mem://plug", tracker);
+    cell.attachRun(ref);
+    provider.spawned[0].handle!.registerTool({
+      name: "echo",
+      schema: {},
+      handler: (p) => ({ echoed: p }),
+    });
+    expect((await cell.executor({ tool: "echo", params: {} })).status).toBe("ok");
+    const evs = (await ledger.read({ runId: "r-1" })).events;
+    expect(evs).toHaveLength(1);
+    expect(evs[0]).toMatchObject({ type: "EFFECT_SETTLED" });
+    expect(evs[0].payload).toEqual({ effectId: "e-1", outcome: "done" });
+    await ledger.close();
+  });
+
+  it("通道死回落 error-result 也结算 unknown（崩溃残留不入 open 集）", async () => {
+    const ledger = new Ledger({ rootDir: snapDir, now: () => 0 });
+    const tracker = new EffectTracker({ ledger });
+    tracker.declared(ref, "e-2", []);
+    const { provider, cell } = rig(5_000, 5_000, "mem://plug", tracker);
+    cell.attachRun(ref);
+    provider.spawned[0].handle!.registerTool({
+      name: "slow",
+      schema: {},
+      handler: () => new Promise<void>(() => {}), // 在途时进程崩溃
+    });
+    const pending = cell.executor({ tool: "slow", params: null });
+    provider.spawned[0].process.crash(1);
+    await expect(pending).resolves.toMatchObject({ status: "error" });
+    const evs = (await ledger.read({ runId: "r-1" })).events;
+    expect(evs[0]?.payload).toEqual({
+      effectId: "e-2",
+      outcome: "unknown",
+      error: expect.anything(),
+    });
+    expect(tracker.openCount("r-1")).toBe(0);
+    await ledger.close();
+  });
+
+  it("pullSnapshot：无快照面 → null；有快照面 → 状态透传", async () => {
+    const { provider, cell } = rig();
+    await expect(cell.pullSnapshot()).resolves.toBeNull();
+    provider.spawned[0].handle!.setSnapshotProvider(() => ({ counters: 3 }));
+    await expect(cell.pullSnapshot()).resolves.toEqual({ counters: 3 });
   });
 });

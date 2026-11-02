@@ -6,7 +6,9 @@
  *   （TOOL_SCHEMA_CHANGED 仅传播到受影响 scope；affectedScope=null 表示全局广播）。
  * - context.alloc 幂等（同 scope 返回既有分区）；CTX/SCOPE-EXISTS 预留给与既有分区冲突的
  *   创建语义，MVP 幂等路径不触达。
- * - 换页原语（context.page.out/in）随上下文页存储后端在 Phase 1 后续切片落地（契约 §4.6 注记）。
+ * - 换页原语（切片④，契约 §4.6 注记）：pageOut/pageIn/pageVersion——per-run 页注册表、
+ *   内存后端；版本单调递增；页版本由调用方经 CONTEXT_PAGED 事件入本 run 账本。
+ *   物理页存储后端登记 backlog。
  */
 
 import { KeelError } from "./errors.js";
@@ -25,10 +27,19 @@ interface Partition {
   changes: ToolSchemaChangedPayload[];
 }
 
+/** 页记录（换页原语，切片④）：内存后端，版本单调；pagedOut = 工作集外。 */
+interface PageRecord {
+  state: unknown;
+  version: number;
+  pagedOut: boolean;
+}
+
 export class ContextManager {
   private readonly partitions = new Map<string, Partition>();
   /** runId → 已消费的变更日志下标（同 scope 多 run 各自独立游标）。 */
   private readonly cursors = new Map<string, number>();
+  /** runId → (pageId → 页记录)（换页原语，切片④）。 */
+  private readonly pages = new Map<string, Map<string, PageRecord>>();
 
   /** 创建 scope 私有分区（工具表视图）；同 scope 幂等（契约 context.alloc）。 */
   alloc(scope: Scope): void {
@@ -80,6 +91,58 @@ export class ContextManager {
     const out = p.changes.slice(from);
     this.cursors.set(ref.runId, p.changes.length);
     return out;
+  }
+
+  /* ── 换页原语（契约 context.page.out/in，切片④）────────────────────── */
+
+  /**
+   * 移出页：登记/更新内容并标记工作集外，版本 +1（首移出 = 版本 1）。
+   * 返回当前版本（调用方写 CONTEXT_PAGED{direction:"out", version} 入账本）。
+   */
+  pageOut(ref: RunRef, pageId: string, state?: unknown): { pageId: string; version: number } {
+    const m = this.pageMap(ref.runId);
+    const old = m.get(pageId);
+    const rec: PageRecord = {
+      state: state ?? old?.state ?? null,
+      version: (old?.version ?? 0) + 1,
+      pagedOut: true,
+    };
+    m.set(pageId, rec);
+    return { pageId, version: rec.version };
+  }
+
+  /**
+   * 移回页：仅对处于工作集外的页有效；页不存在或已在工作集内 → CTX/PAGE-MISSING。
+   * 返回内容与版本（调用方写 CONTEXT_PAGED{direction:"in", version} 入账本）。
+   */
+  pageIn(ref: RunRef, pageId: string): { pageId: string; version: number; state: unknown } {
+    const rec = this.pages.get(ref.runId)?.get(pageId);
+    if (!rec || !rec.pagedOut) {
+      throw new KeelError("CTX/PAGE-MISSING", "no paged-out page under this id", {
+        runId: ref.runId,
+        pageId,
+      });
+    }
+    rec.pagedOut = false;
+    return { pageId, version: rec.version, state: rec.state };
+  }
+
+  /** 当前页版本（诊断用）；页不存在 → CTX/PAGE-MISSING。 */
+  pageVersion(ref: RunRef, pageId: string): number {
+    const rec = this.pages.get(ref.runId)?.get(pageId);
+    if (!rec) {
+      throw new KeelError("CTX/PAGE-MISSING", "page not found", { runId: ref.runId, pageId });
+    }
+    return rec.version;
+  }
+
+  private pageMap(runId: string): Map<string, PageRecord> {
+    let m = this.pages.get(runId);
+    if (!m) {
+      m = new Map();
+      this.pages.set(runId, m);
+    }
+    return m;
   }
 
   private partition(scope: Scope): Partition {

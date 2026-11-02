@@ -5,7 +5,8 @@
  *
  * effect.declare（C-M1 焊点）：effectKind 必须命中 manifest 已声明模板——未声明即拒绝
  * 且不留副作用（无 EFFECT_DECLARED 落账）。账本写入经 ledger.append（gateway 直写先例，
- * 调度器仍为轮内事件唯一编排者）。
+ * 调度器仍为轮内事件唯一编排者）。切片④：dependsOn 声明期校验（成环/未知引用即拒）+
+ * 效果追踪器登记（EFFECT_SETTLED 由宿主按工具结果结算，契约 §4.1 注记⑥）。
  */
 
 import {
@@ -22,6 +23,7 @@ import {
 } from "@keel/core";
 import type { FrameConn } from "@keel/cell-runtime";
 import type { CompensationTemplateDecl } from "./assembler.js";
+import type { EffectTracker } from "./effects.js";
 
 export interface CellChannelBinding {
   scope: Scope;
@@ -38,6 +40,8 @@ export interface CellServerDeps {
   budget: Budgeter;
   ctx: ContextManager;
   gateway: ModelGateway;
+  /** 效果追踪器（切片④；缺省 = 不结算，效果留待恢复投影——仅测试用）。 */
+  tracker?: EffectTracker;
 }
 
 /** 在 FrameConn 上挂 Cell 可见面服务（conn 同实例亦承载 Host→Cell 的 tool.exec 请求）。 */
@@ -101,6 +105,8 @@ async function declareEffect(
     });
   }
   const comp = (p.compensation ?? {}) as Record<string, unknown>;
+  const dependsOn = Array.isArray(p.dependsOn) ? (p.dependsOn as string[]) : [];
+  if (deps.tracker) deps.tracker.validateDependency(binding.ref, effectId, dependsOn);
   const payload: EffectDeclaredPayload = {
     effectId,
     kind: template.kind,
@@ -112,10 +118,11 @@ async function declareEffect(
       idempotency: template.idempotency,
     },
     probeRef: template.probe?.ref ?? null,
-    dependsOn: Array.isArray(p.dependsOn) ? (p.dependsOn as string[]) : [],
+    dependsOn,
     retention: p.retention ?? null,
   };
   const ev = await deps.ledger.append(binding.ref, "EFFECT_DECLARED", payload);
+  deps.tracker?.declared(binding.ref, effectId, dependsOn);
   return { effectId, seq: ev.seq };
 }
 

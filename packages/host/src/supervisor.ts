@@ -4,8 +4,9 @@
  * - 退出三分类：clean（exit 0）/ crash（非零退出或致命信号）/ killed（Supervisor 强杀）；
  *   经 onCellExit 通知宿主 → scheduler.abort 落 RUN_FAILED（契约 §4.1 注记④）。
  * - toolCallTimeoutMs 硬强制的后盾（C-D3）：工具调用超时 + 宽限仍无响应 → kill（killed）。
- * - executor 通道绑定：通道死 → error-result 回落（终态统一由 abort 缝落，保证原因码确定）。
- * - 状态快照 = 内存槽（D3；持久化随切片④）。快照索取/挂载链路随后接入。
+ * - executor 通道绑定：通道死 → error-result 回落（终态统一由 abort 缝落，保证原因码确定）；
+ *   切片④：返回前经效果追踪器结算 EFFECT_SETTLED（落点序 EFFECT_SETTLED → TOOL_RESULT）。
+ * - 快照（D3，切片④）：pullSnapshot 于轮边界索取（onCheckpoint 缝）；无快照面 = 无状态。
  */
 
 import { type RunRef, type ToolExecutor } from "@keel/core";
@@ -18,6 +19,7 @@ import {
 import type { CellProcess, IsolationProvider } from "./isolation.js";
 import type { LoadedManifest } from "./assembler.js";
 import type { ManagedCell } from "./assembly-manager.js";
+import type { EffectTracker } from "./effects.js";
 
 export type CellExitClass = "clean" | "crash" | "killed";
 export type CellPhase = "creating" | "ready" | "running" | "halting" | "exited" | "reaped";
@@ -63,11 +65,16 @@ export class CellSupervisor {
   }
 
   /** spawn Cell 进程并绑定帧通道；Cell ↔ Run 一一对应（run 建立时 attachRun）。 */
-  spawnCell(spec: { manifest: LoadedManifest; pluginPath: string }): SupervisedCell {
+  spawnCell(spec: {
+    manifest: LoadedManifest;
+    pluginPath: string;
+    tracker?: EffectTracker;
+  }): SupervisedCell {
     return new SupervisedCell({
       supervisor: this,
       manifest: spec.manifest,
       pluginPath: spec.pluginPath,
+      tracker: spec.tracker,
     });
   }
 
@@ -95,6 +102,7 @@ export class SupervisedCell implements ManagedCell {
 
   private readonly supervisor: CellSupervisor;
   private readonly process: CellProcess;
+  private readonly tracker: EffectTracker | null;
   private killRequested = false;
   private exitResult: CellExit | null = null;
   private notified = false;
@@ -104,9 +112,11 @@ export class SupervisedCell implements ManagedCell {
     supervisor: CellSupervisor;
     manifest: LoadedManifest;
     pluginPath: string;
+    tracker?: EffectTracker;
   }) {
     this.supervisor = params.supervisor;
     this.manifest = params.manifest;
+    this.tracker = params.tracker ?? null;
     const boot = JSON.stringify({
       pluginPath: params.pluginPath,
       toolCallTimeoutMs: params.manifest.resources.toolCallTimeoutMs ?? 0,
@@ -179,20 +189,38 @@ export class SupervisedCell implements ManagedCell {
         call,
         (this.manifest.resources.toolCallTimeoutMs ?? 0) + this.supervisor.graceMs + 1_000,
       );
+      await this.settleEffects(r.status, r.status === "ok" ? undefined : r.error);
       return r; // 结构兼容（cell-runtime 结果形 ⊇ 调度器 executor 返回形）
     } catch (err) {
       if (err instanceof ChannelError && err.code === TRANSPORT_TIMEOUT) {
-        return { status: "timeout", error: { code: TRANSPORT_TIMEOUT, message: err.message } };
+        const fallback = {
+          status: "timeout" as const,
+          error: { code: TRANSPORT_TIMEOUT, message: err.message },
+        };
+        await this.settleEffects(fallback.status, fallback.error);
+        return fallback;
       }
       // 通道死（进程退出）：error-result 回落，RUN_FAILED 由 abort 缝统一落（原因码确定）
-      return {
-        status: "error",
+      const fallback = {
+        status: "error" as const,
         error: { code: "TRANSPORT/BADFRAME", message: "cell channel closed" },
       };
+      await this.settleEffects(fallback.status, fallback.error);
+      return fallback;
     } finally {
       clearTimeout(killTimer);
     }
   };
+
+  /**
+   * 调用窗口结算（切片④）：本 run 全部未结效果写 EFFECT_SETTLED（ok→done，
+   * error/timeout→unknown 保守）。崩溃残留的未结效果不入此路径——账本留 declared 未闭环，
+   * 恢复投影保守并入（ADR-0004 先核对再续跑）。
+   */
+  private async settleEffects(status: "ok" | "error" | "timeout", error?: unknown): Promise<void> {
+    if (!this.tracker || !this.ref) return;
+    await this.tracker.settleFor(this.ref, status, error);
+  }
 
   /** run.start 时由宿主胶水调用（Cell ↔ Run 绑定 + 生命周期推进）。 */
   attachRun(ref: RunRef): void {
@@ -215,6 +243,12 @@ export class SupervisedCell implements ManagedCell {
   /** A5 迁移钩：新 Cell 内、快照挂载后首轮前（失败由 AssemblyManager 回退）。 */
   migrate(oldState: unknown): Promise<unknown> {
     return this.conn.request("cell.migrate", { oldState }, MIGRATE_TIMEOUT_MS);
+  }
+
+  /** 快照索取（D3，切片④）：宿主于轮边界（onCheckpoint 缝）调用；无快照面 → null。 */
+  async pullSnapshot(): Promise<unknown> {
+    const r = await this.conn.request<{ state: unknown }>("cell.snapshot", {}, MIGRATE_TIMEOUT_MS);
+    return r.state;
   }
 
   /** 等待进程退出（kill 等待与测试用）。 */

@@ -61,6 +61,8 @@ DSH 三类症状直接源于控制面缺少硬契约：**V6** Agent Loop 被插�
 > 实现期细化（2026-11-02 切片②）：① 正常完成 = 末轮 `CHECKPOINT`+`ROUND_ENDED` 后写 `RUN_HALTED{reason:"completed"}`（终态 halted；事件表无 RUN_COMPLETED，复用 RUN_HALTED）；② 预算耗尽事件映射：hard-stop → `RUN_FAILED{reasonCode:"BUDGET/EXHAUSTED"}`、graceful → `RUN_HALTED{reasonCode:"BUDGET/EXHAUSTED-GRACEFUL"}`，收束序 = 补偿 → CHECKPOINT → ROUND_ENDED → RUN_*；③ 被拒动作（Core 授权或 hook① 否决）不产生 TOOL_INVOKE，以 `TOOL_RESULT{status:"error", error.code:"AUTH/DENIED", error.by: "core"|"policy-hook"}` 统一落点留痕。
 >
 > 实现期细化（2026-11-02 切片③）：④ Cell 进程退出三分类（ADR-0005）经 Supervisor `abort` 缝写 `RUN_FAILED`，原因码 `CELL/CRASH` / `CELL/KILLED` / `CELL/CLEAN-EXIT`（载荷级字符串，不扩 §6 错误码表）；abort 与 cancel 语义对偶——cancel → `RUN_HALTED`，abort → `RUN_FAILED`，在途轮先正常收束再落终态；⑤ 装配记录经 `ASSEMBLY_RECORDED` 于 `run.start` 作为首事件落账（§5 注记）。
+>
+> 实现期细化（2026-11-02 切片④）：⑥ 补偿触发三模式与调度缝映射——预算耗尽中断 → `verify`（补偿稿 T4：只核验未决、不回滚）；`run.cancel`/halt 收束 → `run`（T5：全 Run 回滚）；fail-stop → `run`（T3：全 Run 回滚，尽力收尾）。`EFFECT_SETTLED` 由宿主效果追踪器写入（executor 包装按工具结果映射：ok→`done`、error/timeout→`unknown` 保守，超时语义遵循 §6「结果未知」）；落点序 = `EFFECT_DECLARED` → `EFFECT_SETTLED` → `TOOL_RESULT`；⑦ 恢复延续：`RunManifest.recoveredFrom` 携带旧 runId 与一致点 seq，`RUN_RECOVERED{newRunId, recoveredFromSeq}` 于新 run 首事件槽写入（随 ASSEMBLY_RECORDED 槽位，先于 `RUN_STARTED`）。
 
 ### 4.2 授权器
 
@@ -104,6 +106,8 @@ DSH 三类症状直接源于控制面缺少硬契约：**V6** Agent Loop 被插�
 顺序硬约束（ADR-0004 §4.4）：**先核对未决副作用补偿表，再续跑**——恢复流程不得跳过 `recover.plan` 的补偿清单。
 作用域澄清（2026-11-02 修订）：未决效果的补偿与核对在**原 runId 作用域内**完成；补偿闭环（或豁免）后，才以新 runId 延续。新 runId 不继承任何未决效果。
 
+> 实现期细化（2026-11-02 切片④）：补偿动作经**新补偿 Cell 进程**通道执行（同插件一次性 spawn、跑完即弃——ADR-0005「Host 侧上下文（或新 Cell）」路径；私有 op `compensation.exec`，未知 actionRef 拒绝，重试 ≤3 次/退避 ≤30s 钳制随补偿稿 §6）；快照挂载复用 `cell.migrate` 通道（入参 oldState = 快照，迁移钩兼作恢复挂载点，manifest 稿 §5.5 注记）；`RUN_RECOVERED` 作为新 run 首事件（§4.1 注记⑦）；`execute` 前置 = 旧 run 已终态（failed/halted）；快照 MVP = 宿主内存持有 + 账本 `STATE_SNAPSHOT_REF` 元数据（物理持久化登记 backlog）。
+
 ### 4.6 上下文管理器
 
 | op                    | 方向                     | 语义                                                                    | 默认超时 | 幂等性              | 主要错误            |
@@ -115,6 +119,8 @@ DSH 三类症状直接源于控制面缺少硬契约：**V6** Agent Loop 被插�
 工具 schema 变更 = 显式事件 `TOOL_SCHEMA_CHANGED`，**仅传播到受影响 scope**（V1：动态增删工具不触碰其他会话缓存）。
 
 > 实现注记（2026-11-02 切片②）：MVP 落地 scope 分区 + `tool.discover` + schema 变更按 scope 传播（scope 级挂起变更日志，各 run 按游标消费后写入本 run 账本，同 scope 多 run 不丢事件）；`context.page.out/in` 换页原语随上下文页存储后端在 Phase 1 后续切片落地。
+>
+> 实现注记（2026-11-02 切片④）：`context.page.out/in` 原语落地——per-run 页注册表、内存后端（`pageOut` / `pageIn` / `pageVersion`；页不存在或未移出即取 = `CTX/PAGE-MISSING`）；页版本经 `CONTEXT_PAGED` 事件写入本 run 账本（§5）。物理页存储后端登记 backlog。
 
 ### 4.7 模型网关（ADR-0003）
 
@@ -154,6 +160,7 @@ Cell 侧适配器无凭证、无直连网络能力；网关故障 = 发起 Cell 
 | EFFECT_SETTLED / COMPENSATION_ESCALATED / COMPENSATION_WAIVED | 效果结果 / 补偿升级 / 豁免                                                   | 同上（任务 D 增量，载荷见其 §9）                                                                                                           |
 | STATE_SNAPSHOT_REF                                            | 快照引用 + 版本 + 轮号                                                       | D3 元数据；Core 不含快照内容                                                                                                               |
 | TOOL_SCHEMA_CHANGED                                           | 工具、旧/新 schema 版本、受影响 scope                                        |                                                                                                                                            |
+| CONTEXT_PAGED                                                 | 页 ID、方向 out/in、页版本                                                   | 换页审计（§4.6 注记；切片④新增，落本 run 账本）                                                                                            |
 | CHECKPOINT                                                    | 一致点 seq、轮号                                                             | ADR-0004；重放自校验锚                                                                                                                     |
 
 ## 6. 错误码

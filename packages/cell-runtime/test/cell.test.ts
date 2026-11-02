@@ -180,3 +180,60 @@ describe("Cell 进程体：迁移钩（A5）", () => {
     expect(await errCode(core.request("cell.boot", {}, 500))).toBe("CELL/OP-UNKNOWN");
   });
 });
+
+describe("Cell 进程体：补偿动作与快照面（切片④）", () => {
+  it("compensation.exec：actionRef 分发 + 入参透传（undo）", async () => {
+    const { cell, core } = rig();
+    const seen: unknown[] = [];
+    cell.setCompensations({
+      refund: async (input) => {
+        seen.push(input);
+        return { refunded: input.effectId };
+      },
+    });
+    const r = await core.request<{ status: string; result?: unknown }>(
+      "compensation.exec",
+      { actionRef: "refund", effectId: "e-1", phase: "undo", paramsDigest: { amt: 3 } },
+      500,
+    );
+    expect(r.status).toBe("ok");
+    expect(r.result).toEqual({ refunded: "e-1" });
+    expect(seen[0]).toMatchObject({ actionRef: "refund", effectId: "e-1", phase: "undo" });
+  });
+
+  it("未知 actionRef → CELL/ACTION-UNKNOWN（补偿不可临场编造，C-M1 同构）", async () => {
+    const { cell, core } = rig();
+    cell.setCompensations({ refund: () => null });
+    expect(
+      await errCode(
+        core.request(
+          "compensation.exec",
+          { actionRef: "ghost", effectId: "e", phase: "undo" },
+          500,
+        ),
+      ),
+    ).toBe("CELL/ACTION-UNKNOWN");
+  });
+
+  it("compensation.exec 受 toolCallTimeoutMs 硬强制 → timeout（T11 重试依据）", async () => {
+    const { cell, core } = rig(30);
+    cell.setCompensations({ wedged: () => new Promise<void>(() => {}) });
+    const r = await core.request<{ status: string; error?: { code?: string } }>(
+      "compensation.exec",
+      { actionRef: "wedged", effectId: "e", phase: "undo" },
+      500,
+    );
+    expect(r.status).toBe("timeout");
+    expect(r.error?.code).toBe("TRANSPORT/TIMEOUT");
+  });
+
+  it("cell.snapshot：有快照面返回状态；无快照面 = 无状态 Cell（{state:null}）", async () => {
+    const withSnap = rig();
+    withSnap.cell.setSnapshotProvider(() => ({ counters: 3 }));
+    await expect(withSnap.core.request("cell.snapshot", {}, 500)).resolves.toEqual({
+      state: { counters: 3 },
+    });
+    const bare = rig();
+    await expect(bare.core.request("cell.snapshot", {}, 500)).resolves.toEqual({ state: null });
+  });
+});

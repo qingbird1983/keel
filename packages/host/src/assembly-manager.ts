@@ -29,8 +29,8 @@ export interface ScopeBinding {
   manifest: LoadedManifest;
   cell: ManagedCell;
   /**
-   * Supervisor 持有的作用域状态（D3 快照 MVP 形态 = 内存槽，A5 迁移钩出入参；
-   * 持久化与 STATE_SNAPSHOT_REF 随切片④快照链路落地）。
+   * Supervisor 持有的作用域状态（D3：热装配迁移钩出入参内存槽；运行中快照经
+   * SnapshotStore 持有 + STATE_SNAPSHOT_REF 元数据入账本，切片④）。
    */
   state: unknown;
 }
