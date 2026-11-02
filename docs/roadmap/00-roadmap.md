@@ -6,7 +6,7 @@
 
 ## 1. 阶段总览与看板（本表是**唯一进度看板**）
 
-> README（中英两份）不重复看板；阶段状态只在本表维护。状态变更必须同步 CHANGELOG 与 `.agents/CONTEXT.md`。**最近更新：2026-11-02（Phase 1 切片②：调度/上下文/网关/策略 hook 落地，66 测试全绿）。**
+> README（中英两份）不重复看板；阶段状态只在本表维护。状态变更必须同步 CHANGELOG 与 `.agents/CONTEXT.md`。**最近更新：2026-11-02（Phase 1 切片③：Cell 运行时 + Host 装配落地，A2/A5 主体，147 测试全绿）。**
 
 ```mermaid
 graph LR

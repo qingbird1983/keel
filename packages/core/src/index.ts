@@ -8,9 +8,11 @@
 
 export { ERROR_CODES, KeelError, type ErrorCode } from "./errors.js";
 export {
+  CONTRACT_VERSION,
   EVENT_TYPES,
   SCHEMA_VERSION,
   scopeKey,
+  type AssemblyRecordedPayload,
   type AuthDeniedPayload,
   type BudgetReservedPayload,
   type BudgetSettledPayload,

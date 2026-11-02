@@ -11,7 +11,7 @@ Cell 执行单元的进程体：一次 Agent Run 独占一个 OS 进程（"水�
 
 ## 当前状态
 
-🚧 **Phase 1 脚手架占位**——进程体与 stdio 帧协议随切片③落地（验收 A2：插件崩溃只失败本 Cell）。施工顺序见 [docs/roadmap/phase-1-mvp.md](../../docs/roadmap/phase-1-mvp.md)。
+✅ **切片③已落地**：stdio JSON 行帧协议（契约 §3.1，`FrameConn`）/ Cell 进程体（`startCell`：私有工具表 + `toolCallTimeoutMs` 硬强制）/ CellClient（§3.3 可见面客户端）/ EFFECT_DECLARED 发起端（`effect.declare`）/ 迁移钩入口（A5）。验收 A2（插件崩溃只失败本 Cell）的真实进程集成测试见 [tests/cell-crash.test.ts](../../tests/cell-crash.test.ts)。补偿执行与快照恢复随切片④接入。施工顺序见 [docs/roadmap/phase-1-mvp.md](../../docs/roadmap/phase-1-mvp.md)。
 
 ## 目录与开发
 

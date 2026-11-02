@@ -13,7 +13,13 @@ Keel 宿主层（Host Layer）：跑在用户态的"船坞"——负责执行单
 
 ## 当前状态
 
-🚧 **Phase 1 脚手架占位**——实现随纵向切片落地：Supervisor/IsolationProvider/装配器在切片③（验收 A2/A5），补偿执行器在切片④（验收 A3/A4/A6）。施工顺序见 [docs/roadmap/phase-1-mvp.md](../../docs/roadmap/phase-1-mvp.md)。
+✅ **切片③已落地**（Supervisor / IsolationProvider / 装配器；验收 A2/A5 实现主体）：
+
+- `ProcessIsolationProvider`（进程后端，ADR-0005 薄接口）+ `CellSupervisor`（生命周期 + 退出三分类 `CELL/CRASH|KILLED|CLEAN-EXIT` → 调度器 abort 缝 + 失控强杀宽限）
+- `Assembler` 五步校验（Schema 子集校验器，零运行时依赖；权限交叉 / 资源上限 / 版本协商）+ `AssemblyManager` 热装配（迁移钩失败即回退旧作用域，V5）
+- `serveCellChannel`：Core 侧 Cell 通道服务（契约 §3.3 可见面强制 + C-M1 焊点：未声明 effectKind 拒绝且不留副作用）
+
+补偿执行器随切片④（验收 A3/A4/A6）接入；快照持久化与 `recover.*` 同批。施工顺序见 [docs/roadmap/phase-1-mvp.md](../../docs/roadmap/phase-1-mvp.md)。
 
 ## 目录与开发
 

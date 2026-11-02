@@ -12,5 +12,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@keel/core": "workspace:*",
+    "@keel/cell-runtime": "workspace:*"
   }
 }

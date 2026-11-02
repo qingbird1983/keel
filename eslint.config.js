@@ -23,4 +23,16 @@ export default tseslint.config(
     files: ["scripts/**/*.mjs"],
     languageOptions: { globals: { console: "readonly", process: "readonly" } },
   },
+  {
+    // 集成测试 fixture 插件（tests/fixtures/*.mjs）：声明用到的宿主全局
+    files: ["tests/fixtures/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        console: "readonly",
+        process: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+      },
+    },
+  },
 );
