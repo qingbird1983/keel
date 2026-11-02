@@ -13,13 +13,15 @@ Keel 宿主层（Host Layer）：跑在用户态的"船坞"——负责执行单
 
 ## 当前状态
 
-✅ **切片③已落地**（Supervisor / IsolationProvider / 装配器；验收 A2/A5 实现主体）：
+✅ **切片④已落地**（补偿执行器 / 恢复管理器 / 快照链路；验收 A3/A4 实现主体）：
 
-- `ProcessIsolationProvider`（进程后端，ADR-0005 薄接口）+ `CellSupervisor`（生命周期 + 退出三分类 `CELL/CRASH|KILLED|CLEAN-EXIT` → 调度器 abort 缝 + 失控强杀宽限）
-- `Assembler` 五步校验（Schema 子集校验器，零运行时依赖；权限交叉 / 资源上限 / 版本协商）+ `AssemblyManager` 热装配（迁移钩失败即回退旧作用域，V5）
-- `serveCellChannel`：Core 侧 Cell 通道服务（契约 §3.3 可见面强制 + C-M1 焊点：未声明 effectKind 拒绝且不留副作用）
+- `CompensationExecutor`：补偿状态机 T01~T14 全路径——账本重放投影（唯一事实源，执行器崩溃不丢状态）、dependsOn 逆拓扑 + 有界并行编排、≤3 次/≤30s 退避重派、escalated 阻断 + waive/repair 所有者通道、record-only 直闭（审计留痕 + 告警缝）
+- `RecoveryManager`：`recover.plan`（最近一致点 + 未决清单 + 快照引用）/ `recover.execute`（先补偿后延续，ADR-0004 顺序硬约束；快照缺失 = `RECOVER/SNAPSHOT-MISSING`，升级未豁免 = `RECOVER/COMPENSATION-FAILED`）
+- `EffectTracker`：EFFECT_SETTLED 宿主结算（工具结果映射 ok→done、error/timeout→unknown 保守）+ dependsOn 声明期成环校验
+- `SnapshotStore`：D3 快照宿主内存持有（账本仅 `STATE_SNAPSHOT_REF` 元数据）；快照挂载复用 `cell.migrate` 通道
+- 切片③主体保留：`ProcessIsolationProvider` / `CellSupervisor`（退出三分类 + 失控强杀 + `pullSnapshot` 轮边界索取）/ `Assembler` 五步校验 / `AssemblyManager` 热装配 / `serveCellChannel`（C-M1 焊点）
 
-补偿执行器随切片④（验收 A3/A4/A6）接入；快照持久化与 `recover.*` 同批。施工顺序见 [docs/roadmap/phase-1-mvp.md](../../docs/roadmap/phase-1-mvp.md)。
+验收 A2/A3/A4 的真实进程集成测试见 [tests/](../../tests/)（崩溃隔离 / kill 恢复延续 / 工具失败回滚补偿三路径）。施工顺序见 [docs/roadmap/phase-1-mvp.md](../../docs/roadmap/phase-1-mvp.md)。
 
 ## 目录与开发
 

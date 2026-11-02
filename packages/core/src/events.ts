@@ -47,6 +47,7 @@ export const EVENT_TYPES = [
   "COMPENSATION_WAIVED",
   "STATE_SNAPSHOT_REF",
   "TOOL_SCHEMA_CHANGED",
+  "CONTEXT_PAGED",
   "CHECKPOINT",
 ] as const;
 
@@ -228,6 +229,13 @@ export interface ToolSchemaChangedPayload {
   newSchemaVersion: number;
   /** 仅传播到受影响 scope（V1）；null 表示跨 scope 广播（如全局工具下线）。 */
   affectedScope: Scope | null;
+}
+
+/** 换页审计（契约 §4.6 切片④注记：页版本入账本）。 */
+export interface ContextPagedPayload {
+  pageId: string;
+  direction: "out" | "in";
+  version: number;
 }
 
 export interface CheckpointPayload {

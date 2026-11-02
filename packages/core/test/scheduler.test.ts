@@ -8,7 +8,12 @@ import { ContextManager } from "../src/context.js";
 import { HookBus } from "../src/hooks.js";
 import { ModelGateway } from "../src/gateway.js";
 import { Scheduler } from "../src/scheduler.js";
-import type { DriverAction, DriverDecision, RunManifest } from "../src/scheduler.js";
+import type {
+  CompensationScope,
+  DriverAction,
+  DriverDecision,
+  RunManifest,
+} from "../src/scheduler.js";
 import { Ledger } from "../src/ledger.js";
 import type { DecisionPayload, EventType, LedgerEvent, RunRef } from "../src/events.js";
 
@@ -32,7 +37,11 @@ const POLICY: AuthPolicyInput = {
   ],
 };
 
-function harness(opts?: { policy?: AuthPolicyInput; maxConcurrentRuns?: number }) {
+function harness(opts?: {
+  policy?: AuthPolicyInput;
+  maxConcurrentRuns?: number;
+  onCheckpoint?: (ref: RunRef, info: { seq: number; round: number }) => Promise<void>;
+}) {
   const ledger = new Ledger({ rootDir: dir, now: () => 0 });
   ledgers.push(ledger);
   const auth = new Authorizer(opts?.policy ?? POLICY, ledger);
@@ -47,6 +56,7 @@ function harness(opts?: { policy?: AuthPolicyInput; maxConcurrentRuns?: number }
     {
       maxConcurrentRuns: opts?.maxConcurrentRuns,
       delay: async (ms) => void delays.push(ms),
+      onCheckpoint: opts?.onCheckpoint,
     },
   );
   const scope = { agentId: "agent-1", sessionId: "sess-1" };
@@ -295,7 +305,7 @@ describe("Scheduler（契约 §4.1 轮循环）", () => {
   it("耗尽 hard-stop（默认档）：RUN_FAILED + 补偿收尾被调用", async () => {
     const { ledger, budget, scheduler, ref } = harness();
     budget.configure({ agentId: ref.agentId, sessionId: ref.sessionId }, { run: 1 });
-    const compensator = vi.fn(async () => undefined);
+    const compensator = vi.fn(async () => true);
     const { done } = scheduler.start(
       manifest(ref, scriptedDriver([{ summary: "", actions: [MODEL, TOOL] }]), { compensator }),
     );
@@ -318,7 +328,7 @@ describe("Scheduler（契约 §4.1 轮循环）", () => {
       { run: 1, onRunExhausted: "policy" },
     );
     hooks.register("budgetExhaustedChoice", async () => ({ action: "graceful" }));
-    const compensator = vi.fn(async () => undefined);
+    const compensator = vi.fn(async () => true);
     const { done } = scheduler.start(
       manifest(ref, scriptedDriver([{ summary: "", actions: [MODEL, TOOL] }]), { compensator }),
     );
@@ -394,5 +404,110 @@ describe("Scheduler（契约 §4.1 轮循环）", () => {
       expect.objectContaining({ code: "SCHED/NOT-FOUND" }),
     );
     return expect(scheduler.cancel("nope")).rejects.toMatchObject({ code: "SCHED/NOT-FOUND" });
+  });
+
+  /* ── 切片④缝：补偿模式 / onCheckpoint / recoveredFrom ─────────────── */
+
+  it("补偿模式映射：耗尽→verify、cancel→run、abort→run（契约 §4.1 注记⑥）", async () => {
+    const modes: CompensationScope[] = [];
+    const compensator = vi.fn(async (mode: CompensationScope) => {
+      modes.push(mode);
+      return true;
+    });
+    // 耗尽 hard-stop → verify
+    const h1 = harness();
+    h1.budget.configure({ agentId: h1.ref.agentId, sessionId: h1.ref.sessionId }, { run: 1 });
+    await h1.scheduler.start(
+      manifest(
+        h1.ref,
+        scriptedDriver([
+          {
+            summary: "",
+            actions: [{ kind: "model", reqId: "r1", model: "m", params: {}, estimate: 99 }],
+          },
+        ]),
+        { compensator },
+      ),
+    ).done;
+    expect(modes).toEqual(["verify"]);
+    // cancel → run
+    const h2 = harness();
+    const c2 = vi.fn(async (_mode: CompensationScope) => true);
+    const { done: d2 } = h2.scheduler.start(
+      manifest(h2.ref, scriptedDriver([]), { compensator: c2 }),
+    );
+    void h2.scheduler.cancel(h2.ref.runId);
+    await d2;
+    expect(c2.mock.calls[0]?.[0]).toBe("run");
+    // abort → run
+    const h3 = harness();
+    const c3 = vi.fn(async (_mode: CompensationScope) => true);
+    const { done: d3 } = h3.scheduler.start(
+      manifest(h3.ref, scriptedDriver([]), { compensator: c3 }),
+    );
+    void h3.scheduler.abort(h3.ref.runId, "CELL/CRASH", "test");
+    await d3;
+    expect(c3.mock.calls[0]?.[0]).toBe("run");
+  });
+
+  it("cancel 补偿升级阻断：compensator 返回 false → RUN_FAILED{RECOVER/COMPENSATION-FAILED}", async () => {
+    const { scheduler, ref, ledger } = harness();
+    const compensator = vi.fn(async () => false);
+    const { done } = scheduler.start(manifest(ref, scriptedDriver([]), { compensator }));
+    void scheduler.cancel(ref.runId);
+    const status = await done;
+    expect(status).toMatchObject({ state: "failed", reasonCode: "RECOVER/COMPENSATION-FAILED" });
+    const evs = (await ledger.read({ runId: ref.runId })).events;
+    expect(evs.at(-1)).toMatchObject({
+      type: "RUN_FAILED",
+      payload: { reasonCode: "RECOVER/COMPENSATION-FAILED" },
+    });
+  });
+
+  it("onCheckpoint 缝：CHECKPOINT → STATE_SNAPSHOT_REF → ROUND_ENDED（I3）；宿主失败吞错", async () => {
+    const { scheduler, ref, ledger } = harness({
+      onCheckpoint: async (r, info) => {
+        await ledger.append(r, "STATE_SNAPSHOT_REF", {
+          ref: "mem://agent-1|sess-1/snap-1",
+          version: 1,
+          round: info.round,
+        });
+      },
+    });
+    await scheduler.start(manifest(ref, scriptedDriver([]))).done;
+    const types = (await ledger.read({ runId: ref.runId })).events.map((e) => e.type);
+    const i = types.indexOf("CHECKPOINT");
+    expect(types[i + 1]).toBe("STATE_SNAPSHOT_REF");
+    expect(types[i + 2]).toBe("ROUND_ENDED");
+    // 吞错路径：快照缝抛错不阻断轮收束（独立 Ledger/runId，避免账本互斥干扰）
+    const h2 = harness({
+      onCheckpoint: async () => {
+        throw new Error("snapshot store down");
+      },
+    });
+    const ref2 = { ...h2.ref, runId: "run-2" };
+    const status = await h2.scheduler.start(manifest(ref2, scriptedDriver([]))).done;
+    expect(status).toMatchObject({ state: "halted" });
+  });
+
+  it("recoveredFrom：RUN_RECOVERED 先于 RUN_STARTED，载荷含 newRunId + recoveredFromSeq（注记⑦）", async () => {
+    const { scheduler, ref, ledger } = harness();
+    await scheduler.start(
+      manifest(ref, scriptedDriver([]), { recoveredFrom: { runId: "old-run", seq: 7 } }),
+    ).done;
+    const evs = (await ledger.read({ runId: ref.runId })).events;
+    expect(evs.slice(0, 3).map((e) => e.type)).toEqual([
+      "RUN_RECOVERED",
+      "RUN_STARTED",
+      "ROUND_STARTED",
+    ]);
+    expect(evs[0].payload).toEqual({ newRunId: "run-1", recoveredFromSeq: 7 });
+  });
+
+  it("轮边界 CHECKPOINT 经 ledger.checkpoint（fsync 语义 + lastCheckpoint 恢复锚，契约 §4.4）", async () => {
+    const { scheduler, ref, ledger } = harness();
+    await scheduler.start(manifest(ref, scriptedDriver([]))).done;
+    // 复现（A3 前提）：调度器若用普通 append 写 CHECKPOINT，lastCheckpoint 恒 null
+    expect(await ledger.lastCheckpoint(ref)).toMatchObject({ round: 1 });
   });
 });

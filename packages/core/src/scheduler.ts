@@ -77,8 +77,14 @@ export interface RunDriver {
   decide(ctx: RoundContext): Promise<DriverDecision>;
 }
 
-/** 补偿收尾缝（切片④接入补偿执行器；缺省 no-op）。 */
-export type PendingCompensator = () => Promise<void>;
+/** 补偿触发模式（契约 §4.1 注记⑥）：verify=T4 只核验不回滚；round=T1 本轮；run=T3/T5 全 Run。 */
+export type CompensationScope = "verify" | "round" | "run";
+
+/**
+ * 补偿收尾缝（切片④：host 补偿执行器经此接入；缺省 no-op）。
+ * 返回 false = 存在升级阻断（COMPENSATION_ESCALATED 未豁免），调用方落 RECOVER/COMPENSATION-FAILED。
+ */
+export type PendingCompensator = (mode: CompensationScope) => Promise<boolean>;
 
 /** manifest 装配结果的最小校验面（完整五步校验随装配器切片落地）。 */
 export interface RunManifest {
@@ -90,6 +96,8 @@ export interface RunManifest {
   compensator?: PendingCompensator;
   /** 装配审计基线（切片③：存在时作为本 run 首事件 ASSEMBLY_RECORDED 落账）。 */
   assembly?: AssemblyRecordedPayload;
+  /** 恢复延续（契约 §4.1 注记⑦）：RUN_RECOVERED 于新 run 首事件槽写入。 */
+  recoveredFrom?: { runId: string; seq: number };
 }
 
 /** 状态机位置（契约 run.status；recovering 随切片④恢复器启用）。 */
@@ -130,6 +138,12 @@ export interface SchedulerOptions {
   now?: () => number;
   /** 重试退避延时注入（standards/05 §3 时间注入）；默认 setTimeout。 */
   delay?: (ms: number) => Promise<void>;
+  /**
+   * 快照索取缝（D3，切片④）：CHECKPOINT 落账后、ROUND_ENDED 前触发——
+   * 宿主在此拉取 Cell 快照并写 STATE_SNAPSHOT_REF（I3 顺序硬约束）。
+   * 快照为辅助元数据：宿主失败按尽力处理（吞错不阻断轮收束，recover.plan 报无快照）。
+   */
+  onCheckpoint?: (ref: RunRef, info: { seq: number; round: number }) => Promise<void>;
 }
 
 export class Scheduler {
@@ -142,6 +156,7 @@ export class Scheduler {
   private readonly maxRuns: number;
   private readonly now: () => number;
   private readonly delay: (ms: number) => Promise<void>;
+  private readonly onCheckpoint?: SchedulerOptions["onCheckpoint"];
   private readonly runs = new Map<string, RunHandle>();
 
   constructor(
@@ -164,6 +179,7 @@ export class Scheduler {
     this.maxRuns = opts.maxConcurrentRuns ?? 256;
     this.now = opts.now ?? (() => Date.now());
     this.delay = opts.delay ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+    this.onCheckpoint = opts.onCheckpoint;
   }
 
   /** run.start：校验 manifest → 创建 Run → 首轮调度随即开始；同 runId 幂等返回既有结果。 */
@@ -233,6 +249,13 @@ export class Scheduler {
     try {
       // 装配审计基线（切片③）：run 首事件（seq 1）
       if (h.manifest.assembly) await this.emit(h, "ASSEMBLY_RECORDED", h.manifest.assembly);
+      // 恢复延续（契约 §4.1 注记⑦）：RUN_RECOVERED 先于 RUN_STARTED
+      if (h.manifest.recoveredFrom) {
+        await this.emit(h, "RUN_RECOVERED", {
+          newRunId: h.ref.runId,
+          recoveredFromSeq: h.manifest.recoveredFrom.seq,
+        });
+      }
       await this.emit(h, "RUN_STARTED", {});
       for (;;) {
         if (h.cancelRequested) {
@@ -305,15 +328,24 @@ export class Scheduler {
     }
     h.history = outcomes;
 
-    // 补偿收尾（耗尽中断路径）；收尾失败 → 升级阻断（完整升级随切片④状态机落地）
-    if (exhausted && !(await this.compensate(h))) {
+    // 补偿收尾（耗尽中断路径，T4 verify：只核验未决不回滚）；升级阻断 → RECOVER/COMPENSATION-FAILED
+    if (exhausted && !(await this.compensate(h, "verify"))) {
       await this.failRun(h, "RECOVER/COMPENSATION-FAILED", "wrap-up compensation failed");
       return "stop";
     }
 
-    // 轮收束：CHECKPOINT → ROUND_ENDED（契约 §5：ROUND_ENDED 前必见 CHECKPOINT）
-    const cp = await this.emit(h, "CHECKPOINT", { round: h.round });
+    // 轮收束：CHECKPOINT → STATE_SNAPSHOT_REF 缝 → ROUND_ENDED（契约 §5 + I3 顺序硬约束）
+    // CHECKPOINT 必经 ledger.checkpoint（flush+fsync + lastCheckpoint 恢复锚，契约 §4.4）
+    const cp = await this.ledger.checkpoint(h.ref, h.round);
+    h.events.push(cp.seq);
     h.lastCheckpoint = { seq: cp.seq, round: h.round };
+    if (this.onCheckpoint) {
+      try {
+        await this.onCheckpoint(h.ref, { seq: cp.seq, round: h.round });
+      } catch {
+        /* 快照为辅助元数据（D3）：宿主失败按尽力处理，一致性锚 CHECKPOINT 已落 */
+      }
+    }
     await this.emit(h, "ROUND_ENDED", { round: h.round });
 
     // abort/cancel 于在途轮到达：一致点已落，终态交 loop 顶部收束（契约 §4.1 注记④收束序）
@@ -453,19 +485,18 @@ export class Scheduler {
 
   /* ── 内部：终态收束 ───────────────────────────────────────────────── */
 
-  /** 补偿收尾缝：true = 完成；false = 补偿自身失败（调用方升级处置）。 */
-  private async compensate(h: RunHandle): Promise<boolean> {
+  /** 补偿收尾缝：true = 完成；false = 升级阻断（调用方落 RECOVER/COMPENSATION-FAILED）。 */
+  private async compensate(h: RunHandle, mode: CompensationScope): Promise<boolean> {
     if (!h.manifest.compensator) return true;
     try {
-      await h.manifest.compensator();
-      return true;
+      return await h.manifest.compensator(mode);
     } catch {
       return false;
     }
   }
 
   private async haltCancelled(h: RunHandle): Promise<void> {
-    if (!(await this.compensate(h))) {
+    if (!(await this.compensate(h, "run"))) {
       await this.failRun(h, "RECOVER/COMPENSATION-FAILED", "wrap-up compensation failed");
       return;
     }
@@ -473,12 +504,13 @@ export class Scheduler {
     h.state = "halted";
   }
 
-  /** fail-stop：补偿（尽力）→ 一致点与轮收束（尽力）→ RUN_FAILED。 */
+  /** fail-stop：补偿（T3 全 Run，尽力）→ 一致点与轮收束（尽力）→ RUN_FAILED。 */
   private async failRun(h: RunHandle, code: string, message?: string): Promise<void> {
     if (h.state === "failed") return;
-    await this.compensate(h); // 尽力收尾；其自身失败不再级联
+    await this.compensate(h, "run"); // 尽力收尾；其自身失败不再级联
     try {
-      const cp = await this.emit(h, "CHECKPOINT", { round: h.round });
+      const cp = await this.ledger.checkpoint(h.ref, h.round);
+      h.events.push(cp.seq);
       h.lastCheckpoint = { seq: cp.seq, round: h.round };
       await this.emit(h, "ROUND_ENDED", { round: h.round });
     } catch {

@@ -4,6 +4,10 @@
  * - 私有工具表（tool.provide）：只承载本 Cell 注册的工具；可见性裁决在 Core（本包不做全局表）。
  * - tool.exec（Core→Cell 方向）：执行工具；toolCallTimeoutMs 硬强制（C-D3），超时回
  *   {status:"timeout"}——结果未知语义，硬中断由 Supervisor killed 分类兜底。
+ * - compensation.exec（切片④）：补偿动作分发（manifest 模板 action.ref → 插件 compensations
+ *   导出表）；同一 toolCallTimeoutMs 硬强制；宿主补偿执行器经一次性新 Cell 进程调用
+ *   （ADR-0005「新 Cell」路径），未知 actionRef 拒绝。
+ * - cell.snapshot（切片④）：宿主轮边界索取私有状态（D3）；无快照面 = 无状态 Cell（{state:null}）。
  * - CellClient（Cell→Core 方向，契约 §3.3 可见面）：auth.check / budget.query / model.invoke /
  *   tool.discover / ledger.read（仅本 run）/ effect.declare（EFFECT_DECLARED 发起端，
  *   "先声明后动手"；模板校验与落账在 Core 侧，C-M1）。
@@ -35,6 +39,19 @@ export interface EffectDeclaration {
   retention?: unknown;
 }
 
+/** 补偿动作入参（宿主补偿执行器 → compensation.exec；切片④）。 */
+export interface CompensationExecInput {
+  actionRef: string;
+  effectId: string;
+  targetSummary?: unknown;
+  paramsDigest?: unknown;
+  /** undo = 补偿执行；probe = 结果核验（T05/T06 链路）。 */
+  phase: "undo" | "probe";
+}
+
+/** 插件补偿动作处理器（export const compensations 表项；必须容忍目标不存在，状态机 §6）。 */
+export type CompensationHandler = (input: CompensationExecInput) => Promise<unknown> | unknown;
+
 /** Cell→Core 客户端（契约 §4 可见面矩阵 Cell 行；超时按 §7 默认表）。 */
 export interface CellClient {
   authCheck(action: string, resource: string): Promise<{ allowed: boolean; reason?: string }>;
@@ -60,6 +77,10 @@ export interface CellHandle {
   registerTool(tool: CellTool): void;
   /** 注册迁移钩（manifest migration.steps[].action.ref 对应的插件导出；无则 migrate 拒绝）。 */
   setMigration(fn: (oldState: unknown) => Promise<unknown> | unknown): void;
+  /** 注册补偿动作表（插件 export const compensations；切片④）。 */
+  setCompensations(map: Record<string, CompensationHandler>): void;
+  /** 注册快照索取面（插件 export function snapshot；无注册 = 无状态 Cell，切片④）。 */
+  setSnapshotProvider(fn: () => Promise<unknown> | unknown): void;
   /** A5：新 Cell 内、快照挂载后首轮前执行；失败由 Host 回退旧作用域。 */
   migrate(oldState: unknown): Promise<unknown>;
   /** 对端断开/通道关闭。 */
@@ -79,8 +100,10 @@ const TIMEOUT_MODEL = 120_000;
 export function startCell(opts: CellOptions): CellHandle {
   const conn = new FrameConn(opts);
   const tools = new Map<string, CellTool>();
+  const compensations = new Map<string, CompensationHandler>();
   const now = opts.now ?? (() => Date.now());
   let migration: ((oldState: unknown) => Promise<unknown> | unknown) | null = null;
+  let snapshotProvider: (() => Promise<unknown> | unknown) | null = null;
 
   const client: CellClient = {
     authCheck: (action, resource) => conn.request("auth.check", { action, resource }, TIMEOUT_AUTH),
@@ -98,6 +121,20 @@ export function startCell(opts: CellOptions): CellHandle {
     switch (op) {
       case "tool.exec":
         return execTool(params as { tool: string; params?: unknown });
+      case "compensation.exec": {
+        const req = params as CompensationExecInput;
+        const fn = compensations.get(req.actionRef);
+        if (!fn) {
+          throw new ChannelError(
+            "CELL/ACTION-UNKNOWN",
+            `compensation action not registered: ${req.actionRef}`,
+            { actionRef: req.actionRef },
+          );
+        }
+        return hardTimeout(() => fn(req), "CELL/COMPENSATION-FAILED");
+      }
+      case "cell.snapshot":
+        return { state: snapshotProvider ? await snapshotProvider() : null };
       case "cell.migrate":
         if (!migration) {
           throw new ChannelError("CELL/MIGRATION-MISSING", "no migration hook registered");
@@ -108,25 +145,21 @@ export function startCell(opts: CellOptions): CellHandle {
     }
   });
 
-  async function execTool(p: { tool: string; params?: unknown }): Promise<ToolExecResult> {
-    const tool = tools.get(p.tool);
-    if (!tool) {
-      return {
-        status: "error",
-        error: { code: "CELL/TOOL-UNKNOWN", message: `tool not registered: ${p.tool}` },
-        durationMs: 0,
-      };
-    }
+  /** toolCallTimeoutMs 硬强制（C-D3）：超时后 handler 不可取消、结果/异常丢弃。 */
+  async function hardTimeout(
+    fn: () => Promise<unknown> | unknown,
+    fallbackCode: string,
+  ): Promise<ToolExecResult> {
     const t0 = now();
     let timedOut = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const result = await Promise.race([
-        Promise.resolve(tool.handler(p.params, { client })),
+        Promise.resolve(fn()),
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => {
             timedOut = true;
-            reject(new ChannelError("TRANSPORT/TIMEOUT", "tool exceeded toolCallTimeoutMs"));
+            reject(new ChannelError("TRANSPORT/TIMEOUT", "toolCallTimeoutMs exceeded"));
           }, opts.toolCallTimeoutMs);
         }),
       ]);
@@ -148,12 +181,24 @@ export function startCell(opts: CellOptions): CellHandle {
           code:
             typeof (err as { code?: unknown })?.code === "string"
               ? (err as { code: string }).code
-              : "CELL/TOOL-FAILED",
+              : fallbackCode,
           message: err instanceof Error ? err.message : String(err),
         },
         durationMs: now() - t0,
       };
     }
+  }
+
+  async function execTool(p: { tool: string; params?: unknown }): Promise<ToolExecResult> {
+    const tool = tools.get(p.tool);
+    if (!tool) {
+      return {
+        status: "error",
+        error: { code: "CELL/TOOL-UNKNOWN", message: `tool not registered: ${p.tool}` },
+        durationMs: 0,
+      };
+    }
+    return hardTimeout(() => tool.handler(p.params, { client }), "CELL/TOOL-FAILED");
   }
 
   return {
@@ -162,6 +207,12 @@ export function startCell(opts: CellOptions): CellHandle {
     },
     setMigration(fn) {
       migration = fn;
+    },
+    setCompensations(map) {
+      for (const [ref, fn] of Object.entries(map)) compensations.set(ref, fn);
+    },
+    setSnapshotProvider(fn) {
+      snapshotProvider = fn;
     },
     migrate(oldState) {
       if (!migration) {

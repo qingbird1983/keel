@@ -18,6 +18,7 @@ import {
   type Scope,
 } from "@keel/core";
 import { serveCellChannel, type CellChannelBinding } from "../src/cell-server.js";
+import { EffectTracker } from "../src/effects.js";
 
 let dir: string;
 const ledgers: Ledger[] = [];
@@ -41,9 +42,10 @@ const policy: AuthPolicyInput = {
   ],
 };
 
-function rig(policyInput: AuthPolicyInput = policy) {
+function rig(policyInput: AuthPolicyInput = policy, useTracker = false) {
   const ledger = new Ledger({ rootDir: dir, now: () => 0 });
   ledgers.push(ledger);
+  const tracker = useTracker ? new EffectTracker({ ledger }) : undefined;
   const deps = {
     ledger,
     auth: new Authorizer(policyInput, ledger),
@@ -57,6 +59,7 @@ function rig(policyInput: AuthPolicyInput = policy) {
         invoke: vi.fn(async () => ({ result: { text: "hi" }, usage: { tokens: 3 }, cost: 1 })),
       } satisfies ModelUpstream,
     }),
+    tracker,
   };
   const binding: CellChannelBinding = {
     scope,
@@ -92,7 +95,7 @@ function rig(policyInput: AuthPolicyInput = policy) {
     }
     return events;
   };
-  return { deps, cellConn, readAll };
+  return { deps, cellConn, readAll, tracker };
 }
 
 describe("cell-server：可见面（契约 §3.3 Cell 行）", () => {
@@ -207,5 +210,49 @@ describe("cell-server：effect.declare（C-M1 焊点）", () => {
   it("事件类型封闭集合含 EFFECT_DECLARED（账本写入合法）", () => {
     expect(EVENT_TYPES).toContain("EFFECT_DECLARED");
     expect(EVENT_TYPES).toContain("ASSEMBLY_RECORDED");
+  });
+});
+
+describe("cell-server：声明期 dependsOn 校验 + 效果追踪（切片④）", () => {
+  it("dependsOn 引用未知效果 → 拒绝且不留账（补偿稿 §5.2）", async () => {
+    const { cellConn, readAll } = rig(policy, true);
+    await expect(
+      cellConn.request(
+        "effect.declare",
+        {
+          effectId: "e-dep",
+          effectKind: "webfetch.request-sent",
+          dependsOn: ["ghost"],
+          compensation: { actionRef: "compensations/cancel", idempotency: "keyed" },
+        },
+        500,
+      ),
+    ).rejects.toMatchObject({ code: "SCHED/MANIFEST-INVALID" });
+    expect((await readAll()).map((e) => e.type)).not.toContain("EFFECT_DECLARED");
+  });
+
+  it("合法 dependsOn 链 → 落账且追踪器登记（未结集合）", async () => {
+    const { cellConn, tracker, readAll } = rig(policy, true);
+    await cellConn.request(
+      "effect.declare",
+      {
+        effectId: "a",
+        effectKind: "webfetch.request-sent",
+        compensation: { actionRef: "c", idempotency: "natural" },
+      },
+      500,
+    );
+    await cellConn.request(
+      "effect.declare",
+      {
+        effectId: "b",
+        effectKind: "webfetch.request-sent",
+        dependsOn: ["a"],
+        compensation: { actionRef: "c", idempotency: "natural" },
+      },
+      500,
+    );
+    expect(tracker?.openCount(ref.runId)).toBe(2);
+    expect((await readAll()).filter((e) => e.type === "EFFECT_DECLARED")).toHaveLength(2);
   });
 });

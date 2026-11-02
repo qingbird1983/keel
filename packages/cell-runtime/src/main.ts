@@ -4,14 +4,16 @@
  * bootstrap 经 argv JSON 传入（插件路径/工具超时）；作用域由 Host 侧通道绑定盖章，
  * 本进程不可自报（防止越界伪装）；插件 = ESM 模块：
  * - `export const tools: CellTool[]`（tool.provide）
- * - `export function migrate(oldState)` 可选（manifest migration 钩，A5）
+ * - `export function migrate(oldState)` 可选（manifest migration 钩，A5；恢复挂载共用通道，切片④）
+ * - `export const compensations` 可选（补偿动作表，切片④：宿主补偿执行器经新 Cell 调用）
+ * - `export function snapshot()` 可选（私有状态索取面，切片④：无导出 = 无状态 Cell）
  *
  * 崩溃语义（ADR-0005 crash 分类的前提）：未捕获异常/未决拒绝 = 进程非零退出——
  * 舱内崩溃必须可见于退出分类，禁止静默存活。
  */
 
 import { pathToFileURL } from "node:url";
-import { startCell, type CellTool } from "./cell.js";
+import { startCell, type CellTool, type CompensationHandler } from "./cell.js";
 
 interface Bootstrap {
   pluginPath: string;
@@ -21,6 +23,8 @@ interface Bootstrap {
 interface PluginModule {
   tools?: CellTool[];
   migrate?: (oldState: unknown) => Promise<unknown> | unknown;
+  compensations?: Record<string, CompensationHandler>;
+  snapshot?: () => Promise<unknown> | unknown;
 }
 
 function crash(err: unknown): never {
@@ -52,4 +56,6 @@ void (async () => {
   });
   for (const tool of mod.tools ?? []) cell.registerTool(tool);
   if (mod.migrate) cell.setMigration(mod.migrate);
+  if (mod.compensations) cell.setCompensations(mod.compensations);
+  if (mod.snapshot) cell.setSnapshotProvider(mod.snapshot);
 })().catch((err) => crash(err));
