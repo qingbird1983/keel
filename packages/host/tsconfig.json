@@ -1,7 +1,13 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    // 类型检查期直接解析 workspace 兄弟包源码：不依赖 dist（干净检出/未 build 时
+    // `pnpm typecheck` 必须可独立通过；构建期仍走 exports → dist，见 tsconfig.build.json）
+    "paths": {
+      "@keel/core": ["../../packages/core/src/index.ts"],
+      "@keel/cell-runtime": ["../../packages/cell-runtime/src/index.ts"]
+    }
   },
   "include": ["src", "test"]
 }
