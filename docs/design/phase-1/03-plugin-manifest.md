@@ -70,6 +70,8 @@ DSH 症状 V5（热插拔依赖全局注册表突变）的根源：插件进入�
 
 allow 的必填性由装配器语义校验执行，Schema 层不强制——这是结构校验与语义校验分层的设计选择（C-M2），不是 Schema 遗漏。
 
+> 实现注记（2026-11-03 Phase 2 切片①，[ADR-0010](../../adr/ADR-0010-runtime-tool-registration-channel.md)）：词表**不增项**，`tool.provide` 的语义从"装载期代码内清单"扩到"运行期可注册/撤名"（跨通道 op `tool.register`/`tool.remove`，契约 §4.6）。本项 `allow` 由"不需要"变为"**可选收窄**"：缺省 = `*`（清单在代码内），给出 `allow` 则按 glob 限定可注册的工具名。同时明确：**词表项若无对应运行期 op 就不产出授权规则**（`memory.backend` 当前即如此）——声明不等于能力，运行期裁决只认有通道的项；把 manifest 声明编译成规则的动作在宿主（`permission-rules`），完整的"从运行观察合成声明"仍是 Phase 2 切片②。
+
 ### 5.3 resources（C-D3）
 
 - `toolCallTimeoutMs`：capability 必填；硬强制——超时即按契约 §6 `TRANSPORT/TIMEOUT` 处理（结果未知 → 补偿核对路径），并作为 ADR-0005 `killed` 强杀的计时依据。

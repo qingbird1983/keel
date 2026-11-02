@@ -1,8 +1,8 @@
 # Phase 2 切片①：承接层骨架与 A 档合成样本
 
-- 状态：**草稿**（待所有者确认 §10 三项；定稿前不写实现代码——铁律 1）
+- 状态：**定稿**（2026-11-03 所有者确认 §10 三项，全部按建议落地：授权 ADR-0010 / 边界表两条补注 / 样本组 9 枚 + 新增行 #15 归 C 档；定稿后开始写本片实现代码——铁律 1）
 - 日期：2026-11-03
-- 关联：[phase-2 合同](../../roadmap/phase-2-cordis-compat.md) §7 切片①（锚 **B1**、B5 部分）；[01 稿 迁移边界](01-cordis-migration-boundary.md)（本片逐条承接它的 A 档行）；[phase-1/05 适配原型](../phase-1/05-cordis-adapter-prototype.md)；[契约](../phase-1/01-core-api-contract.md) §3.3/§4.6/§7；[manifest 稿](../phase-1/03-plugin-manifest.md) §5.2/§6；[Phase 1 报告](../phase-1/report.md) §3
+- 关联：[phase-2 合同](../../roadmap/phase-2-cordis-compat.md) §7 切片①（锚 **B1**、B5 部分）；[01 稿 迁移边界](01-cordis-migration-boundary.md)（本片逐条承接它的 A 档行）；[phase-1/05 适配原型](../phase-1/05-cordis-adapter-prototype.md)；[契约](../phase-1/01-core-api-contract.md) §3.3/§4.6/§7；[manifest 稿](../phase-1/03-plugin-manifest.md) §5.2/§6；[Phase 1 报告](../phase-1/report.md) §3；[ADR-0010](../../adr/ADR-0010-runtime-tool-registration-channel.md)（本片可见面扩展的决策记录）
 
 ## 1. 这份文档回答什么
 
@@ -41,6 +41,7 @@
 | `ctx.effects.reclaim(id)`                                                                             | 抛 `ADAPTER/UNSUPPORTED` + 改法提示（声明式补偿）                                              | #9 → **C**，样例在③                      |
 | `ctx.llm.*` / 插件自带 SDK 直调模型                                                                   | 抛 `ADAPTER/UNSUPPORTED` + 改法提示（走 `client.modelInvoke` 形状）                            | #6 → **C**，样例在③                      |
 | `ctx.config.get(key)` / `ctx.net`                                                                     | 抛 `ADAPTER/UNSUPPORTED`（B 档：等合成声明与受控注入通道）                                     | #4 / #5 → **B**，在②                     |
+| `ctx.bus.emit/on(...)`（跨插件事件总线）                                                              | 抛 `ADAPTER/UNSUPPORTED` + 改法提示（工具参数传递 / 账本只读面）                               | #15（本轮新增行）→ **C**，样例在③        |
 | 作用域自省（`ctx.sessionId` 等）                                                                      | **不提供**（旧代码读到 undefined）：作用域由通道绑定盖章，Cell 不自报身份；真样本命中即补表    | 新符号 → 待 B5 回填                      |
 | 插件日志（`console.*`）                                                                               | 原样放行到 Cell stderr（不入账本，不拦截）；观测面仍是账本                                     | #11 → **B**，在②/⑥                       |
 
@@ -202,11 +203,11 @@ B1 的三条主张与本片的对应：**账本完整** = 每样本 run 的 seq 
 - 文档：docs 新增本稿（+ 本轮已另立 [ADR-0009](../../adr/ADR-0009-await-async-resource-release.md) 记录资源释放规范补条）；本片定稿后还需 1 篇契约可见面 ADR（编号顺延 ADR-0010）；阶段文档增量仍在 ≤12 篇内。
 - 门禁：六道 + `pnpm clean` 起全链一次；Phase 1 契约级五测试点与 A1~A8 场景全部复跑（B8）。
 
-## 10. 待所有者确认（三项，定稿前）
+## 10. 所有者确认结果（2026-11-03，三项均按建议）
 
-1. **契约语义扩展是否认可，并授权立 ADR**（编号顺延为 **ADR-0010**，因 ADR-0009 已被本轮的资源释放规范补条占用）：新增两个 Cell→Core op（`tool.register`/`tool.remove`）+ `tool.provide` 的语义从"代码内清单（装载期）"扩到"运行期可注册/撤名"，同步契约 §3.3 Cell 行与 §4.6 注记。C-D1 规定能力词表变动须 ADR；ADR 只增不改，所以**本稿定稿后**才落笔（避免先写再改）。
-2. **边界表两条补注**：#1 补"返回值同步消费属 C 档（一行 `await`）"；#2 拆支——"启动期塞工具"留 A 档，"启动期塞钩子"归 #14 的 D 档通道（策略插件 + 白名单声明）。01 稿是定稿合同，补注按既有先例以"实现期细化"追加，不改判档结论。
-3. **样本组规模与一处新符号**：A 档合成组 9 枚（5 常规 + 4 探针）是否合适；以及是否新增边界行 #15 `ctx.bus.emit/on`（旧框架跨插件事件总线）——建议 **C 档**，改法 = 工具调用参数传递或经账本只读面，本片先按"未映射即抛"处置（不静默）。
+1. **契约语义扩展已授权** → 已立 [ADR-0010](../../adr/ADR-0010-runtime-tool-registration-channel.md)：新增两个 Cell→Core op（`tool.register`/`tool.remove`）+ `tool.provide` 的语义从"代码内清单（装载期）"扩到"运行期可注册/撤名"；契约 §3.3 Cell 行、§4.6 与 manifest §5.2 追加实现期细化注记。
+2. **边界表两条补注已认可**：#1 补"返回值同步消费属 C 档（一行 `await`）"；#2 拆支——"启动期塞工具"留 A 档，"启动期塞钩子"归 #14 的 D 档通道（策略插件 + 白名单声明）。01 稿以"实现期细化"追加，不改判档结论。
+3. **样本组规模 9 枚已认可 + 新增行 #15**：A 档合成组 = 5 常规 + 4 探针；`ctx.bus.emit/on`（旧框架跨插件事件总线）新增为边界行 **#15，归 C 档**，本片按"未映射即抛"处置（改法 = 工具调用参数传递或经账本只读面）。
 
 ## 11. 定稿后的落地清单（按序）
 
