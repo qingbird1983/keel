@@ -7,7 +7,7 @@
 
 import { KeelError } from "./errors.js";
 import { Ledger } from "./ledger.js";
-import type { RunRef, Scope } from "./events.js";
+import { scopeKey, type RunRef, type Scope } from "./events.js";
 
 /** 耗尽处置模式（契约 §4.3）。 */
 export type ExhaustionMode = "hard-stop" | "graceful" | "policy";
@@ -211,10 +211,6 @@ export class Budgeter {
       mode,
     });
   }
-}
-
-function scopeKey(s: Scope): string {
-  return `${s.agentId}|${s.sessionId}`;
 }
 
 function remaining(limit: number | undefined, used: number): number | null {

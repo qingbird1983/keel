@@ -1,14 +1,16 @@
 /**
  * @keel/core —— Core 四件套（调度器/授权器/预算器/账本）+ 上下文管理器 + 模型网关 + 策略扩展点。
  *
- * 当前已落地：账本（ledger）/ 授权器（authorizer）/ 预算器（budget）；
- * 调度器、上下文管理器、模型网关、策略扩展点随纵向切片后续落地（docs/roadmap/phase-1-mvp.md）。
+ * 当前已落地：账本 / 授权器 / 预算器 / 上下文管理器（scope 分区 + tool.discover）/ 模型网关 /
+ * 策略扩展点（四 hook 白名单）/ 调度器（轮循环 + 耗尽处置）；
+ * Cell 运行时、Host 装配器、补偿执行器随纵向切片后续落地（docs/roadmap/phase-1-mvp.md）。
  */
 
 export { ERROR_CODES, KeelError, type ErrorCode } from "./errors.js";
 export {
   EVENT_TYPES,
   SCHEMA_VERSION,
+  scopeKey,
   type AuthDeniedPayload,
   type BudgetReservedPayload,
   type BudgetSettledPayload,
@@ -56,3 +58,34 @@ export {
   type ExhaustionMode,
   type Reservation,
 } from "./budget.js";
+export { ContextManager, type ToolEntry } from "./context.js";
+export {
+  HookBus,
+  type BudgetExhaustedChoiceVerdict,
+  type HookBusOptions,
+  type HookCallResult,
+  type HookHandler,
+  type RetryAdviceVerdict,
+  type StopAdviceVerdict,
+  type ToolApprovalVerdict,
+  type VerdictMap,
+} from "./hooks.js";
+export {
+  ModelGateway,
+  type ModelInvokeRequest,
+  type ModelInvokeResult,
+  type ModelUpstream,
+} from "./gateway.js";
+export {
+  Scheduler,
+  type ActionOutcome,
+  type DriverAction,
+  type DriverDecision,
+  type PendingCompensator,
+  type RunDriver,
+  type RunManifest,
+  type RunState,
+  type RunStatus,
+  type SchedulerOptions,
+  type ToolExecutor,
+} from "./scheduler.js";

@@ -29,4 +29,5 @@
 1. 切片②：调度器（轮循环+CHECKPOINT+耗尽处置）、上下文管理器（scope 分区+tool.discover）、模型网关（auth→reserve→代理→settle）、策略 hook 四件套 —— A1/A2/A7 的实现主体
 2. 切片③：cell-runtime（进程体+stdio 帧）+ host（IsolationProvider/Supervisor/装配器）—— A2/A5
 3. 切片④：补偿执行器（状态机 T01~T14）+ recover.* —— A3/A4/A6
+
 - 已提取沉淀：无新 pitfall（FileHandle GC 问题属 standards/04 §3 既有规则的执行，已在 close() 落实）

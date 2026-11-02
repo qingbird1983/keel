@@ -58,6 +58,8 @@ DSH 三类症状直接源于控制面缺少硬契约：**V6** Agent Loop 被插�
 
 调度轮内部序列（不可插件化，V6 的结构性防御）：`ROUND_STARTED → 读上下文 → 策略 hook（如触发）→ 决策 → 执行（工具/模型，经授权+预算）→ 账本 → CHECKPOINT`。任何 hook 响应都不含"下一动作"字段——schema 层面拒绝（§5 HOOK_VERDICT）。
 
+> 实现期细化（2026-11-02 切片②）：① 正常完成 = 末轮 `CHECKPOINT`+`ROUND_ENDED` 后写 `RUN_HALTED{reason:"completed"}`（终态 halted；事件表无 RUN_COMPLETED，复用 RUN_HALTED）；② 预算耗尽事件映射：hard-stop → `RUN_FAILED{reasonCode:"BUDGET/EXHAUSTED"}`、graceful → `RUN_HALTED{reasonCode:"BUDGET/EXHAUSTED-GRACEFUL"}`，收束序 = 补偿 → CHECKPOINT → ROUND_ENDED → RUN_*；③ 被拒动作（Core 授权或 hook① 否决）不产生 TOOL_INVOKE，以 `TOOL_RESULT{status:"error", error.code:"AUTH/DENIED", error.by: "core"|"policy-hook"}` 统一落点留痕。
+
 ### 4.2 授权器
 
 | op                | 方向           | 语义                                                                   | 默认超时 | 幂等性 | 主要错误                            |
@@ -79,6 +81,7 @@ DSH 三类症状直接源于控制面缺少硬契约：**V6** Agent Loop 被插�
 - 层级模型：`agent ⊃ session ⊃ run`；子级 reserve 同时在祖先链预扣，settle 逐级实结。MVP 实现 run + session；`agent` 级接口签名保留（§12）。
 - 耗尽语义三档（按 scope 配置，默认 Run=hard-stop、Session=graceful）：**hard-stop** 立即停止派发并走补偿收尾；**graceful** 完成在途工具调用+补偿后停，不接受新副作用；**policy** 交 hook④ 在 Core 给定的 `{hardStop, graceful}` 中选（D1 与 D2 的衔接点）。
 - 边界澄清（2026-11-02 修订）：`budget.configure` 只设置 scope 限额**参数**，不改变任何已发生的 reserve/settle 裁决；运行时预算裁决仍由预算器独立执行——与 §3.3 "Host 只能传递不能改判"不矛盾：配置限额 ≠ 运行时改判。
+- 实现注记（2026-11-02 切片②）：模型调用重试（上游失败后，§8 失败路径）派生 `reqId#n` 级 reservation——失败试次以 settle(0) 闭环（settle-once 语义不动），重试以新 reservation 实结真实用量；总计费仍权威，不变式不变。
 
 ### 4.4 账本
 
@@ -108,6 +111,8 @@ DSH 三类症状直接源于控制面缺少硬契约：**V6** Agent Loop 被插�
 | `context.page.out/in` | Core 内部                | 换页原语：旧页移出/按需移回，页版本入账本                               | —        | —                   | `CTX/PAGE-MISSING`  |
 
 工具 schema 变更 = 显式事件 `TOOL_SCHEMA_CHANGED`，**仅传播到受影响 scope**（V1：动态增删工具不触碰其他会话缓存）。
+
+> 实现注记（2026-11-02 切片②）：MVP 落地 scope 分区 + `tool.discover` + schema 变更按 scope 传播（scope 级挂起变更日志，各 run 按游标消费后写入本 run 账本，同 scope 多 run 不丢事件）；`context.page.out/in` 换页原语随上下文页存储后端在 Phase 1 后续切片落地。
 
 ### 4.7 模型网关（ADR-0003）
 
