@@ -9,8 +9,13 @@ let dir: string;
 let tick = 0;
 const ledgers: Ledger[] = [];
 
-function newLedger(root: string = dir): Ledger {
-  const l = new Ledger({ rootDir: root, now: () => 1_700_000_000_000 + tick++ });
+/** 一切写入实例必须经本构造器（登记后 afterEach 统一 close；丢弃未关 = 把句柄释放交给 GC，见 P-005）。 */
+function newLedger(root: string = dir, opts: { segMaxBytes?: number } = {}): Ledger {
+  const l = new Ledger({
+    rootDir: root,
+    now: () => 1_700_000_000_000 + tick++,
+    ...(opts.segMaxBytes !== undefined ? { segMaxBytes: opts.segMaxBytes } : {}),
+  });
   ledgers.push(l);
   return l;
 }
@@ -136,7 +141,7 @@ describe("Ledger", () => {
   });
 
   it("段滚动：超过 segMaxBytes 后在一致点边界开新段", async () => {
-    const ledger = new Ledger({ rootDir: dir, now: () => 0, segMaxBytes: 1 }); // 阈值 1B → 每 checkpoint 必滚
+    const ledger = newLedger(dir, { segMaxBytes: 1 }); // 阈值 1B → 每 checkpoint 必滚
     await ledger.append(ref, "DECISION", {});
     await ledger.checkpoint(ref, 1);
     await ledger.append(ref, "DECISION", {});
@@ -146,6 +151,9 @@ describe("Ledger", () => {
     expect(page.events.map((e) => e.seq)).toEqual([1, 2, 3, 4]); // 跨段读取透明
     expect(await ledger.lastCheckpoint(ref)).toEqual({ seq: 4, round: 2 });
   });
+
+  // 句柄释放的回归测试独立成文件（packages/core/test/ledger-fd-release.test.ts）：
+  // 那里需要 mock node:fs/promises 才能拿到每个 FileHandle 的 close 记录点，不牵动本文件的其余用例。
 
   it("fixture 回放组：录制的旧样例跨实例可读且语义不变（standards/05 §2.3）", async () => {
     const fixtureRoot = fileURLToPath(

@@ -276,7 +276,11 @@ export class Ledger {
   }
 
   private async rollSegment(w: RunWriter): Promise<void> {
-    (await w.opening).close();
+    // 确定性释放（standards/04 §3）：close 必须 await——浮空的 close 让句柄对象在真正关闭前
+    // 失去引用，Node 24+ 把"GC 期间关闭 FileHandle"判为硬错误（CI 的 Node 22 只会静默降级）。
+    // close 失败按写失败对待：串行队列锁存 fail-stop，禁止"旧段没关干净就当没事发生"。
+    const closing = await w.opening;
+    await closing.close();
     w.segNo += 1;
     w.bytes = 0;
     w.opening = this.openSegment(w.ref, w.segNo);
