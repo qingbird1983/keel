@@ -56,6 +56,7 @@ docs/
 | design/phase-1/report                          | 定稿 | Phase 1 阶段进度报告：A1~A8 逐条验收结果与证据、A8 基准数据、契约级测试点核对、体量核对与规范复查                         |
 | design/phase-2/01-cordis-migration-boundary    | 定稿 | Cordis 迁移边界：15 条旧写法逐档归类（A 直用 / B 补声明 / C 改写 / D 拒绝，D 档零例外）与迁移改法（含切片①补注）          |
 | design/phase-2/02-adapter-skeleton             | 定稿 | Phase 2 切片①口径：旧 ctx 承接面清单、Cell 内构造 seam、运行期注册的通道与门禁、A 档合成样本组（含最坏写法探针）          |
+| design/phase-2/03-manifest-synthesis           | 草稿 | Phase 2 切片②口径：两遍观察 → 合成候选 → 人工审核 → 五步校验的权限收敛路径，装配编排与升级接缝、就绪时机（锚 B2、B6）     |
 | adr/ADR-0005-cell-isolation                    | 定稿 | Cell 隔离选型：MVP 进程级，演进期 IsolationProvider 抽象 + 容器后端                                                       |
 | adr/ADR-0006-mit-license                       | 定稿 | 许可证选用 MIT（版权主体留占位，落实见 ADR-0007）                                                                         |
 | adr/ADR-0007-copyright-attribution             | 定稿 | 版权署名落实为 GitHub 用户名 qingbird1983（LICENSE + 两份 README 同步）                                                   |
