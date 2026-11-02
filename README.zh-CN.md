@@ -44,4 +44,4 @@ Phase 0（设计基线）已完成——四份关键设计定稿、六篇决策�
 
 ## 许可证
 
-[MIT](LICENSE) © 2026 Keel Project Contributors（署名可随时更改，见 ADR-0006）
+[MIT](LICENSE) © 2026 qingbird1983（署名决策见 ADR-0007）
