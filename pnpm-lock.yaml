@@ -169,6 +169,15 @@ importers:
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.14.0)
+      '@keel/cell-runtime':
+        specifier: workspace:*
+        version: link:packages/cell-runtime
+      '@keel/core':
+        specifier: workspace:*
+        version: link:packages/core
+      '@keel/host':
+        specifier: workspace:*
+        version: link:packages/host
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
@@ -196,7 +205,14 @@ importers:
 
   packages/core: {}
 
-  packages/host: {}
+  packages/host:
+    dependencies:
+      '@keel/cell-runtime':
+        specifier: workspace:*
+        version: link:../cell-runtime
+      '@keel/core':
+        specifier: workspace:*
+        version: link:../core
 
 packages:
 

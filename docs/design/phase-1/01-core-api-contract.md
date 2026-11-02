@@ -1,6 +1,6 @@
 # Keel Core API 契约
 
-- 状态：定稿（2026-11-02 所有者确认；同日修订三处：① ADR-0005 定稿，回填 §7 隔离敏感超时；② 任务 D 成稿，§5 补充三类补偿事件；③ 所有者评审勘误与澄清——§4.3 configure 边界、§4.5 恢复补偿作用域、§6 错误码拆分）
+- 状态：定稿（2026-11-02 所有者确认；同日修订三处：① ADR-0005 定稿，回填 §7 隔离敏感超时；② 任务 D 成稿，§5 补充三类补偿事件；③ 所有者评审勘误与澄清——§4.3 configure 边界、§4.5 恢复补偿作用域、§6 错误码拆分；切片③实现期注记两处：§4.1 ④⑤、§5 ASSEMBLY_RECORDED）
 - 日期：2026-11-02
 - 关联：[architecture/01](../../architecture/01-keel-overview.md)；[ADR-0001](../../adr/ADR-0001-implementation-stack.md) ~ [ADR-0005](../../adr/ADR-0005-cell-isolation.md)；[phase-0](../../roadmap/phase-0-design-baseline.md)（验收 A2/A3）
 
@@ -59,6 +59,8 @@ DSH 三类症状直接源于控制面缺少硬契约：**V6** Agent Loop 被插�
 调度轮内部序列（不可插件化，V6 的结构性防御）：`ROUND_STARTED → 读上下文 → 策略 hook（如触发）→ 决策 → 执行（工具/模型，经授权+预算）→ 账本 → CHECKPOINT`。任何 hook 响应都不含"下一动作"字段——schema 层面拒绝（§5 HOOK_VERDICT）。
 
 > 实现期细化（2026-11-02 切片②）：① 正常完成 = 末轮 `CHECKPOINT`+`ROUND_ENDED` 后写 `RUN_HALTED{reason:"completed"}`（终态 halted；事件表无 RUN_COMPLETED，复用 RUN_HALTED）；② 预算耗尽事件映射：hard-stop → `RUN_FAILED{reasonCode:"BUDGET/EXHAUSTED"}`、graceful → `RUN_HALTED{reasonCode:"BUDGET/EXHAUSTED-GRACEFUL"}`，收束序 = 补偿 → CHECKPOINT → ROUND_ENDED → RUN_*；③ 被拒动作（Core 授权或 hook① 否决）不产生 TOOL_INVOKE，以 `TOOL_RESULT{status:"error", error.code:"AUTH/DENIED", error.by: "core"|"policy-hook"}` 统一落点留痕。
+>
+> 实现期细化（2026-11-02 切片③）：④ Cell 进程退出三分类（ADR-0005）经 Supervisor `abort` 缝写 `RUN_FAILED`，原因码 `CELL/CRASH` / `CELL/KILLED` / `CELL/CLEAN-EXIT`（载荷级字符串，不扩 §6 错误码表）；abort 与 cancel 语义对偶——cancel → `RUN_HALTED`，abort → `RUN_FAILED`，在途轮先正常收束再落终态；⑤ 装配记录经 `ASSEMBLY_RECORDED` 于 `run.start` 作为首事件落账（§5 注记）。
 
 ### 4.2 授权器
 
@@ -138,20 +140,21 @@ Cell 侧适配器无凭证、无直连网络能力；网关故障 = 发起 Cell 
 
 公共信封：`{seq(单调), ts, runId, sessionId, agentId, type, schemaVersion, payload}`。
 
-| type                                                          | 载荷要点                                     | 备注                                                                              |
-| ------------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------- |
-| RUN_STARTED / RUN_HALTED / RUN_FAILED / RUN_RECOVERED         | 生命周期与原因码                             | RUN_RECOVERED 含新 runId 与恢复自 seq                                             |
-| ROUND_STARTED / ROUND_ENDED                                   | 轮号                                         | ROUND_ENDED 前必见 CHECKPOINT                                                     |
-| DECISION                                                      | 决策内容摘要 + 依据事件 seq 引用             | V6 重放归因的锚点                                                                 |
-| TOOL_INVOKE / TOOL_RESULT                                     | 工具、参数摘要、结果状态、耗时               | 参数全文按留存策略（任务 C manifest 声明）                                        |
-| AUTH_DENIED / HOOK_CALLED / HOOK_VERDICT                      | 主体、hook 名、裁决、fallback 标记           | 拒绝与策略介入全留痕                                                              |
-| BUDGET_RESERVED / BUDGET_SETTLED                              | reservationId、scope 链、估算/实结、层级余量 |                                                                                   |
-| MODEL_INVOKED / MODEL_USAGE                                   | 模型、请求摘要；用量/费用权威计量            | 网关写入（ADR-0003）                                                              |
-| EFFECT_DECLARED / COMPENSATION_EXECUTED                       | 副作用声明与补偿闭环                         | schema 归任务 D → **已细化**（[补偿状态机](02-compensation-state-machine.md) §9） |
-| EFFECT_SETTLED / COMPENSATION_ESCALATED / COMPENSATION_WAIVED | 效果结果 / 补偿升级 / 豁免                   | 同上（任务 D 增量，载荷见其 §9）                                                  |
-| STATE_SNAPSHOT_REF                                            | 快照引用 + 版本 + 轮号                       | D3 元数据；Core 不含快照内容                                                      |
-| TOOL_SCHEMA_CHANGED                                           | 工具、旧/新 schema 版本、受影响 scope        |                                                                                   |
-| CHECKPOINT                                                    | 一致点 seq、轮号                             | ADR-0004；重放自校验锚                                                            |
+| type                                                          | 载荷要点                                                                     | 备注                                                                                                                                       |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| RUN_STARTED / RUN_HALTED / RUN_FAILED / RUN_RECOVERED         | 生命周期与原因码                                                             | RUN_RECOVERED 含新 runId 与恢复自 seq                                                                                                      |
+| ASSEMBLY_RECORDED                                             | manifest 名/版本/kind、权限清单、补偿 class 摘要、record-only 标记、接受与否 | 装配审计基线（manifest 稿 §6 第 5 步）；切片③注记：run.start 时作为该 run 首事件写入，run 前失败的装配尝试不入账本（由装配器错误返回承载） |
+| ROUND_STARTED / ROUND_ENDED                                   | 轮号                                                                         | ROUND_ENDED 前必见 CHECKPOINT                                                                                                              |
+| DECISION                                                      | 决策内容摘要 + 依据事件 seq 引用                                             | V6 重放归因的锚点                                                                                                                          |
+| TOOL_INVOKE / TOOL_RESULT                                     | 工具、参数摘要、结果状态、耗时                                               | 参数全文按留存策略（任务 C manifest 声明）                                                                                                 |
+| AUTH_DENIED / HOOK_CALLED / HOOK_VERDICT                      | 主体、hook 名、裁决、fallback 标记                                           | 拒绝与策略介入全留痕                                                                                                                       |
+| BUDGET_RESERVED / BUDGET_SETTLED                              | reservationId、scope 链、估算/实结、层级余量                                 |                                                                                                                                            |
+| MODEL_INVOKED / MODEL_USAGE                                   | 模型、请求摘要；用量/费用权威计量                                            | 网关写入（ADR-0003）                                                                                                                       |
+| EFFECT_DECLARED / COMPENSATION_EXECUTED                       | 副作用声明与补偿闭环                                                         | schema 归任务 D → **已细化**（[补偿状态机](02-compensation-state-machine.md) §9）                                                          |
+| EFFECT_SETTLED / COMPENSATION_ESCALATED / COMPENSATION_WAIVED | 效果结果 / 补偿升级 / 豁免                                                   | 同上（任务 D 增量，载荷见其 §9）                                                                                                           |
+| STATE_SNAPSHOT_REF                                            | 快照引用 + 版本 + 轮号                                                       | D3 元数据；Core 不含快照内容                                                                                                               |
+| TOOL_SCHEMA_CHANGED                                           | 工具、旧/新 schema 版本、受影响 scope                                        |                                                                                                                                            |
+| CHECKPOINT                                                    | 一致点 seq、轮号                                                             | ADR-0004；重放自校验锚                                                                                                                     |
 
 ## 6. 错误码
 

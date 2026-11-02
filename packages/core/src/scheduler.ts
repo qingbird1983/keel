@@ -20,6 +20,7 @@ import { ContextManager, type ToolEntry } from "./context.js";
 import { HookBus } from "./hooks.js";
 import { ModelGateway } from "./gateway.js";
 import {
+  type AssemblyRecordedPayload,
   type EventType,
   type LedgerEvent,
   type RunRef,
@@ -87,6 +88,8 @@ export interface RunManifest {
   executor: ToolExecutor;
   driver: RunDriver;
   compensator?: PendingCompensator;
+  /** 装配审计基线（切片③：存在时作为本 run 首事件 ASSEMBLY_RECORDED 落账）。 */
+  assembly?: AssemblyRecordedPayload;
 }
 
 /** 状态机位置（契约 run.status；recovering 随切片④恢复器启用）。 */
@@ -110,6 +113,9 @@ interface RunHandle {
   events: number[];
   history: ActionOutcome[];
   cancelRequested: boolean;
+  /** abort 缝（切片③）：非空 = cancelRequested 由 abort 置入，终态走 RUN_FAILED。 */
+  abortCode?: string;
+  abortMessage?: string;
   done: Promise<RunStatus>;
   /** loop 终态结算器；done 在 loop 收束时落定。 */
   settle: (s: RunStatus) => void;
@@ -200,6 +206,22 @@ export class Scheduler {
     return h.done;
   }
 
+  /**
+   * abort 缝（契约 §4.1 注记④，ADR-0005）：Cell 进程退出三分类的统一落点——
+   * 停止派发新轮，在途轮正常收束（CHECKPOINT/ROUND_ENDED）后写 RUN_FAILED{reasonCode}。
+   * 与 cancel 对偶：cancel → RUN_HALTED，abort → RUN_FAILED。已终态则幂等 no-op。
+   */
+  abort(runId: string, reasonCode: string, message?: string): Promise<RunStatus> {
+    const h = this.mustGet(runId);
+    if (h.state === "running") {
+      h.state = "halting";
+      h.cancelRequested = true;
+      h.abortCode = reasonCode;
+      h.abortMessage = message;
+    }
+    return h.done;
+  }
+
   /** run.status：状态机位置 + 最近一致点。 */
   status(runId: string): RunStatus {
     return this.snapshot(this.mustGet(runId));
@@ -209,10 +231,13 @@ export class Scheduler {
 
   private async loop(h: RunHandle): Promise<void> {
     try {
+      // 装配审计基线（切片③）：run 首事件（seq 1）
+      if (h.manifest.assembly) await this.emit(h, "ASSEMBLY_RECORDED", h.manifest.assembly);
       await this.emit(h, "RUN_STARTED", {});
       for (;;) {
         if (h.cancelRequested) {
-          await this.haltCancelled(h);
+          if (h.abortCode !== undefined) await this.failRun(h, h.abortCode, h.abortMessage);
+          else await this.haltCancelled(h);
           break;
         }
         h.round += 1;
@@ -220,7 +245,11 @@ export class Scheduler {
         break; // 终态已在 round 内落账
       }
     } catch (err) {
-      await this.failRun(h, err);
+      await this.failRun(
+        h,
+        err instanceof KeelError ? err.code : "DRIVER-ERROR",
+        err instanceof Error ? err.message : String(err),
+      );
     }
     h.settle(this.snapshot(h));
   }
@@ -278,10 +307,7 @@ export class Scheduler {
 
     // 补偿收尾（耗尽中断路径）；收尾失败 → 升级阻断（完整升级随切片④状态机落地）
     if (exhausted && !(await this.compensate(h))) {
-      await this.failRun(
-        h,
-        new KeelError("RECOVER/COMPENSATION-FAILED", "wrap-up compensation failed"),
-      );
+      await this.failRun(h, "RECOVER/COMPENSATION-FAILED", "wrap-up compensation failed");
       return "stop";
     }
 
@@ -290,6 +316,8 @@ export class Scheduler {
     h.lastCheckpoint = { seq: cp.seq, round: h.round };
     await this.emit(h, "ROUND_ENDED", { round: h.round });
 
+    // abort/cancel 于在途轮到达：一致点已落，终态交 loop 顶部收束（契约 §4.1 注记④收束序）
+    if (h.cancelRequested) return "continue";
     if (exhausted === "graceful") {
       await this.emit(h, "RUN_HALTED", { reasonCode: "BUDGET/EXHAUSTED-GRACEFUL" });
       h.state = "halted";
@@ -438,10 +466,7 @@ export class Scheduler {
 
   private async haltCancelled(h: RunHandle): Promise<void> {
     if (!(await this.compensate(h))) {
-      await this.failRun(
-        h,
-        new KeelError("RECOVER/COMPENSATION-FAILED", "wrap-up compensation failed"),
-      );
+      await this.failRun(h, "RECOVER/COMPENSATION-FAILED", "wrap-up compensation failed");
       return;
     }
     await this.emit(h, "RUN_HALTED", { reason: "cancelled" });
@@ -449,9 +474,7 @@ export class Scheduler {
   }
 
   /** fail-stop：补偿（尽力）→ 一致点与轮收束（尽力）→ RUN_FAILED。 */
-  private async failRun(h: RunHandle, err: unknown): Promise<void> {
-    const code = err instanceof KeelError ? err.code : "DRIVER-ERROR";
-    const message = err instanceof Error ? err.message : String(err);
+  private async failRun(h: RunHandle, code: string, message?: string): Promise<void> {
     if (h.state === "failed") return;
     await this.compensate(h); // 尽力收尾；其自身失败不再级联
     try {

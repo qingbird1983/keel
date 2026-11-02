@@ -212,7 +212,9 @@
         "properties": {
           "permissions": { "maxItems": 0 },
           "subscriptions": { "maxItems": 0 },
-          "resources": { "maxProperties": 0 }
+          "resources": { "maxProperties": 0 },
+          "compensation": { "properties": { "templates": { "maxItems": 0 } } },
+          "migration": { "maxProperties": 0 }
         }
       }
     },
@@ -224,7 +226,8 @@
           "permissions": { "maxItems": 0 },
           "hooks": { "maxItems": 0 },
           "resources": { "maxProperties": 0 },
-          "compensation": { "properties": { "templates": { "maxItems": 0 } } }
+          "compensation": { "properties": { "templates": { "maxItems": 0 } } },
+          "migration": { "maxProperties": 0 }
         }
       }
     }

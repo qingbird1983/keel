@@ -1,6 +1,6 @@
 # 插件 Manifest 设计（keel-plugin.json）
 
-- 状态：定稿（2026-11-02 所有者确认；同日按所有者修复清单落实 A1~D3）
+- 状态：定稿（2026-11-02 所有者确认；同日按所有者修复清单落实 A1~D3；切片③注记收口 N1~N5——§5.6/§6/§7/§11 + Schema 两处修订）
 - 日期：2026-11-02
 - 日期：2026-11-02
 - 关联：[01-core-api-contract](01-core-api-contract.md)（§3.3 可见面矩阵、§4.8 hook 白名单）；[02-compensation-state-machine](02-compensation-state-machine.md)（§9 效果声明）；[ADR-0003](../../adr/ADR-0003-model-gateway.md)；[ADR-0005](../../adr/ADR-0005-cell-isolation.md)；standards/06 §4；[phase-0](../../roadmap/phase-0-design-baseline.md)（验收 A5）
@@ -95,8 +95,8 @@ allow 的必填性由装配器语义校验执行，Schema 层不强制——这�
 ### 5.6 kind 条件分支（Schema allOf/if-then）
 
 - capability：`resources.toolCallTimeoutMs` 必填；禁 `hooks`；
-- policy：`hooks` 必填非空（白名单子集）；`permissions` 必须为空数组（策略插件只插话，不持能力）；
-- observation：`subscriptions` 必填非空；`permissions` 必须为空数组（只读，契约 §3.3）。
+- policy：`hooks` 必填非空（白名单子集）；`permissions` 必须为空数组（策略插件只插话，不持能力）；`compensation.templates` 必须为空数组、禁 `migration`（策略插件不产副作用、无状态可迁移——2026-11-02 切片③收口 N1/N4）；
+- observation：`subscriptions` 必填非空；`permissions` 必须为空数组（只读，契约 §3.3）；禁 `migration`（同上）。
 
 ## 6. 装配与校验流程（fail-closed，C-M3）
 
@@ -107,6 +107,8 @@ allow 的必填性由装配器语义校验执行，Schema 层不强制——这�
 3. **资源校验**：toolCallTimeoutMs 在契约 §7 上限内；
 4. **版本校验**：keelContract 范围含当前契约版本；升级场景另验 migration.from 匹配已装版本；
 5. **记录**：装配清单入账本（权限、补偿 class、record-only 标记）——审计基线。
+
+> 实现注记（2026-11-02 切片③，收口 N3）：第 5 步落地为账本事件 `ASSEMBLY_RECORDED`（契约 §5），由调度器在 `run.start` 时作为该 run 首事件写入；run 前失败的装配尝试不入账本（run-scoped 账本无宿主作用域），由装配器错误返回承载。
 
 **热装配切换时序（V5 的正面表达）**：
 
@@ -123,6 +125,7 @@ allow 的必填性由装配器语义校验执行，Schema 层不强制——这�
 - 位置：`docs/design/phase-1/schema/keel-plugin.schema.json`（draft 2020-12；`$id` = `https://keel.dev/schema/keel-plugin.schema.json`——占位标识 URI，不要求可解析；两示例 `$schema` 与之一致）；
 - 示例：`schema/examples/capability-webfetch.json`、`schema/examples/policy-budget-guard.json`（验收 A5）；
 - CI 义务（Phase 1 落地）：两示例必须过 Schema（示例即 fixtures，防 Schema 与文档漂移）；Schema 变更 = 契约语义级变更，走注记修订。
+- 实现（2026-11-02 切片③）：校验由 host 装配器内置 draft 2020-12 关键词子集校验器执行（零运行时依赖；关键词封闭集合 = 本 Schema 实际使用者，Schema 修订须同步维护）；"两示例过 Schema"已入 host 测试。
 
 ## 8. 验收（对应 phase-0 A5、V5）
 
@@ -150,9 +153,11 @@ allow 的必填性由装配器语义校验执行，Schema 层不强制——这�
 
 ## 11. 待决问题
 
-| 问题                                               | 决定时限                                |
-| -------------------------------------------------- | --------------------------------------- |
-| `allow` 模式语法细节（fs glob 方言、域名通配边界） | Phase 1 实现期定稿并补测试              |
-| memoryMbSoft / maxToolCallsPerRound 硬强制时点     | Phase 1 资源计量基建后回评              |
-| migration 多步链（跨多版本升级）是否 MVP           | MVP 单步 from→current；多步登记 backlog |
-| 三个资源上限数值（600000 / 4096 / 1000）           | ✅ 已确认（2026-11-02）：维持现值       |
+| 问题                                               | 决定时限                                                                                                          |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `allow` 模式语法细节（fs glob 方言、域名通配边界） | Phase 1 实现期定稿并补测试                                                                                        |
+| memoryMbSoft / maxToolCallsPerRound 硬强制时点     | Phase 1 资源计量基建后回评                                                                                        |
+| migration 多步链（跨多版本升级）是否 MVP           | MVP 单步 from→current；多步登记 backlog                                                                           |
+| 三个资源上限数值（600000 / 4096 / 1000）           | ✅ 已确认（2026-11-02）：维持现值                                                                                 |
+| manifest 自身 schemaVersion 是否引入（N5）         | ✅ 已定案（2026-11-02 切片③）：不引入——`$id` + `compat.keelContract` 已锁定结构协商，漂移由五步校验第 1 步拦截    |
+| `$id` 域名归属（keel.dev 占位，N2）                | ✅ 已定案（2026-11-02 切片③）：占位 URI 为 MVP 终态，代码从仓库路径加载 Schema，不按 URI 解析；真实域名延至发布期 |

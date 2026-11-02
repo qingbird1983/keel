@@ -18,6 +18,9 @@
     "clean": "node scripts/clean.mjs"
   },
   "devDependencies": {
+    "@keel/cell-runtime": "workspace:*",
+    "@keel/core": "workspace:*",
+    "@keel/host": "workspace:*",
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.6",
     "eslint": "^10.14.0",

@@ -27,6 +27,7 @@ export const EVENT_TYPES = [
   "RUN_HALTED",
   "RUN_FAILED",
   "RUN_RECOVERED",
+  "ASSEMBLY_RECORDED",
   "ROUND_STARTED",
   "ROUND_ENDED",
   "DECISION",
@@ -71,6 +72,23 @@ export interface RunLifecyclePayload {
   /** RUN_RECOVERED 专用：延续后的新 runId 与恢复自的一致点 seq。 */
   newRunId?: string;
   recoveredFromSeq?: number;
+}
+
+/**
+ * Core API 契约版本（manifest compat.keelContract 的协商对象；装配器版本校验用）。
+ * 契约语义级变更时递增（manifest 稿 §5.5）。
+ */
+export const CONTRACT_VERSION = "1.0.0";
+
+/** 装配审计基线（manifest 稿 §6 第 5 步；切片③：run.start 首事件）。 */
+export interface AssemblyRecordedPayload {
+  manifest: { name: string; version: string; kind: string };
+  /** 权限清单（cap + allow 限定符，装配时就已裁决的面）。 */
+  permissions: { cap: string; allow?: string[] }[];
+  /** 补偿模板摘要（record-only 标记 = class 字段本身）。 */
+  compensation: { kind: string; compensationClass: string; idempotency: string }[];
+  /** 热装配升级时被替换的旧版本（V5：被切换的是作用域绑定，无全局突变）。 */
+  replacesVersion?: string;
 }
 
 export interface RoundPayload {
