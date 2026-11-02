@@ -2,39 +2,39 @@
 
 > 模板文件：每轮会话收尾**整体重写**本卡（覆盖式，不追加），≤ 150 行（规范见 `.agents/README.md`）。
 
-- 更新：2026-11-02（会话主题：Phase 1 开工——工具链脚手架落地，门禁六连全绿）
+- 更新：2026-11-02（会话主题：Phase 1 切片①——core 记账与裁决基座：账本/授权器/预算器）
 
 ## 当前阶段与状态（对照 roadmap 看板）
 
-- **Phase 1 🔄 进行中（2026-11-02 开工，tag `phase-1.start`）**——已完成：pnpm workspace 脚手架 + 门禁实体化 + 五包骨架占位
-- 施工顺序唯一来源：`docs/roadmap/phase-1-mvp.md`（已定稿）；当前步骤 = 纵向切片 A1~A6
-- 版本控制：git main（本地无远端；feature 分支开发，standards/02 全文生效）
+- **Phase 1 🔄 进行中（tag `phase-1.start`）**——切片① 已落地；施工顺序唯一来源：`docs/roadmap/phase-1-mvp.md`
+- 已落地：工具链脚手架（六道门禁全绿）+ `packages/core` 的 ledger / authorizer / budget（31 测试全绿，零运行时依赖）
+- 版本控制：git main（本地无远端）；行尾已规范化（.gitattributes，LF）
 
 ## 上一轮完成了什么（3~5 条）
 
-- workspace 脚手架：root scripts（format/lint/typecheck/build/test/check-size/clean）+ `tsconfig.base.json`（strict/NodeNext ESM）+ 五包骨架（`packages/{core,host,cell-runtime,cordis-adapter}`、`apps/keel`，占位导出 + 冒烟测试）
-- 门禁实体化：prettier 3 / eslint 10 + typescript-eslint 8（`--max-warnings 0`）/ vitest 5 / tsc 5.9 strict；六道门禁全绿；CI workflow 对齐
-- 依赖 7 件登记 standards/04 附录 A（运行时零依赖基线）；TS 锁 5.9 线——TS7 与 typescript-eslint 8 peer 不兼容，否决理由在表
-- check-size：SRC_DIRS 回填 monorepo + 新增构建产物容量哨兵（软 500MiB / 硬 2GiB）；standards/08 §6 回填；`pnpm clean` 落地
-- handoff 归档 H-010；按滚动 5 份规则删除 H-001~H-005（git 历史留存）
+- ledger.ts：append-only 分段 JSONL + CHECKPOINT fsync 一致点 + fail-stop 锁存 + 尾部撕裂安全读 + 游标分页 + ID 信任边界 + close() 确定性释放
+- authorizer.ts：fail-closed 白名单 + AUTH_DENIED 必留痕；budget.ts：两级额度 reserve/settle、同 id 幂等、耗尽三档上报
+- events.ts 全事件表（契约 §5 + 状态机 §9）；glob 方言；fixtures/ledger/replay-basic 首个回放样例组
+- .gitattributes 落地（standards/01 §1 已修订）：根治 autocrlf 假性全库改动；一次性 renormalize 随本轮提交
 
 ## 下一步（按优先级，注明阻塞项）
 
-1. **纵向切片 A1~A6**：core 四件套（调度/授权/预算/账本）+ cell-runtime + host 装配 + 补偿最小可用；每个验收场景的实现即其测试（阻塞：无）
-2. 切片动工时切换 eslint 类型感知规则（eslint.config.js 内 TODO 已标）（阻塞：首批异步/IO 代码）
-3. 远端仓库配置（阻塞：所有者提供地址；不阻塞本地开发；CI workflow 已就位待触发）
+1. **切片②**：调度器（轮循环 + CHECKPOINT + 预算耗尽处置）、上下文管理器（scope 分区 + tool.discover）、模型网关（授权→预扣→代理→实结）、策略 hook 四件套——A1/A2/A7 实现主体（阻塞：无）
+2. 切片③：cell-runtime（进程体 + stdio 帧）+ host（IsolationProvider / Supervisor / 装配器）——A2/A5
+3. 切片④：补偿执行器（T01~T14）+ recover.* ——A3/A4/A6；随后 A8 基准 + fixtures 三组收全
+4. 远端仓库配置（阻塞：所有者提供地址）
 
-> 实现中发现契约缺陷 → 先改设计文档（带注记）再改码（phase-1-mvp.md §1 约束）。
+> 实现中发现契约缺陷 → 先改设计文档（带日期注记）再改码；契约待决细化项见 H-011。
 
 ## 未决问题
 
-- git 远端（所有者）；N1~N5 结构遗留与契约/状态机待决项（随切片推进解决）
-- 版权署名"Keel Project Contributors"占位——所有者若要具名：LICENSE + 两 README + ADR-0006 四处
-- phase-0.start tag 未打（git 启用晚于开工，CHANGELOG 已说明）
+- git 远端（所有者）；N1~N5 manifest 结构遗留（随切片③装配器处理）
+- 版权署名占位（LICENSE + 两 README + ADR-0006 四处，所有者决定）
 
 ## 关键提醒（坑/规范变更/易错点，链接 pitfalls 编号）
 
-- **typescript 版本锁 ^5.9**：升级 TS7 前先查 typescript-eslint peer 范围（standards/04 附录 A 有否决理由）
-- 构建会把 `*.test.ts` 编进 dist（单 tsconfig 的取舍）；发布/打包时再排除
-- 路径扫描用宽关键词（如"Warehouse"）而非转义模式——bash 双引号下 `E:\\` 模式漏检过一次（H-009）
-- 踩坑索引：暂无独立 pitfalls 文件（险情记录见 H-009/H-010）
+- **seq 是 Run 内单调**（实现期细化决策，H-011）；恢复/延续一律用新 runId（旧 run 禁止接笔）
+- read 未知 runId = LEDGER/CURSOR-INVALID（寻址失败语义）
+- 跨 Run 全量读取未开放（观测面落地时开放）；预算 settle 后 used=实际耗用
+- typescript 锁 ^5.9（TS7 与 typescript-eslint 8 不兼容，附录 A 有否决理由）
+- 踩坑索引：暂无独立 pitfalls 文件（险情记录见 H-009/H-010/H-011）

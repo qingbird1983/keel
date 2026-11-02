@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import * as mod from "./index.js";
 
-// 脚手架冒烟：验证包可解析、可导入（test 门禁全链路依赖此路径）
 describe("@keel/core", () => {
-  it("module loads", () => {
-    expect(mod).toBeTypeOf("object");
+  it("公共出口暴露核心组件与契约常量", () => {
+    expect(mod.Ledger).toBeTypeOf("function");
+    expect(mod.Authorizer).toBeTypeOf("function");
+    expect(mod.Budgeter).toBeTypeOf("function");
+    expect(mod.EVENT_TYPES).toContain("CHECKPOINT");
+    expect(mod.EVENT_TYPES).toContain("COMPENSATION_WAIVED");
+    expect(mod.ERROR_CODES).toContain("BUDGET/EXHAUSTED");
   });
 });

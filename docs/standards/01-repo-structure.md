@@ -6,7 +6,7 @@
 ## 1. 目录布局（治理部分，所有项目一致）
 
 ```
-/                     仓库根：README.md（英）/ README.zh-CN.md（中）/ AGENTS.md / CHANGELOG.md / LICENSE / .gitignore / .editorconfig
+/                     仓库根：README.md（英）/ README.zh-CN.md（中）/ AGENTS.md / CHANGELOG.md / LICENSE / .gitignore / .editorconfig / .gitattributes
 .agents/               AI 开发知识库与交接中枢（规范见其 README；预算受 standards/08 约束）
 .agents/skills/       可复用方法沉淀（S-NNN）+ vendored 第三方技能子目录（注明来源与许可证，不计预算）
 briefs/                所有者本地输入区（参考/建议/简报；gitignore 整目录永不入库；规范见其 README）
