@@ -9,7 +9,7 @@
 - **Phase 1 ✅ 完成**（tag `phase-1.end` = a8b8444）：A1~A8 逐条实测，一票否决五项全过，证据在 `docs/design/phase-1/report.md`
 - **Phase 2 🔄 切片① 设计阶段**（tag `phase-2.start`）：范围合同与迁移边界文档已定稿；**切片①设计稿 = 草稿**（`docs/design/phase-2/02-adapter-skeleton.md`），等所有者确认稿内 §10 三项后转定稿；**仍未写本片实现代码**（铁律 1）
 - 关键文件：合同 `docs/roadmap/phase-2-cordis-compat.md`（§7 六片切分）；边界 `docs/design/phase-2/01-cordis-migration-boundary.md`（14 条 A/B/C/D + D 档零例外）；本片口径 `docs/design/phase-2/02-adapter-skeleton.md`；`ADR-0008`（切片⑤落地）
-- 远端：`origin = github.com:qingbird1983/keel`（私有，SSH）；署名 = `qingbird1983`（ADR-0007）；**CI 已改 Node `[22, 26]` 双版本矩阵**（本轮起，推送后看首跑结果）
+- 远端：`origin = github.com:qingbird1983/keel`（私有，SSH）；署名 = `qingbird1983`（ADR-0007）；**CI 双 Node 矩阵首跑均绿**（run 41484129249：Node 22 1m6s / Node 26 1m34s）
 - 门禁现状：六道全绿（`pnpm clean` 起）；226 测试 / 30 文件；零运行时三方依赖；单文件最大仍在 600 红线内；check-size 0 项提醒
 
 ## 上一轮完成了什么
@@ -26,7 +26,8 @@
 2. 确认后按 02 稿 §11 顺序施工（ADR → 契约/manifest/边界注记 → cell-runtime 两方法 + `CellHandle.removeTool` → host 两 op case + per-spawn 入口 + `permission-rules` → adapter 端口与 Cell 入口 → §8 五份测试；新链路先写红色断言，铁律 7）——**阻塞：第 1 项**
 3. A1 端口签名统一（3 处 `await`）后**复跑 3 次逐项一致**（B8"Phase 1 主张不退化"的一部分）
 4. 规范修订两处仍待办（Phase 1 报告 §8）：standards/07 验收节补"交付物表逐条核对"强制项；`tests/` 根级类型检查
-5. 真实存量插件样本到位时：B1/B5 第二批复跑 + 边界表符号回填（不阻塞施工，阻塞"真实插件可迁移"表述）
+5. 工具链小项（本轮 CI 首跑的提示，非阻塞）：`actions/checkout@v4`/`setup-node@v4`/`pnpm/action-setup@v4` 仍以 Node 20 为目标（runner 已强制切 24，流水线有弃用提示）；`ubuntu-latest` 已于 2026-10-19 迁 Ubuntu 26——下次动 CI 时一并升版本并把运行器标签固定，避免"某天突然红"
+6. 真实存量插件样本到位时：B1/B5 第二批复跑 + 边界表符号回填（不阻塞施工，阻塞"真实插件可迁移"表述）
 
 > backlog（条件未触发，勿顺手做）：probe 通道、builtin 补偿动作、退避参数可配置面、migration 多步链、未决污染清单 CLI、Cell 池化、容器后端、分布式、观测生态与跨 run 读取（Phase 3）。
 
