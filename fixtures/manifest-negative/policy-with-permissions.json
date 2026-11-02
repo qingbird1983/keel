@@ -1,0 +1,15 @@
+{
+  "$schema": "https://keel.dev/schema/keel-plugin.schema.json",
+  "kind": "policy",
+  "meta": {
+    "name": "neg-policy-with-permissions",
+    "version": "1.0.0",
+    "title": "Negative: policy declaring permissions",
+    "description": "负例：policy 插件声明 permissions（policy 无 Cell 执行面，Schema 层 maxItems:0 封禁）"
+  },
+  "permissions": [{ "cap": "tool.provide", "reason": "policy 不得声明——必须被拒" }],
+  "resources": {},
+  "compensation": { "templates": [] },
+  "compat": { "keelContract": "^1.0" },
+  "hooks": ["toolApproval"]
+}

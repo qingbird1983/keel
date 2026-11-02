@@ -1,0 +1,23 @@
+{
+  "$schema": "https://keel.dev/schema/keel-plugin.schema.json",
+  "kind": "capability",
+  "meta": {
+    "name": "WebFetch",
+    "version": "1.0.0",
+    "title": "Negative: meta.name violates kebab-case pattern",
+    "description": "负例：meta.name 违反 ^[a-z][a-z0-9-]*$（kebab-case 全局唯一）"
+  },
+  "permissions": [{ "cap": "tool.provide", "reason": "提供 demo 工具" }],
+  "resources": { "toolCallTimeoutMs": 15000 },
+  "compensation": {
+    "templates": [
+      {
+        "kind": "demo.thing",
+        "class": "reversible",
+        "action": { "type": "plugin", "ref": "compensations/undo" },
+        "idempotency": "natural"
+      }
+    ]
+  },
+  "compat": { "keelContract": "^1.0" }
+}

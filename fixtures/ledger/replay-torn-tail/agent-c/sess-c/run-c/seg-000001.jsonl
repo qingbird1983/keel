@@ -1,0 +1,4 @@
+{"seq":1,"ts":1700000300000,"runId":"run-c","sessionId":"sess-c","agentId":"agent-c","type":"RUN_STARTED","schemaVersion":1,"payload":{"reason":"assembly"}}
+{"seq":2,"ts":1700000300001,"runId":"run-c","sessionId":"sess-c","agentId":"agent-c","type":"DECISION","schemaVersion":1,"payload":{"round":1,"summary":{"choice":"work"},"basedOn":[]}}
+{"seq":3,"ts":1700000300002,"runId":"run-c","sessionId":"sess-c","agentId":"agent-c","type":"CHECKPOINT","schemaVersion":1,"payload":{"round":1}}
+{"seq":4,"ts":1700000300003,"runId":"run-c","sessionId":"sess-c","agentId":"agent-c","type":"TOOL_INVOKE","schemaVersion":1,"payl

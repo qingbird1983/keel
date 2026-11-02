@@ -151,6 +151,7 @@ allow 的必填性由装配器语义校验执行，Schema 层不强制——这�
 - [ ] **A5 结构**：两个示例通过 `keel-plugin.schema.json` 校验；schema 含权限/资源/补偿/版本四要素必填约束
 
 - [ ] **A5 语义（负路径）**：缺 `net.fetch` allow、越界能力零补偿模板、policy 带 permissions、hook 名超出白名单——四类畸形 manifest 均被拒
+  - 实现（2026-11-02 切片⑤）：四类负例实体化为外部 fixtures（`fixtures/manifest-negative/`，另加 2 枚结构负例），host 侧负路径组批量校验 + CLI `keel validate --dir` 复演——口径见 [04-cli-benchmarks-fixtures](04-cli-benchmarks-fixtures.md) §4
 
 - [ ] **V5 升级回退**：migration 钩注入失败 → 新 Cell 丢弃、旧作用域继续服务、账本无全局突变痕迹（仅装配尝试事件）
 

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://keel.dev/schema/keel-plugin.schema.json",
+  "kind": "capability",
+  "meta": {
+    "name": "neg-boundary-no-template",
+    "version": "1.0.0",
+    "title": "Negative: boundary capability with zero compensation templates",
+    "description": "负例：越界能力 fs.write 声明了 allow 但补偿模板池为空（I4：补偿不可能被省略）"
+  },
+  "permissions": [
+    { "cap": "tool.provide", "reason": "提供 write 工具" },
+    { "cap": "fs.write", "allow": ["out/**"], "reason": "越界但带了 allow——模板缺失才是病灶" }
+  ],
+  "resources": { "toolCallTimeoutMs": 15000 },
+  "compensation": { "templates": [] },
+  "compat": { "keelContract": "^1.0" }
+}

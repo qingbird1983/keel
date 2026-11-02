@@ -221,6 +221,8 @@ Cell        Core(auth)      Core(budget)     Gateway      账本
 - [ ] **预算权威**：同 id 重放 `model.invoke` 不重复计费；settle 差额退还逐级可见（session 余量 = run 结算后回吐）。
 - [ ] **拒绝留痕**：任何 `AUTH/DENIED` 必有账本事件；策略插件 hook 超时必有 `HOOK_VERDICT{fallback:true}`。
 
+> 基准与复演口径（2026-11-02 切片⑤）：A8 四项基准的测量口径与 CLI 验收命令面见 [04-cli-benchmarks-fixtures](04-cli-benchmarks-fixtures.md)——只建测量不调优，无阈值断言；数据供 ADR-0001/0003/0004 重评条件消费。
+
 ## 10. 自检清单（五大不变量对照）
 
 - **I1 控制不可旁路**：§3.3 可见面矩阵——账本写入/调度/恢复/授权裁决不出现在任何插件可见命名空间；hook 白名单封闭且响应 schema 禁区化（§4.8）→ V6。

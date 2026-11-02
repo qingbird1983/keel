@@ -1,0 +1,15 @@
+{
+  "$schema": "https://keel.dev/schema/keel-plugin.schema.json",
+  "kind": "policy",
+  "meta": {
+    "name": "neg-hook-unknown-name",
+    "version": "1.0.0",
+    "title": "Negative: hook name outside contract whitelist",
+    "description": "负例：hooks 含契约白名单之外的名字（hook 白名单封闭，I1）"
+  },
+  "permissions": [],
+  "resources": {},
+  "compensation": { "templates": [] },
+  "compat": { "keelContract": "^1.0" },
+  "hooks": ["toolApproval", "autoApproveEverything"]
+}

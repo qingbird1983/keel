@@ -1,0 +1,26 @@
+{
+  "$schema": "https://keel.dev/schema/keel-plugin.schema.json",
+  "kind": "capability",
+  "meta": {
+    "name": "neg-missing-net-allow",
+    "version": "1.0.0",
+    "title": "Negative: net.fetch without allow",
+    "description": "负例：越界能力 net.fetch 缺 allow 限定符（语义层必填，Schema 不强制——C-M2 分层）"
+  },
+  "permissions": [
+    { "cap": "tool.provide", "reason": "提供 fetch 工具" },
+    { "cap": "net.fetch", "reason": "缺 allow 的越界声明——必须被拒" }
+  ],
+  "resources": { "toolCallTimeoutMs": 15000 },
+  "compensation": {
+    "templates": [
+      {
+        "kind": "demo.fetched",
+        "class": "reversible",
+        "action": { "type": "plugin", "ref": "compensations/undo" },
+        "idempotency": "natural"
+      }
+    ]
+  },
+  "compat": { "keelContract": "^1.0" }
+}

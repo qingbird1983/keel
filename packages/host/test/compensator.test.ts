@@ -283,4 +283,46 @@ describe("CompensationExecutor：补偿编排（T01~T14）", () => {
     expect(await executor.compensate(ref, { mode: "run" })).toBe(true);
     expect(cell.calls).toHaveLength(2);
   });
+
+  it("timeout 分类：动作超时与 error 同径 → 重试耗尽升级（切片⑤ always-slow 桩对应路径）", async () => {
+    const cell = fakeCell(() => ({
+      status: "timeout",
+      error: { code: "CELL/COMPENSATION-FAILED" },
+    }));
+    const { ledger, executor, delays } = rig(cell);
+    await declare(ledger, { effectId: "e-1" });
+    await ledger.append(ref, "EFFECT_SETTLED", { effectId: "e-1", outcome: "done" });
+    expect(await executor.compensate(ref, { mode: "run" })).toBe(false);
+    expect(cell.calls).toHaveLength(3);
+    expect(delays).toEqual([1_000, 2_000]);
+    const evs = (await ledger.read({ runId: ref.runId })).events;
+    expect(evs.at(-1)?.payload).toMatchObject({
+      effectId: "e-1",
+      attempts: 3,
+      blockedResume: true,
+      lastError: { code: "CELL/COMPENSATION-FAILED" },
+    });
+  });
+
+  it("mitigable 模板：缓解类照常派发动作闭环（T 状态机三分类全覆盖）", async () => {
+    const cell = fakeCell(() => ({ mitigated: true }));
+    const { ledger, executor } = rig(cell);
+    await declare(ledger, {
+      effectId: "e-1",
+      compensationClass: "mitigable",
+      compensation: {
+        actionRef: "mitigate",
+        paramsDigest: null,
+        idempotency: "natural",
+      },
+    });
+    await ledger.append(ref, "EFFECT_SETTLED", { effectId: "e-1", outcome: "done" });
+    expect(await executor.compensate(ref, { mode: "run" })).toBe(true);
+    expect(cell.calls[0]).toMatchObject({ actionRef: "mitigate", phase: "undo" });
+    const evs = (await ledger.read({ runId: ref.runId })).events;
+    expect(evs.at(-1)?.payload).toMatchObject({
+      effectId: "e-1",
+      resultDigest: { mitigated: true },
+    });
+  });
 });
