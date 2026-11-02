@@ -1,6 +1,6 @@
 # Keel Core API 契约
 
-- 状态：定稿（2026-11-02 所有者确认；同日修订三处：① ADR-0005 定稿，回填 §7 隔离敏感超时；② 任务 D 成稿，§5 补充三类补偿事件；③ 所有者评审勘误与澄清——§4.3 configure 边界、§4.5 恢复补偿作用域、§6 错误码拆分；切片③实现期注记两处：§4.1 ④⑤、§5 ASSEMBLY_RECORDED）
+- 状态：定稿（2026-11-02 所有者确认；同日修订三处：① ADR-0005 定稿，回填 §7 隔离敏感超时；② 任务 D 成稿，§5 补充三类补偿事件；③ 所有者评审勘误与澄清——§4.3 configure 边界、§4.5 恢复补偿作用域、§6 错误码拆分；切片③实现期注记两处：§4.1 ④⑤、§5 ASSEMBLY_RECORDED；**2026-11-03 Phase 2 切片①追加：§3.3 与 §4.6 增 `tool.register`/`tool.remove` 两个 Cell→Core op，依据 [ADR-0010](../../adr/ADR-0010-runtime-tool-registration-channel.md)**）
 - 日期：2026-11-02
 - 关联：[architecture/01](../../architecture/01-keel-overview.md)；[ADR-0001](../../adr/ADR-0001-implementation-stack.md) ~ [ADR-0005](../../adr/ADR-0005-cell-isolation.md)；[phase-0](../../roadmap/phase-0-design-baseline.md)（验收 A2/A3）
 
@@ -35,14 +35,16 @@ DSH 三类症状直接源于控制面缺少硬契约：**V6** Agent Loop 被插�
 
 ### 3.3 契约可见面矩阵（I1 的接口化）
 
-| 调用方             | 可见接口                                                                                                                          | 明确不可见                                         |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| Cell（含能力插件） | `auth.check`、`budget.query`、`model.invoke`、`tool.discover`（仅本 scope）、`context.*`（仅本 scope）、`ledger.read`（仅本 run） | 账本写入、调度、恢复、hook 配置、他人 scope 的一切 |
-| 策略插件           | 四个 hook 被调用（被动），无主动接口                                                                                              | 除 hook 入参外的一切                               |
-| 观测插件           | `ledger.read`（全量只读）、事件订阅                                                                                               | 一切写接口                                         |
-| Host Layer         | `run.*`、`recover.*`、`context.alloc`、快照存取、装配相关                                                                         | 账本写入、授权/预算裁决（只能传递不能改判）        |
+| 调用方             | 可见接口                                                                                                                                                                                                            | 明确不可见                                         |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Cell（含能力插件） | `auth.check`、`budget.query`、`model.invoke`、`tool.discover`（仅本 scope）、`tool.register`/`tool.remove`（仅本 scope，须声明 `tool.provide`，Phase 2 追加）、`context.*`（仅本 scope）、`ledger.read`（仅本 run） | 账本写入、调度、恢复、hook 配置、他人 scope 的一切 |
+| 策略插件           | 四个 hook 被调用（被动），无主动接口                                                                                                                                                                                | 除 hook 入参外的一切                               |
+| 观测插件           | `ledger.read`（全量只读）、事件订阅                                                                                                                                                                                 | 一切写接口                                         |
+| Host Layer         | `run.*`、`recover.*`、`context.alloc`、快照存取、装配相关                                                                                                                                                           | 账本写入、授权/预算裁决（只能传递不能改判）        |
 
 账本 `append` 与 `checkpoint` 仅为 Core 内部函数，不出现在任何对外命名空间——调度器是唯一写入者（单写者，ADR-0004）。
+
+> 实现期细化（2026-11-03 Phase 2 切片①，[ADR-0010](../../adr/ADR-0010-runtime-tool-registration-channel.md)）：Cell 行追加 `tool.register` / `tool.remove`——**只携带工具名与 schema，永不携带 handler**（执行体留在 Cell 私有表，内核只认名字）；作用域与主体仍由通道绑定盖章，Cell 不可自报。二者是 Cell 可见面里唯一的**写**入口，故必须先过 `auth.check`（未声明 `tool.provide` 即拒并落 `AUTH_DENIED`），默认拒绝语义与 I4 一致。
 
 ## 4. 接口定义
 
@@ -110,13 +112,17 @@ DSH 三类症状直接源于控制面缺少硬契约：**V6** Agent Loop 被插�
 
 ### 4.6 上下文管理器
 
-| op                    | 方向                     | 语义                                                                    | 默认超时 | 幂等性              | 主要错误            |
-| --------------------- | ------------------------ | ----------------------------------------------------------------------- | -------- | ------------------- | ------------------- |
-| `context.alloc`       | Host→Core（Cell 建立时） | 创建 scope 私有分区（工具表视图、上下文页、记忆命名空间），返回分区句柄 | 200ms    | 是（同 scope 幂等） | `CTX/SCOPE-EXISTS`  |
-| `tool.discover`       | Cell→Core                | 返回**本 scope** 可见工具表（含 schema 版本）；无全局模式               | 100ms    | 是                  | `CTX/SCOPE-UNKNOWN` |
-| `context.page.out/in` | Core 内部                | 换页原语：旧页移出/按需移回，页版本入账本                               | —        | —                   | `CTX/PAGE-MISSING`  |
+| op                    | 方向                     | 语义                                                                                             | 默认超时 | 幂等性                           | 主要错误                           |
+| --------------------- | ------------------------ | ------------------------------------------------------------------------------------------------ | -------- | -------------------------------- | ---------------------------------- |
+| `context.alloc`       | Host→Core（Cell 建立时） | 创建 scope 私有分区（工具表视图、上下文页、记忆命名空间），返回分区句柄                          | 200ms    | 是（同 scope 幂等）              | `CTX/SCOPE-EXISTS`                 |
+| `tool.discover`       | Cell→Core                | 返回**本 scope** 可见工具表（含 schema 版本）；无全局模式                                        | 100ms    | 是                               | `CTX/SCOPE-UNKNOWN`                |
+| `tool.register`       | Cell→Core                | 本 scope 注册/更新工具（`{name, schema}`，**不含 handler**）；版本由内核按现有条目 +1 指派并返回 | 200ms    | 否（重复调用 = 覆盖且版本再 +1） | `AUTH/DENIED`、`CTX/SCOPE-UNKNOWN` |
+| `tool.remove`         | Cell→Core                | 本 scope 撤名（`newSchemaVersion=0` 传播）；返回是否真的存在过                                   | 200ms    | 是（第二次返回 false）           | `AUTH/DENIED`、`CTX/SCOPE-UNKNOWN` |
+| `context.page.out/in` | Core 内部                | 换页原语：旧页移出/按需移回，页版本入账本                                                        | —        | —                                | `CTX/PAGE-MISSING`                 |
 
 工具 schema 变更 = 显式事件 `TOOL_SCHEMA_CHANGED`，**仅传播到受影响 scope**（V1：动态增删工具不触碰其他会话缓存）。
+
+> 实现期细化（2026-11-03 Phase 2 切片①，[ADR-0010](../../adr/ADR-0010-runtime-tool-registration-channel.md)）：`tool.register` / `tool.remove` 的落地口径——① **门禁在前**：handler 内先 `auth.check(ref, subject, "tool.register"|"tool.remove", name)`，拒绝即 `AUTH_DENIED` 落账且两半状态都不写；授权规则由 manifest 声明编译（`tool.provide` → 两个 action；`allow` 给了就逐条收窄）。② **两半提交**：Cell 先写私有执行表、跨通道成功后才算完成；通道失败则回滚执行表并把内核错误码原样抛给插件（不留"可见而不可执行"的空壳）。③ **版本单一事实源**：Cell 不自算版本，内核按本 scope 现有条目 +1 后返回真实值。④ **生效时刻 = 下一轮**：写 scope 挂起变更日志，由调度器在轮边界取走并写 `TOOL_SCHEMA_CHANGED`；末轮之后的注册不入账（run 已结束）。⑤ 承接层不做通道级重试（重复调用就是旧框架的覆盖语义）。
 
 > 实现注记（2026-11-02 切片②）：MVP 落地 scope 分区 + `tool.discover` + schema 变更按 scope 传播（scope 级挂起变更日志，各 run 按游标消费后写入本 run 账本，同 scope 多 run 不丢事件）；`context.page.out/in` 换页原语随上下文页存储后端在 Phase 1 后续切片落地。
 >
