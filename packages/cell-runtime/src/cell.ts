@@ -82,6 +82,13 @@ export interface CellClient {
 export interface CellOptions extends ConnStreams {
   /** 工具调用超时（manifest C-D3 硬强制；宿主装配时传入）。 */
   toolCallTimeoutMs: number;
+  /**
+   * 装载门（ADR-0011）：为 true 时，本 Cell 在 `markReady()` 之前**不受理**任何对端请求
+   * （帧照常读取与排队，不应答、不丢、不报错）。两个真实进程入口都开启它：
+   * 默认入口在静态工具登记完成后开闸，承接层入口在旧插件 activation 完成后开闸——
+   * 于是"第一轮决策看见空工具表"这条路被结构性关掉。
+   */
+  loadGate?: boolean;
   now?: () => number;
 }
 
@@ -101,6 +108,11 @@ export interface CellHandle {
   setSnapshotProvider(fn: () => Promise<unknown> | unknown): void;
   /** A5：新 Cell 内、快照挂载后首轮前执行；失败由 Host 回退旧作用域。 */
   migrate(oldState: unknown): Promise<unknown>;
+  /**
+   * 开装载门（ADR-0011；`loadGate` 未开时是空操作）。**装载义务的一部分**：
+   * 漏调会让本舱永远不应答——宿主侧表现为就绪探测超时并拒绝装配（不是静默等待）。
+   */
+  markReady(): void;
   /** 对端断开/通道关闭。 */
   done: Promise<void>;
   /** 观测事件订阅位（Core→Cell 单向通知；MVP 无推送方，仅保留路由）。 */
@@ -141,7 +153,16 @@ export function startCell(opts: CellOptions): CellHandle {
     },
   };
 
+  // 装载门（ADR-0011）：loadGate 开启时，请求处理挂在这个 promise 上直到 markReady()。
+  let openGate: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    openGate = resolve;
+  });
+
   conn.serve(async (op, params) => {
+    // 装载门（ADR-0011）：门未开时，对端请求在此挂起——帧已读取、不丢不报错，只是**不应答**。
+    // 宿主侧因此可以把"收到一次应答"当作"插件装载完成"的凭据（就绪探测 = cell.snapshot）。
+    if (opts.loadGate === true) await gate;
     switch (op) {
       case "tool.exec":
         return execTool(params as { tool: string; params?: unknown });
@@ -252,6 +273,9 @@ export function startCell(opts: CellOptions): CellHandle {
         );
       }
       return Promise.resolve(migration(oldState));
+    },
+    markReady() {
+      openGate(); // 幂等：重复调用无副作用（promise 只能 resolve 一次）
     },
     done: conn.done,
     onEvent(cb) {

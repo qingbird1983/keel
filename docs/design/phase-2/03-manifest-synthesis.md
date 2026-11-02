@@ -1,6 +1,6 @@
 # Phase 2 切片②：manifest 合成路径与权限收敛
 
-- 状态：**定稿**（2026-11-03 所有者确认 §10 三项，全部按建议落地：就绪时机取方案 A 并立 ADR-0011 / 候选必须人工审核转正 / 边界表 #4 与 #12 改判 C 档；定稿后开始写本片实现代码——铁律 1）
+- 状态：**定稿**（2026-11-03 所有者确认 §10 三项，全部按建议落地：就绪时机取方案 A 并立 ADR-0011 / 候选必须人工审核转正 / 边界表 #4 与 #12 改判 C 档；定稿后开始写本片实现代码——铁律 1）；**施工完成**（§11 清单落地，B2/B6 集成验收通过，B8 复跑全绿；落地位置与稿内 §7/§11 文件名的差异见 §12 第 9 条）
 - 日期：2026-11-03
 - 关联：[phase-2 合同](../../roadmap/phase-2-cordis-compat.md) §7 切片②（锚 **B2**、**B6**）与 §6 风险 2；[01 稿 迁移边界](01-cordis-migration-boundary.md)（B 档行 #4/#5/#11/#12）；[02 稿 承接层骨架](02-adapter-skeleton.md) §12 第 5 条（**本片收口**）；[manifest 稿](../phase-1/03-plugin-manifest.md) §5/§6；[契约](../phase-1/01-core-api-contract.md) §3.1/§3.3/§4.6/§7；[ADR-0010](../../adr/ADR-0010-runtime-tool-registration-channel.md)；[ADR-0011](../../adr/ADR-0011-cell-load-gate.md)（本片就绪口径的决策记录）
 
@@ -102,14 +102,14 @@ pass 2（收窄观察）    用候选 v1 装配 → 注册成功 → 可见表�
 
 ## 7. 测试面与验收锚点
 
-| 测试                                              | 内容（断言要点）                                                                                                                                                    | 锚定       |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| `packages/cordis-adapter/test/synthesize.test.ts` | 纯函数投影：`AUTH_DENIED`/`TOOL_SCHEMA_CHANGED` → 候选；去重排序（同插件两次观察字节一致）；越界能力必进 gaps；**不凭空造补偿模板**                                 | §3、§4     |
-| `packages/host/test/wire-cell.test.ts`            | `wireCell()` 三步收敛与就绪探测；`cellEntry` 透传；换绑后新 Cell 的 `tool.register`/`tool.exec` 可用                                                                | F2、F3、B6 |
-| `packages/cell-runtime/test/ready-gate.test.ts`   | 装载门前不应答（请求排队）、`markReady()` 后应答；未就绪期间舱死则请求以通道错回落，不静默                                                                          | §6         |
-| `tests/cordis-manifest-synthesis.test.ts`         | **B2**：真实进程两遍观察 → 候选 → `Assembler.assemble` 通过 → 用候选跑通 A/B 档插件；"多声明不放行"= allow 收窄后越界注册被当场拒（`AUTH_DENIED` 载荷齐、两半皆空） | **B2**     |
-| `tests/cordis-legacy-upgrade.test.ts`             | **B6**：旧插件 v1→v2 原子换绑、`replacesVersion` 留痕、换绑后 run 真跑且新版本注册可见；带 `migration` 声明的旧插件当场回退（旧绑定原样）                           | **B6**     |
-| `tests/concurrent-scope-isolation.test.ts`        | 不动，按 B8 复跑（rig 改调 `wireCell` 后主张不变）                                                                                                                  | B8         |
+| 测试                                                                                                                       | 内容（断言要点）                                                                                                                                                    | 锚定       |
+| -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `packages/host/test/manifest-synthesis.test.ts`（落地位置；原写 `cordis-adapter/test/synthesize.test.ts`，见 §12 第 9 条） | 纯函数投影：`AUTH_DENIED`/`TOOL_SCHEMA_CHANGED` → 候选；去重排序（同插件两次观察字节一致）；越界能力必进 gaps；**不凭空造补偿模板**                                 | §3、§4     |
+| `packages/host/test/wire-cell.test.ts`                                                                                     | `wireCell()` 三步收敛与就绪探测；`cellEntry` 透传；换绑后新 Cell 的 `tool.register`/`tool.exec` 可用                                                                | F2、F3、B6 |
+| `packages/cell-runtime/test/ready-gate.test.ts`                                                                            | 装载门前不应答（请求排队）、`markReady()` 后应答；未就绪期间舱死则请求以通道错回落，不静默                                                                          | §6         |
+| `tests/cordis-manifest-synthesis.test.ts`                                                                                  | **B2**：真实进程两遍观察 → 候选 → `Assembler.assemble` 通过 → 用候选跑通 A/B 档插件；"多声明不放行"= allow 收窄后越界注册被当场拒（`AUTH_DENIED` 载荷齐、两半皆空） | **B2**     |
+| `tests/cordis-legacy-upgrade.test.ts`                                                                                      | **B6**：旧插件 v1→v2 原子换绑、`replacesVersion` 留痕、换绑后 run 真跑且新版本注册可见；带 `migration` 声明的旧插件当场回退（旧绑定原样）                           | **B6**     |
+| `tests/concurrent-scope-isolation.test.ts`                                                                                 | 不动，按 B8 复跑（rig 改调 `wireCell` 后主张不变）                                                                                                                  | B8         |
 
 新增 B 档合成样本 4 枚（`tests/fixtures/cordis-plugins/`，与切片① 样本同一套零改动判据与同一 `.prettierignore` 保护）：
 
@@ -125,6 +125,7 @@ CLI 面新增一条命令：`keel observe --plugin <path> [--entry cordis] [--ou
 ## 8. 体量、依赖与门禁影响
 
 - 代码增量预估：`synthesize.ts` ~130、`observe.ts`（覆盖 driver + 两遍循环）~120、`host/wire-cell.ts` ~55、`assembly-manager.ts` +~15、`cmd-observe.ts` ~80、cell-runtime 装载门 ~25、`runtime.ts` 接线 ~20。全部远离 600 行红线（最大仍是 `scheduler.ts` 569 行）。
+  施工实际（收敛后）：`host/manifest-synthesis.ts` 181、`apps/keel/src/observe.ts` 326、`host/wire-cell.ts` 84、`cmd-observe.ts` 91、`assembly-manager.ts` 118、`runtime.ts` 332——预估偏差主要来自"观察两趟各自装配一套内核"的接线代码，仍在红线内。
 - 依赖：新增 0 个三方依赖。
 - 契约：方案 A 需 §3.1/§7 各一条注记 + 新 ADR（编号顺延 ADR-0011）；若选 B/C，则 §3.3 可见面矩阵或事件语义要改（更重，且需要所有者授权，同 ADR-0010 的先例）。
 - 文档：新增本稿；01 稿两行档位细化（§10 第 3 项确认后以"实现期细化"追加）；docs 累计 35 篇（软上限 150），phase-2 阶段文档 3 篇（每阶段 ≤12）。
@@ -132,7 +133,7 @@ CLI 面新增一条命令：`keel observe --plugin <path> [--entry cordis] [--ou
 
 ## 9. 与切片①的接缝（不重做）
 
-- rig 的激活屏障在方案 A 落地后**降级为可选**：`wireCell()` 的就绪探测替代它；屏障保留给"等注册面到位"这一种断言。
+- rig 的激活屏障在方案 A 落地后**不退役**：`wireCell()` 的就绪探测只证明"装载完成"，不证明"fire-and-forget 的注册已落进分区"（§12 第 6 条），屏障继续承担"等注册面到位"这一种断言；新增的正向路径（`wireRun`、B6 的工厂）才走 `wireCell()`。
 - `permission-rules` 语义不动，只是从"只有 rig 在用"变成"CLI 也在用"（F2）。
 - `CORDIS_SURFACE` 的 refused 清单本片不动：#4/#12 的处置走档位细化（§10 第 3 项），不是偷偷给承接层加面。
 
@@ -144,15 +145,17 @@ CLI 面新增一条命令：`keel observe --plugin <path> [--entry cordis] [--ou
 
 ## 11. 定稿后的落地清单（按序）
 
-- [ ] ADR-0011（Cell 装载门与就绪凭据，含被否的 B/C 方案）——依 §10 第 1 项
-- [ ] 契约 §3.1/§7 追加就绪口径注记；01 稿 #4/#12 两行补注——依 §10 第 3 项
-- [ ] `cell-runtime`：装载门 + `markReady()`；默认入口行为不变
-- [ ] `host`：`wireCell()` 收敛点、`AssemblyManager`/`CellFactory` 透传 `cellEntry`
-- [ ] `cordis-adapter`：`synthesize.ts`（投影纯函数）+ `observe.ts`（覆盖 driver 与两遍循环）
-- [ ] `apps/keel`：`cmd-observe` 新命令；`buildRuntime` 接 `manifestAuthRules`（F2）
-- [ ] §7 六份测试（先写红色断言再补实现——铁律 7）
-- [ ] B2/B6 集成验收 + B8 复跑（A1 与切片① 的 B1 组）
-- [ ] 体量核对 + 六道门禁（`pnpm clean` 起）；CHANGELOG / docs/README / CONTEXT / handoff 收尾四件事
+- [x] ADR-0011（Cell 装载门与就绪凭据，含被否的 B/C 方案）——依 §10 第 1 项
+- [x] 契约 §3.1/§7 追加就绪口径注记；01 稿 #4/#12 两行补注——依 §10 第 3 项
+- [x] `cell-runtime`：装载门 + `markReady()`；默认入口行为不变
+- [x] `host`：`wireCell()` 收敛点、`AssemblyManager`/`CellFactory` 透传 `cellEntry`
+- [x] 投影纯函数 + 两遍观察：**落地位置改为宿主侧**（`host/manifest-synthesis.ts` 投影；`apps/keel/src/observe.ts` 覆盖 driver 与两遍循环）——理由见 §12 第 9 条
+- [x] `apps/keel`：`cmd-observe` 新命令；`buildRuntime` 接 `manifestAuthRules`（F2：`runPolicy` + `keel run` 走报关单策略）
+- [x] §7 六份测试（先写红色断言再补实现——铁律 7）
+- [x] B2/B6 集成验收 + B8 复跑（A1 与切片① 的 B1 组：全库 41 文件 / 311 测试绿）
+- [x] 体量核对 + 六道门禁（`pnpm clean` 起）；CHANGELOG / docs/README / CONTEXT / handoff 收尾四件事
+      附带处置一条（门禁逼出来的，不改本片主张）：构建从 11 个测试文件各跑一遍收敛到 `tests/fixtures/global-setup.ts`
+      一处——41 个 worker 并发 `pnpm build` 会抢同一批 `dist/` 产物，从清空状态跑全链时随机红
 
 ## 12. 本片的限制（先登记，别等报告）
 
@@ -161,3 +164,7 @@ CLI 面新增一条命令：`keel observe --plugin <path> [--entry cordis] [--ou
 3. **真正被收敛的 cap 目前只有 `tool.provide`**：其余 cap 的 allow 清单只能来自"被拒资源"这一种事实，且必须人工补补偿模板与理由。
 4. **旧插件没有迁移面**：带 `migration` 声明即在首个迁移调用处失败并回退；"有状态旧插件的跨版本迁移"属切片③ 改法。
 5. **B2 的"多声明不放行"是硬拦截断言，但只覆盖经通道的写口**（`tool.register`/`tool.remove`）；其它 cap 的越权只能断言到"授权规则按 allow 逐条收窄"这一层，表述时不得升格为"一切越权都被拦下"（与 F4/F5 同源）。
+6. **就绪门与"分区写满"不是一回事**（施工期发现）：旧插件 fire-and-forget 的注册在 activation 返回之前未必已经落进分区，`wireCell()` 收到一次 `cell.snapshot` 应答只证明"装载完成"，不证明"注册面到位"。因此观察趟与 B6 仍以"可见表到位"作屏障。要把两件事并成一条凭据，需 Cell 侧在 `markReady()` 前等待未决注册回执——属改法，登记待审，不在本片动契约。
+7. **观察趟走显式接线，不走 `wireCell()`**：pass 1 的产物恰恰是"舱在拒绝下崩掉"（旧代码不 await 注册 → 未决拒绝 → 非零退出，02 稿 §6 第三行），ADR-0011 的就绪门在这一趟里不能当装配前置条件；两趟同构，故都用 `spawn → serve → alloc → start` + driver 屏障。`wireCell()` 服务的是正向路径（`keel run`/热装配/B6 工厂），切片① 的 rig 屏障按 §9 保留给"等注册面到位"这一种断言。
+8. **回退不回收分区注册**：热装配失败时新舱被丢弃、绑定表回到旧版本、账本没有新装配痕迹，但它在 activation 里写进**本 scope 分区**的同名条目留在原地（版本 +1），执行体仍是旧舱——"旧作用域不动"目前只保证到绑定表与账本这一层（B6② 把这条如实断言在测试里，不粉饰）。补齐需要版本回退语义，动的是 ADR-0010 的"版本单一事实源"，留给后续切片评审。
+9. **落地位置与 §7/§11 原写的差异**：投影是**宿主侧只读函数**（要读账本、要懂 `BOUNDARY_CAPS`），落 `packages/host/src/manifest-synthesis.ts`；两遍观察要起内核、换策略、落候选文件，属宿主侧装配工具，落 `apps/keel/src/observe.ts`。原写的 `packages/cordis-adapter/src/synthesize.ts`、`observe.ts` **作废**——承接层跑在舱内，不该依赖宿主与账本（依赖方向会倒过来）。

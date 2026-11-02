@@ -2,7 +2,7 @@
  * 机械测试 —— 「零改动」不许靠口头声明（02 稿 §7 判据 1/2/5，锚 B5 的合成组这一半）。
  *
  * 两件事：
- * 1. A 档样本确实是"存量插件的形状"：CommonJS、不 import 任何内核包名与内核符号、ctx 全靠注入；
+ * 1. A/B 档样本确实是"存量插件的形状"：CommonJS、不 import 任何内核包名与内核符号、ctx 全靠注入；
  * 2. 样本里出现的每一个 `ctx.*` 符号都能在承接面清单（`CORDIS_SURFACE`）里找到归属行——
  *    出现未归类符号即红，处置顺序是**先补边界表再收口**（01 稿 §5 回填义务的机器化）。
  */
@@ -61,8 +61,8 @@ const ALL_SURFACE = [
 
 const files = sampleFiles();
 
-describe("A 档合成样本的「零改动」机械判据", () => {
-  it("样本组齐备：5 枚常规 + 4 枚探针 + 对照与反例（CommonJS 书写习惯）", () => {
+describe("A/B 档合成样本的「零改动」机械判据", () => {
+  it("样本组齐备：A 档 5 枚常规 + 4 枚探针 + 对照与反例，B 档合成样本 5 枚（03 稿 §7）", () => {
     expect(files.sort()).toEqual(
       [
         "lib/extra-tools.cjs",
@@ -79,6 +79,11 @@ describe("A 档合成样本的「零改动」机械判据", () => {
         "tierA-03-dynamic.cjs",
         "tierA-04-crash.cjs",
         "tierA-05-timer.cjs",
+        "tierB-01-no-manifest.cjs",
+        "tierB-02-conditional.cjs",
+        "tierB-03-native-io.cjs",
+        "tierB-04-v1.cjs",
+        "tierB-04-v2.cjs",
       ].sort(),
     );
   });

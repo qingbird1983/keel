@@ -13,6 +13,7 @@ import {
   Ledger,
   ModelGateway,
   Scheduler,
+  type AuthRule,
   type LedgerEvent,
   type RunDriver,
   type RunRef,
@@ -23,12 +24,12 @@ import {
   Assembler,
   CellSupervisor,
   CompensationExecutor,
-  EffectTracker,
-  ProcessIsolationProvider,
   RecoveryManager,
+  ProcessIsolationProvider,
   SnapshotStore,
   SupervisedCell,
-  serveCellChannel,
+  manifestAuthRules,
+  wireCell,
   type CompensationActionCell,
   type LoadedManifest,
 } from "@keel/host";
@@ -37,7 +38,15 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 /** 仓库根（src/ 与 dist/ 均在 apps/keel 下一级，上溯三级到根）。 */
 export const repoRoot = path.resolve(here, "..", "..", "..");
 
-const cellEntryPath = path.join(repoRoot, "packages", "cell-runtime", "dist", "main.js");
+export const cellEntryPath = path.join(repoRoot, "packages", "cell-runtime", "dist", "main.js");
+/** 承接层入口（旧插件专用；CLI 的 observe 与 --legacy 路径都用它，ADR-0010 决策 8）。 */
+export const cordisCellEntryPath = path.join(
+  repoRoot,
+  "packages",
+  "cordis-adapter",
+  "dist",
+  "cell-entry.js",
+);
 const schemaPath = path.join(
   repoRoot,
   "docs",
@@ -67,14 +76,47 @@ export function fixturePath(name: string): string {
   return path.join(repoRoot, "tests", "fixtures", name);
 }
 
-/** CLI 演示策略：tool/model 两面全放行（授权语义由场景自证，非 CLI 职责）。 */
-const policy = {
+/**
+ * 演示策略（03 稿 §4 第 2 条留下的"显式选项"）：Phase 1 场景复演与 benchmark 用的全放行表。
+ * **装配真实/合成报关单的路径不用它**——那条路必须把 `manifestAuthRules` 的编译结果传进来，
+ * 否则"报关单"和"实际权限"是两张皮（开工事实 F2）。
+ */
+const demoPolicy = {
   version: "p1",
   allow: [
     { subject: "*", action: "tool.invoke", resource: "*" },
     { subject: "*", action: "model.invoke", resource: "*" },
   ],
 };
+
+/** 运行期授权策略（版本 + 规则集）；由 `runPolicy` 从报关单编译，或演示路径显式给出。 */
+export interface PolicyInput {
+  version: string;
+  rules: AuthRule[];
+}
+
+/**
+ * 报关单 → 运行期策略（03 稿 §4 第 2 条：声明编译是唯一规则源）。
+ *
+ * `tool.invoke` / `model.invoke` 是 **Core→Cell / Core→网关** 方向的执行放行，不由报关单产出
+ * （manifest 稿 §5.2：报关单声明的是 Cell 的可见面，不是宿主自己的执行权），所以这里显式补上；
+ * Cell 侧的 `tool.register`/`tool.remove`/`net.fetch`/… 一律只来自 `manifest.permissions`——
+ * **未声明 = 无规则 = 当场拒并落 `AUTH_DENIED`**（I4，观察期的支点）。
+ */
+export function runPolicy(
+  manifest: LoadedManifest,
+  subject: string,
+  version = "p-manifest",
+): PolicyInput {
+  return {
+    version,
+    rules: [
+      ...manifestAuthRules(manifest, subject),
+      { subject: "*", action: "tool.invoke", resource: "*" },
+      { subject: "*", action: "model.invoke", resource: "*" },
+    ],
+  };
+}
 
 export interface AlertRecord {
   runId: string;
@@ -103,6 +145,11 @@ export interface Runtime {
 export interface BuildRuntimeOptions {
   /** 补偿动作 Cell 的材料（ADR-0005「新 Cell」一次性通道）；缺省 = record-only 直闭，无通道。 */
   actionSpec?: { manifest: LoadedManifest; pluginPath: string };
+  /**
+   * 运行期授权策略（03 稿 §4 第 2 条）：装配真实/合成报关单的路径必须显式给出 `runPolicy` 的编译结果。
+   * 缺省 = 演示策略 `p1`（只服务 Phase 1 场景复演与 benchmark），不再是无人认领的隐式默认。
+   */
+  policy?: PolicyInput;
 }
 
 /** 一次性装配：Ledger→Authorizer→Budgeter→Context→HookBus→Gateway→Scheduler→快照→补偿→恢复→Supervisor。 */
@@ -112,7 +159,10 @@ export async function buildRuntime(
 ): Promise<Runtime> {
   assertDist();
   const ledger = new Ledger({ rootDir: dataDir });
-  const auth = new Authorizer(policy, ledger);
+  const auth = new Authorizer(
+    opts.policy ? { version: opts.policy.version, allow: opts.policy.rules } : demoPolicy,
+    ledger,
+  );
   const budget = new Budgeter(ledger);
   const ctx = new ContextManager();
   const snapshots = new SnapshotStore();
@@ -208,6 +258,10 @@ export interface WireRunOptions {
   driver: RunDriver;
   manifest: LoadedManifest;
   pluginPath: string;
+  /** 承接层入口（缺省 = supervisor 的新生态入口；ADR-0010 决策 8，03 稿 §5）。 */
+  cellEntry?: string;
+  /** 就绪探测超时（缺省 5s = 契约 §7 冷启动口径，ADR-0011）。 */
+  readyTimeoutMs?: number;
   /** 接补偿执行器（run 模式 = 全 Run 回滚）；缺省不接（效果留待恢复投影，A3 场景用）。 */
   withCompensator?: boolean;
   recoveredFrom?: { runId: string; seq: number };
@@ -225,31 +279,20 @@ export interface WiredRun {
 export async function wireRun(rt: Runtime, opts: WireRunOptions): Promise<WiredRun> {
   const scope = opts.scope ?? { agentId: "keel-cli", sessionId: `sess-${opts.runId}` };
   const ref: RunRef = { ...scope, runId: opts.runId };
-  const tracker = new EffectTracker({ ledger: rt.ledger });
-  const cell = rt.supervisor.spawnCell({
+  // 起舱 + 绑通道 + 建分区 + 就绪探测一次做完（host/wire-cell，03 稿 §5）：
+  // 装配/热升级/起 run 三条路共用同一个"舱真的能用"凭据（ADR-0011）。
+  const { cell } = await wireCell({
+    supervisor: rt.supervisor,
+    deps: { ledger: rt.ledger, auth: rt.auth, budget: rt.budget, ctx: rt.ctx, gateway: rt.gateway },
+    scope,
+    ref,
+    subject: scope.agentId,
     manifest: opts.manifest,
     pluginPath: opts.pluginPath,
-    tracker,
+    cellEntry: opts.cellEntry,
+    readyTimeoutMs: opts.readyTimeoutMs,
   });
   if (opts.mountState !== undefined) await cell.migrate(opts.mountState);
-  serveCellChannel(
-    cell.conn,
-    {
-      scope,
-      ref,
-      subject: scope.agentId,
-      templates: new Map(opts.manifest.templates.map((t) => [t.kind, t])),
-    },
-    {
-      ledger: rt.ledger,
-      auth: rt.auth,
-      budget: rt.budget,
-      ctx: rt.ctx,
-      gateway: rt.gateway,
-      tracker,
-    },
-  );
-  rt.ctx.alloc(scope);
   const { done } = rt.scheduler.start({
     ref,
     subject: scope.agentId,

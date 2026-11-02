@@ -10,7 +10,6 @@
  * 子进程 → compensation.exec → dispose。阶段验收时由 apps/keel CLI 复演。
  */
 
-import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -60,10 +59,6 @@ let supervisor: CellSupervisor;
 let compensationExecutor: CompensationExecutor;
 const ledgers: Ledger[] = [];
 const alerts: { runId: string; effectId: string; escalated: boolean }[] = [];
-
-beforeAll(() => {
-  execSync("pnpm --filter @keel/cell-runtime build", { cwd: repoRoot, stdio: "pipe" });
-});
 
 beforeAll(async () => {
   dir = await mkdtemp(path.join(tmpdir(), "keel-a4-"));

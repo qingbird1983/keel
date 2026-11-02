@@ -13,24 +13,12 @@
  * 预期缺席即记违规，所以"可见性一半没接通"在本文件里无处藏身（02 稿 §2 F1 的正面解法）。
  */
 
-import { execSync } from "node:child_process";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { LedgerEvent } from "@keel/core";
-import {
-  createLegacyRig,
-  fixtureFile,
-  legacyManifest,
-  policyFor,
-  repoRoot,
-} from "./fixtures/cordis-rig";
+import { createLegacyRig, fixtureFile, legacyManifest, policyFor } from "./fixtures/cordis-rig";
 
 const AGENT = "agent-b1";
 let rig: ReturnType<typeof createLegacyRig>;
-
-/** 子进程只跑 dist：先把内核与承接层的产物准备好（P-002 规则 4）。 */
-beforeAll(() => {
-  execSync("pnpm build", { cwd: repoRoot, stdio: "pipe" });
-}, 120_000);
 
 beforeEach(async () => {
   rig = createLegacyRig();

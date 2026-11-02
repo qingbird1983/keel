@@ -5,8 +5,7 @@
  * 拒绝留痕的载荷齐不齐、handler 有没有出舱、换入口影不影响隔离、反复增删会不会漂。
  */
 
-import { execSync } from "node:child_process";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { LedgerEvent } from "@keel/core";
 import {
   createLegacyRig,
@@ -14,15 +13,10 @@ import {
   fixtureFile,
   legacyManifest,
   policyFor,
-  repoRoot,
 } from "./fixtures/cordis-rig";
 
 const AGENT = "agent-chan";
 let rig: ReturnType<typeof createLegacyRig>;
-
-beforeAll(() => {
-  execSync("pnpm build", { cwd: repoRoot, stdio: "pipe" });
-}, 120_000);
 
 beforeEach(async () => {
   rig = createLegacyRig();

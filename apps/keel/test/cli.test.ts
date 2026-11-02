@@ -1,8 +1,11 @@
 // keel CLI 命令层冒烟（04 稿 §5 定案 5）：经构建后的 bin 全链验证——
 // 内核行为主张不在此重复（归 tests/ 三份集成与各包单测）。
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 
 const repoRoot = path.resolve(".");
 const bin = path.join(repoRoot, "apps", "keel", "dist", "main.js");
@@ -22,18 +25,8 @@ function run(args: string[], timeout = 60_000): { status: number; stdout: string
   }
 }
 
-beforeAll(() => {
-  // CLI bin 与其全部 workspace 依赖的 dist（子进程只能跑 dist）
-  execFileSync("pnpm", ["--filter", "keel...", "run", "build"], {
-    cwd: repoRoot,
-    stdio: "pipe",
-    shell: true,
-    timeout: 120_000,
-  });
-});
-
 afterAll(() => {
-  // 无持久进程：bin 子进程均自带收束
+  // 无持久进程：bin 子进程均自带收束；dist 由 vitest globalSetup 统一构建一次
 });
 
 describe("keel CLI（bin 冒烟）", () => {
@@ -83,4 +76,35 @@ describe("keel CLI（bin 冒烟）", () => {
     expect(r.status).toBe(0);
     expect(r.stdout).toContain("hotswap: PASS");
   }, 90_000);
+
+  it("observe：两遍观察 → 候选 + 缺项清单落盘，退出码 = 候选能否过五步校验", async () => {
+    const out = await mkdtemp(path.join(tmpdir(), "keel-observe-"));
+    try {
+      const r = run(
+        [
+          "observe",
+          "--plugin",
+          "tests/fixtures/cordis-plugins/tierB-01-no-manifest.cjs",
+          "--out",
+          out,
+        ],
+        120_000,
+      );
+      expect(r.stdout).toContain("validate: ACCEPT");
+      expect(r.stdout).toContain("候选不自转正");
+      expect(r.status).toBe(0);
+      // 两份产物都在盘上，且候选内容 = 观察到的三个名字（不多不少）
+      const candidate = JSON.parse(
+        readFileSync(path.join(out, "legacy-tierb-01-no-manifest.candidate.json"), "utf-8"),
+      ) as { permissions: unknown };
+      expect(candidate.permissions).toEqual([
+        { cap: "tool.provide", allow: ["gated", "plain", "unlocker"] },
+      ]);
+      expect(
+        readFileSync(path.join(out, "legacy-tierb-01-no-manifest.gaps.md"), "utf-8"),
+      ).toContain("UNOBSERVABLE_NATIVE_IO"); // 观察不到的面写在明面上（03 稿 §12 限制 1）
+    } finally {
+      await rm(out, { recursive: true, force: true });
+    }
+  }, 180_000);
 });

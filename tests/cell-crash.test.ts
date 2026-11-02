@@ -7,7 +7,6 @@
  *   → stdio JSON 行帧（契约 §3.1）→ 调度器轮循环 → Supervisor 退出三分类 → abort 缝。
  */
 
-import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -51,11 +50,6 @@ let ctxMgr: ContextManager;
 let scheduler: Scheduler;
 let supervisor: CellSupervisor;
 const ledgers: Ledger[] = [];
-
-beforeAll(() => {
-  // 子进程只能跑 JS：先构建 cell-runtime dist（约 2s）
-  execSync("pnpm --filter @keel/cell-runtime build", { cwd: repoRoot, stdio: "pipe" });
-});
 
 beforeAll(async () => {
   dir = await mkdtemp(path.join(tmpdir(), "keel-a2-"));

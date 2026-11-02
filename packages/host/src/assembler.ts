@@ -15,8 +15,12 @@ import { validateSchema } from "./schema-validator.js";
 export const KINDS = ["capability", "policy", "observation"] as const;
 export type ManifestKind = (typeof KINDS)[number];
 
-/** 越界能力词表（manifest 稿 §5.2：必须 allow 必填 + 补偿模板非空）。 */
-const BOUNDARY_CAPS = new Set(["net.fetch", "fs.write", "memory.backend"]);
+/**
+ * 越界能力词表（manifest 稿 §5.2：必须 allow 必填 + 补偿模板非空）。
+ * 导出原因：合成器（`@keel/cordis-adapter`）据此判定"合不出补偿 → 进缺项清单"，
+ * 两处必须是同一份名单——分开维护就会出现"校验要求补偿而合成不知道"的漂移。
+ */
+export const BOUNDARY_CAPS = new Set(["net.fetch", "fs.write", "memory.backend"]);
 
 /** 契约 §7 上限（与 Schema maximum 一致；语义层复核）。 */
 export const TOOL_CALL_TIMEOUT_MAX_MS = 600_000;
