@@ -44,4 +44,4 @@ Project documentation is maintained in **Chinese** under [`docs/`](docs/README.m
 
 ## License
 
-[MIT](LICENSE) © 2026 Keel Project Contributors (attribution may be changed anytime, see ADR-0006)
+[MIT](LICENSE) © 2026 qingbird1983 (attribution decided in ADR-0007)

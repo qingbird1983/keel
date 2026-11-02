@@ -40,6 +40,7 @@ docs/
 | roadmap/00-roadmap.md                        | 定稿 | 总路线图、唯一进度看板、backlog 与风险登记簿                                                                   |
 | roadmap/phase-0-design-baseline.md           | 定稿 | Phase 0 范围合同：设计基线（架构沉淀 + A/B/D/C 四份设计）——已收官（report 见 design/phase-0/）                 |
 | roadmap/phase-1-mvp.md                       | 定稿 | Phase 1 范围合同：MVP 最小闭环（做/不做清单 + 验收场景 A1~A8）                                                 |
+| roadmap/phase-2-cordis-compat.md             | 草稿 | Phase 2 范围合同草案：Cordis 兼容层承接存量插件（待所有者确认三项开工前置）                                    |
 | standards/01 ~ 09                            | 定稿 | 仓库结构 / git 工作流 / 文档 / 代码 / 测试 / 安全 / AI 协作 / 体量 / 规范复查                                  |
 | glossary.md                                  | 草稿 | 术语表（首批 19 条）                                                                                           |
 | adr/ADR-0001-implementation-stack            | 定稿 | 实现技术栈：TypeScript / Node.js（MVP）                                                                        |
@@ -53,8 +54,10 @@ docs/
 | design/phase-1/04-cli-benchmarks-fixtures    | 定稿 | 切片⑤实现口径：CLI 七命令面、A8 四项基准测量口径、fixtures 三组收全清单与实现期定案                            |
 | design/phase-1/05-cordis-adapter-prototype   | 定稿 | Cordis Adapter 原型口径：旧 API → scope 注册的最小映射、三条规则、有损边界显式报错清单                         |
 | design/phase-1/report                        | 定稿 | Phase 1 阶段进度报告：A1~A8 逐条验收结果与证据、A8 基准数据、契约级测试点核对、体量核对与规范复查              |
+| design/phase-2/01-cordis-migration-boundary  | 草稿 | Cordis 迁移边界：14 条旧写法逐档归类（A 直用 / B 补声明 / C 改写 / D 拒绝）与迁移改法（Phase 2 开工前置）      |
 | adr/ADR-0005-cell-isolation                  | 定稿 | Cell 隔离选型：MVP 进程级，演进期 IsolationProvider 抽象 + 容器后端                                            |
-| adr/ADR-0006-mit-license                     | 定稿 | 许可证选用 MIT（版权主体占位可改）                                                                             |
+| adr/ADR-0006-mit-license                     | 定稿 | 许可证选用 MIT（版权主体留占位，落实见 ADR-0007）                                                              |
+| adr/ADR-0007-copyright-attribution           | 定稿 | 版权署名落实为 GitHub 用户名 qingbird1983（LICENSE + 两份 README 同步）                                        |
 | design/phase-0/report                        | 定稿 | Phase 0 阶段进度报告：验收 A1~A7 通过、体量与规范复查                                                          |
 
 > research/ 暂无文档；design/phase-1/ 另两份（补偿状态机、插件 manifest）为 Phase 0 后续交付物（见 phase-0 §4），产出即登记本表。

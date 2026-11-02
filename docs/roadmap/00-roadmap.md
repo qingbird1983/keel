@@ -2,11 +2,11 @@
 
 - 状态：定稿
 - 日期：2026-11-02
-- 关联：[ADR-0001](../adr/ADR-0001-implementation-stack.md) ~ [ADR-0006](../adr/ADR-0006-mit-license.md)；[phase-0-design-baseline.md](phase-0-design-baseline.md)
+- 关联：[ADR-0001](../adr/ADR-0001-implementation-stack.md) ~ [ADR-0007](../adr/ADR-0007-copyright-attribution.md)；[phase-0-design-baseline.md](phase-0-design-baseline.md)
 
 ## 1. 阶段总览与看板（本表是**唯一进度看板**）
 
-> README（中英两份）不重复看板；阶段状态只在本表维护。状态变更必须同步 CHANGELOG 与 `.agents/CONTEXT.md`。**最近更新：2026-11-02（Phase 1 阶段验收执行完毕：A1~A8 逐条通过（一票否决五项全过，A1/A6 为规模级补执行）；交付物清单齐备；六道门禁绿、225 项测试——收官打 `phase-1.end`）。**
+> README（中英两份）不重复看板；阶段状态只在本表维护。状态变更必须同步 CHANGELOG 与 `.agents/CONTEXT.md`。**最近更新：2026-11-02（Phase 1 收官后：远端仓库启用、署名定为 qingbird1983（ADR-0007）、Phase 2 开工前置两份文档起草完毕待所有者确认）。**
 
 ```mermaid
 graph LR
@@ -20,7 +20,7 @@ graph LR
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [Phase 0](phase-0-design-baseline.md) | 设计基线：治理底座 + 架构总览沉淀 + 四份关键设计定稿（Core API 契约 / Cell 隔离选型 / 补偿状态机 / 插件 manifest）  | —         | ✅ 完成（2026-11-02，验收 A1~A7 通过，见 [report](../design/phase-0/report.md)）                                                                                                           |
 | [Phase 1](phase-1-mvp.md)             | MVP 最小闭环：Core 四件套（调度/授权/预算/账本）+ 进程级 Cell + manifest 装配 + 补偿回退 + 策略 hook + Adapter 原型 | 8~12 周   | ✅ 完成（2026-11-02，验收 A1~A8 全通过、一票否决五项逐条实测（A1 20 舱并发、A6 真实运行归因复演为规模级补执行），交付物齐备，见 [report](../design/phase-1/report.md)；tag `phase-1.end`） |
-| Phase 2                               | Cordis Adapter 承接存量插件全量语义（有损边界显式化）                                                               | 待估      | 未开始                                                                                                                                                                                     |
+| [Phase 2](phase-2-cordis-compat.md)   | Cordis Adapter 承接存量插件全量语义（有损边界显式化）                                                               | 待估      | 开工准备中（前置文档已起草：迁移边界 01 稿 + 范围合同草稿；待所有者确认三项前置——边界归类、验收材料、回填项归属）                                                                          |
 | Phase 3                               | 新插件生态：声明式 manifest + 能力契约全面替换存量模式                                                              | 待估      | 未开始                                                                                                                                                                                     |
 
 \* 单人参考值，仅量级感知。状态取值：未开始 / 进行中 / ✅ 完成（日期 + tag）。
