@@ -56,6 +56,16 @@ export function validateSchema(schema: unknown, value: unknown, path = ""): Sche
   if (unknownKeys.length > 0) {
     return [{ path, message: `unsupported schema keywords: ${unknownKeys.join(", ")}` }];
   }
+  // `additionalProperties` 仅支持布尔（本校验器不实现"动态键映射"的子 Schema）；
+  // 对象形态若被静默忽略，等于整段值不受校验——按未支持关键词明确拒绝（P-014）。
+  if (s.additionalProperties !== undefined && typeof s.additionalProperties !== "boolean") {
+    return [
+      {
+        path,
+        message: "additionalProperties must be a boolean; object-valued schemas are unsupported",
+      },
+    ];
+  }
   const issues: SchemaIssue[] = [];
   const fail = (p: string, message: string) => issues.push({ path: p, message });
 

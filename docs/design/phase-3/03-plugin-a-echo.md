@@ -1,6 +1,7 @@
 # Phase 3 切片②：插件 A `echo` 端到端（manifest → 装载门 → scope 授权 → 真进程 run）
 
 - 状态：**定稿**（2026-11-03 所有者确认全文；一经定稿即约束实现——铁律 1）
+- 切片编号注记（2026-11-03）：合同 §7 已插入**切片③ AOP 底座**（[04 稿](04-cell-runtime-aop.md)），原切片③（插件 B+C）顺延为④、原④顺延为⑤；本文正文中的“切片③/④”均指当时编号（即现④/⑤）。
 - 关联：[phase-3 合同](../../roadmap/phase-3-native-ecosystem.md) §7 切片②（锚 C1/C5/C6）；[02 稿](02-review-mechanization.md) §4 需求卡 / §5 留痕口径；[01 反面教材清单](01-legacy-anti-patterns.md)；[manifest 稿](../phase-1/03-plugin-manifest.md)；[ADR-0010](../../adr/ADR-0010-runtime-tool-registration-channel.md) / [ADR-0011](../../adr/ADR-0011-cell-load-gate.md)；standards/05（复现测试先行）
 
 ## 1. 这份文档回答什么

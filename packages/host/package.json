@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@keel/core": "workspace:*",
-    "@keel/cell-runtime": "workspace:*"
+    "@keel/cell-runtime": "workspace:*",
+    "@keel/runtime-context": "workspace:*"
   }
 }

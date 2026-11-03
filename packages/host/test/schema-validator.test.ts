@@ -65,6 +65,15 @@ describe("关键词子集校验器", () => {
     expect(issues[0].message).toContain("unsupported schema keywords");
   });
 
+  it("additionalProperties 只支持布尔：对象形态明确拒绝（P-014，不静默跳过值校验）", () => {
+    const issues = validateSchema(
+      { type: "object", additionalProperties: { type: "string" } },
+      { x: 1 },
+    );
+    expect(issues[0].message).toContain("additionalProperties must be a boolean");
+    expect(validateSchema({ type: "object", additionalProperties: true }, { x: 1 })).toEqual([]);
+  });
+
   it("嵌套路径可归因", () => {
     const schema = {
       type: "object",

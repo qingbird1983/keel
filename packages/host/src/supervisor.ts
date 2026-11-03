@@ -21,9 +21,12 @@ import {
   type ToolExecResult,
 } from "@keel/cell-runtime";
 import type { CellProcess, IsolationProvider } from "./isolation.js";
+import { sanitizedEnv } from "./isolation.js";
+import { deriveWorkspaceRoot } from "./workspace.js";
 import type { LoadedManifest } from "./assembler.js";
 import type { ManagedCell } from "./assembly-manager.js";
 import type { EffectTracker } from "./effects.js";
+import { compileGovernancePlan } from "./governance.js";
 
 export type CellExitClass = "clean" | "crash" | "killed";
 export type CellPhase = "creating" | "ready" | "running" | "halting" | "exited" | "reaped";
@@ -68,6 +71,8 @@ export interface SupervisorOptions {
   cellEntryPath: string;
   /** 失控强杀宽限：toolCallTimeoutMs 后仍未响应 → 再等此时长 → kill（默认 5s）。 */
   toolKillGraceMs?: number;
+  /** 可选 Node 权限模型参数（ADR-0019；默认不启用，不是沙箱）。 */
+  nodePermissionArgs?: string[];
   onCellExit?: (exit: CellExit) => void;
 }
 
@@ -78,12 +83,14 @@ export class CellSupervisor {
   private readonly provider: IsolationProvider;
   private readonly cellEntryPath: string;
   private readonly toolKillGraceMs: number;
+  private readonly nodePermissionArgs: string[] | undefined;
   private readonly onCellExit?: (exit: CellExit) => void;
 
   constructor(opts: SupervisorOptions) {
     this.provider = opts.provider;
     this.cellEntryPath = opts.cellEntryPath;
     this.toolKillGraceMs = opts.toolKillGraceMs ?? 5_000;
+    this.nodePermissionArgs = opts.nodePermissionArgs;
     this.onCellExit = opts.onCellExit;
   }
 
@@ -95,13 +102,13 @@ export class CellSupervisor {
     /**
      * 本 Cell 的进程入口（切片① seam，ADR-0010 决策 8）：缺省 = supervisor 的 `cellEntryPath`
      * （新生态插件 = @keel/cell-runtime 入口）；承接存量插件时宿主传承接层自带入口。
-     * **bootstrap 载荷形状不变**（`{pluginPath, toolCallTimeoutMs}`）——入口本身即"这是旧插件"的信号。
+     * 旧插件入口本身即"这是旧插件"的信号；其报关单没有 governance，bootstrap 载荷形状不变。
      */
     cellEntry?: string;
     /**
-     * bootstrap 的**追加字段**（切片④）：策略舱要被告知报关单声明了哪几个插话点
-     * （`{hooks: [...]}`，入口据此校验导出集合）。既有入口的载荷形状不变——
-     * 不传就是今天的 `{pluginPath, toolCallTimeoutMs}`，能力舱与承接层舱都不受影响。
+     * bootstrap 的**追加字段**：策略舱 `{hooks}`（切片④）、能力舱 `{governance}`（ADR-0015
+     * 由 `SupervisedCell` 自动追加），入口据此校验导出集合 / 织入切面。
+     * 无对应声明时载荷就是 `{pluginPath, toolCallTimeoutMs}`，既有入口不受影响。
      */
     bootstrapExtra?: Record<string, unknown>;
   }): SupervisedCell {
@@ -116,8 +123,14 @@ export class CellSupervisor {
   }
 
   /* internal */
-  spawnProcess(bootstrap: string, entryPath?: string): CellProcess {
-    return this.provider.spawn({ entryPath: entryPath ?? this.cellEntryPath, bootstrap });
+  spawnProcess(bootstrap: string, entryPath?: string, opts?: { cwd?: string }): CellProcess {
+    return this.provider.spawn({
+      entryPath: entryPath ?? this.cellEntryPath,
+      bootstrap,
+      env: sanitizedEnv(),
+      ...(opts?.cwd ? { cwd: opts.cwd } : {}),
+      ...(this.nodePermissionArgs ? { nodePermissionArgs: this.nodePermissionArgs } : {}),
+    });
   }
 
   get graceMs(): number {
@@ -136,6 +149,9 @@ export class SupervisedCell implements ManagedCell {
   /** Host 侧通道端点（同实例承载 Cell 可见面服务 serveCellChannel）。 */
   readonly conn: FrameConn;
   readonly manifest: LoadedManifest;
+
+  /** Host 侧就绪凭据（wireCell 探到应答后置位）；未就绪的舱不做 dispose 等待（R4）。 */
+  hostReady = false;
 
   private readonly supervisor: CellSupervisor;
   private readonly process: CellProcess;
@@ -160,12 +176,24 @@ export class SupervisedCell implements ManagedCell {
     this.supervisor = params.supervisor;
     this.manifest = params.manifest;
     this.tracker = params.tracker ?? null;
+    // 治理计划随 spawn 一次送达（ADR-0015）：所有起舱路径（run / 热装配 / fixture）共用，
+    // 无声明不加字段——既有载荷形状不变。显式 bootstrapExtra 可覆盖（测试/特殊入口）。
+    const governance = compileGovernancePlan(params.manifest.governance);
     const boot = JSON.stringify({
       pluginPath: params.pluginPath,
       toolCallTimeoutMs: params.manifest.resources.toolCallTimeoutMs ?? 0,
-      ...params.bootstrapExtra, // 追加而非改写：既有载荷形状不变（切片④只给策略舱加 hooks）
+      ...(governance ? { governance } : {}),
+      ...params.bootstrapExtra, // 追加而非改写：策略舱 hooks 与能力舱 governance 是同一 seam 的两个字段
     });
-    this.process = this.supervisor.spawnProcess(boot, params.cellEntry);
+    this.process = this.supervisor.spawnProcess(
+      boot,
+      params.cellEntry,
+      // R5（ADR-0019）：唯一写根 = 工作区 cwd；多根/无根不猜，保持默认 cwd
+      (() => {
+        const root = deriveWorkspaceRoot(params.manifest.permissions);
+        return root ? { cwd: root } : undefined;
+      })(),
+    );
     this.conn = new FrameConn({ input: this.process.stdout, output: this.process.stdin });
     this.phase = "ready";
     this.process.onExit(({ code }) => {
@@ -220,7 +248,11 @@ export class SupervisedCell implements ManagedCell {
    * 不新开 `CELL/DRAINING`：语义是准入拒绝，不是通道坏了。
    */
   call<T = unknown>(op: string, params: unknown, timeoutMs: number): Promise<T> {
-    if (this.phase === "halting" || this.phase === "exited" || this.phase === "reaped") {
+    // cell.dispose 是收尾专用调用：halting 期间仍放行，其余新调用一律拒绝。
+    if (
+      op !== "cell.dispose" &&
+      (this.phase === "halting" || this.phase === "exited" || this.phase === "reaped")
+    ) {
       this.drainRefused += 1;
       return Promise.reject(
         new KeelError("SCHED/BACKPRESSURE", `cell draining: ${op} not accepted`, { op }),
@@ -302,6 +334,11 @@ export class SupervisedCell implements ManagedCell {
     if (this.phase === "ready") this.phase = "running";
   }
 
+  /** 就绪凭据到手（wireCell 探到一次应答后调用）；只影响收尾是否等 dispose。 */
+  markHostReady(): void {
+    this.hostReady = true;
+  }
+
   /**
    * 收尾（B7③ 的确定次序，切片⑤ §3.3）：halting（拒新）→ 等在途收束 → 必要时 kill → reaped。
    * 等待有硬界 `toolKillGraceMs`（既有那个"宽限后强杀"的量，**不新增时限数**）：同步忙等的插件
@@ -313,6 +350,15 @@ export class SupervisedCell implements ManagedCell {
     const inFlightAtStart = this.inFlight.size;
     const timedOut = inFlightAtStart > 0 && !(await this.awaitInFlight(this.supervisor.graceMs));
     const settled = inFlightAtStart - this.inFlight.size;
+    // R4：在途动作收束后再给插件一次正常收尾机会（模块 dispose → 资源 effect LIFO）。
+    // 只对已就绪且未超时的舱走这一步——没就绪/已失控的舱等 dispose 只会再白等一个 grace。
+    if (this.hostReady && !timedOut && !this.exitResult) {
+      try {
+        await this.call("cell.dispose", {}, this.supervisor.graceMs);
+      } catch {
+        /* 收尾失败不阻断 reaped；进程 kill 是兜底 */
+      }
+    }
     // 进程已自然退出（exitResult 已立）就不算"本次收尾杀掉了它"——killed 要说的是这件事
     const needsKill = !this.exitResult;
     await this.kill();

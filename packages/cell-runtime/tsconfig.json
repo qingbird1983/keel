@@ -1,7 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@keel/runtime-context": ["../../packages/runtime-context/src/index.ts"]
+    }
   },
   "include": ["src", "test"]
 }

@@ -13,10 +13,11 @@
  *   TOOL_RESULT{status:"error", error.code:"AUTH/DENIED"} 统一落点。
  */
 
+import { randomUUID } from "node:crypto";
 import { KeelError } from "./errors.js";
 import { Authorizer } from "./authorizer.js";
 import { Budgeter } from "./budget.js";
-import { ContextManager, type ToolEntry } from "./context.js";
+import { type ToolEntry, ToolCatalog } from "./tool-catalog.js";
 import { HookBus } from "./hooks.js";
 import { ModelGateway } from "./gateway.js";
 import {
@@ -33,6 +34,8 @@ import { Ledger, type CheckpointInfo, type LedgerAppendOptions } from "./ledger.
 export type ToolExecutor = (call: {
   tool: string;
   params: unknown;
+  /** 本次工具调用标识（R4）：重试沿用同一个，供 effect 去重与幂等重放。 */
+  toolCallId?: string;
 }) => Promise<
   { status: "ok"; result?: unknown } | { status: "error" | "timeout"; error?: unknown }
 >;
@@ -151,7 +154,7 @@ export class Scheduler {
   private readonly ledger: Ledger;
   private readonly auth: Authorizer;
   private readonly budget: Budgeter;
-  private readonly ctx: ContextManager;
+  private readonly ctx: ToolCatalog;
   private readonly hooks: HookBus;
   private readonly gateway: ModelGateway;
   private readonly maxRuns: number;
@@ -165,7 +168,7 @@ export class Scheduler {
       ledger: Ledger;
       auth: Authorizer;
       budget: Budgeter;
-      ctx: ContextManager;
+      ctx: ToolCatalog;
       hooks: HookBus;
       gateway: ModelGateway;
     },
@@ -420,6 +423,7 @@ export class Scheduler {
     }
 
     // 工具：Core 授权 → hook① 否决权 → 执行（hook③ 重试钳制 ≤3 次）
+    const toolCallId = randomUUID();
     const d = await this.auth.check(ref, manifest.subject, "tool.invoke", action.tool);
     if (!d.allowed) return this.deniedTool(h, action, "core", d.reason);
     const approval = await this.hooks.call(ref, "toolApproval", h.round, {
@@ -437,7 +441,11 @@ export class Scheduler {
         tool: action.tool,
         paramsDigest: action.params,
       });
-      const res = await h.manifest.executor({ tool: action.tool, params: action.params });
+      const res = await h.manifest.executor({
+        tool: action.tool,
+        params: action.params,
+        toolCallId,
+      });
       await this.emit(h, "TOOL_RESULT", {
         round: h.round,
         tool: action.tool,

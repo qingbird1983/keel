@@ -1,0 +1,13 @@
+{
+  "kind": "capability",
+  "meta": {
+    "name": "lifecycle-probe",
+    "version": "1.0.0",
+    "title": "Lifecycle Probe",
+    "description": "R4 生命周期探针：setup 注册动态工具与资源 effect，dispose 正常收尾"
+  },
+  "permissions": [{ "cap": "tool.provide", "reason": "提供 noop 与 setup 期动态工具" }],
+  "resources": { "toolCallTimeoutMs": 5000 },
+  "compensation": { "templates": [] },
+  "compat": { "keelContract": "^1.0" }
+}

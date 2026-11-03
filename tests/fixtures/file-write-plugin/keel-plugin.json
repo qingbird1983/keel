@@ -1,0 +1,71 @@
+{
+  "kind": "capability",
+  "meta": {
+    "name": "file-write",
+    "version": "1.0.0",
+    "title": "File Write",
+    "description": "AOP 机制样例：纯 handler 写文件，治理与内置补偿由 manifest 声明"
+  },
+  "permissions": [
+    { "cap": "tool.provide", "reason": "提供 write_file" },
+    {
+      "cap": "fs.write",
+      "allow": ["fs:/tmp/keel-workspace/**"],
+      "reason": "只写工作区；部署时按真实根目录替换"
+    }
+  ],
+  "resources": { "toolCallTimeoutMs": 10000 },
+  "compensation": {
+    "templates": [
+      {
+        "kind": "fs.write.done",
+        "class": "reversible",
+        "action": { "type": "builtin", "ref": "fs.remove" },
+        "idempotency": "natural"
+      }
+    ]
+  },
+  "governance": {
+    "tools": [
+      {
+        "name": "write_file",
+        "guard": { "cap": "fs.write", "from": "path", "prefix": "fs:" },
+        "effects": [
+          {
+            "kind": "fs.write.done",
+            "targetFields": ["path"],
+            "digestFields": ["path", "content"]
+          }
+        ]
+      },
+      {
+        "name": "overwrite_file",
+        "guard": { "cap": "fs.write", "from": "path", "prefix": "fs:" },
+        "effects": [
+          {
+            "kind": "fs.write.done",
+            "targetFields": ["path"],
+            "digestFields": ["path", "content"]
+          }
+        ]
+      },
+      {
+        "name": "write_two",
+        "guard": { "cap": "fs.write", "from": "pathA", "prefix": "fs:" },
+        "effects": [
+          {
+            "kind": "fs.write.done",
+            "targetFields": ["pathA"],
+            "digestFields": ["pathA"]
+          },
+          {
+            "kind": "fs.write.done",
+            "targetFields": ["pathB"],
+            "digestFields": ["pathB"]
+          }
+        ]
+      }
+    ]
+  },
+  "compat": { "keelContract": "^1.0" }
+}

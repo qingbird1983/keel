@@ -63,7 +63,9 @@ export {
   type ExhaustionMode,
   type Reservation,
 } from "./budget.js";
-export { ContextManager, type ToolEntry } from "./context.js";
+export { ContextManager } from "./context.js";
+export { ToolCatalog, type ToolEntry } from "./tool-catalog.js";
+export { PageStore } from "./page-store.js";
 export {
   HookBus,
   HOOK_TIMEOUT_MS,

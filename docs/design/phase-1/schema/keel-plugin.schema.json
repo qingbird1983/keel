@@ -94,7 +94,7 @@
           "description": "补偿模板池：运行时 EFFECT_DECLARED 的 effectKind 必须命中其一（C-M1 焊点）。越界能力的插件必须非空（语义校验由装配器执行）。",
           "items": {
             "type": "object",
-            "required": ["kind", "class", "action", "idempotency"],
+            "required": ["kind", "class"],
             "additionalProperties": false,
             "properties": {
               "kind": {
@@ -115,13 +115,13 @@
                   "ref": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "补偿动作引用：插件内模块路径或内核内建名"
+                    "description": "补偿动作引用：插件内模块路径或内核内建名（builtin 闭集见 ADR-0016）"
                   }
                 }
               },
               "idempotency": {
                 "enum": ["natural", "keyed", "probe-guarded"],
-                "description": "幂等策略（补偿状态机 §6）"
+                "description": "幂等策略（补偿状态机 §6）；record-only 可省略"
               },
               "probe": {
                 "type": "object",
@@ -130,7 +130,16 @@
                 "properties": { "ref": { "type": "string", "minLength": 1 } },
                 "description": "可选核验动作（结果未知时判定是否已发生）"
               }
-            }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": { "class": { "enum": ["reversible", "mitigable"] } },
+                  "required": ["class"]
+                },
+                "then": { "required": ["action", "idempotency"] }
+              }
+            ]
           }
         }
       }
@@ -181,6 +190,86 @@
       },
       "description": "可选：有状态插件升级迁移。Supervisor 在新 Cell 内、快照挂载后首轮前执行；失败回退旧作用域。无本节 = 声明跨版本无状态"
     },
+    "trust": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rawIo": {
+          "type": "boolean",
+          "description": "申请 raw IO 信任（ADR-0019）：宿主默认不授予；未授予 = 装配拒绝（fail-closed）"
+        }
+      },
+      "description": "可选：信任申请。manifest 申请、宿主授予；授予结果写入 ASSEMBLY_RECORDED.trust"
+    },
+    "governance": {
+      "type": "object",
+      "required": ["tools"],
+      "additionalProperties": false,
+      "properties": {
+        "tools": {
+          "type": "array",
+          "minItems": 1,
+          "description": "capability 专用（ADR-0015）：工具 → 治理切面绑定；名字必须与插件导出的工具一一对应",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "guard": {
+                "type": "object",
+                "required": ["cap", "from"],
+                "additionalProperties": false,
+                "properties": {
+                  "cap": {
+                    "enum": ["fs.read", "fs.write"],
+                    "description": "守卫能力（v1 仅文件系统；net.fetch 需主机名归一，另案）"
+                  },
+                  "from": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "从 params 取的顶层字段名（值必须是字符串）"
+                  },
+                  "prefix": {
+                    "type": "string",
+                    "description": "资源前缀（fs.* 必须显式写 fs:；不设魔法默认）"
+                  }
+                }
+              },
+              "effects": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "required": ["kind", "targetFields"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9.-]*$",
+                      "description": "必须命中 compensation.templates[].kind（装配器语义校验）"
+                    },
+                    "targetFields": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": { "type": "string", "minLength": 1 },
+                      "description": "进入 targetSummary 的顶层字段（明文，只放标识类字段）"
+                    },
+                    "digestFields": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": { "type": "string", "minLength": 1 },
+                      "description": "进入 paramsDigest 的顶层字段（只出摘要）"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "description": "capability 专用治理切面声明（ADR-0015）：框架在 handler 之前自动完成权限守卫与副作用声明"
+    },
     "hooks": {
       "type": "array",
       "minItems": 1,
@@ -214,7 +303,9 @@
           "subscriptions": { "maxItems": 0 },
           "resources": { "maxProperties": 0 },
           "compensation": { "properties": { "templates": { "maxItems": 0 } } },
-          "migration": { "maxProperties": 0 }
+          "migration": { "maxProperties": 0 },
+          "governance": { "maxProperties": 0 },
+          "trust": { "maxProperties": 0 }
         }
       }
     },
@@ -227,7 +318,9 @@
           "hooks": { "maxItems": 0 },
           "resources": { "maxProperties": 0 },
           "compensation": { "properties": { "templates": { "maxItems": 0 } } },
-          "migration": { "maxProperties": 0 }
+          "migration": { "maxProperties": 0 },
+          "governance": { "maxProperties": 0 },
+          "trust": { "maxProperties": 0 }
         }
       }
     }

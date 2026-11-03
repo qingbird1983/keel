@@ -43,16 +43,47 @@ function manifest(caps = [{ cap: "tool.provide" }]): LoadedManifest {
   });
 }
 
+function governedManifest(): LoadedManifest {
+  return new Assembler({ schema, contractVersion: "1.0.0" }).assemble({
+    kind: "capability",
+    meta: { name: "wire-gov", version: "1.0.0", title: "G", description: "d" },
+    permissions: [{ cap: "fs.write", allow: ["/tmp/**"] }],
+    resources: { toolCallTimeoutMs: 5_000 },
+    compensation: {
+      templates: [
+        {
+          kind: "fs.write.done",
+          class: "reversible",
+          action: { type: "builtin", ref: "fs.remove" },
+          idempotency: "natural",
+        },
+      ],
+    },
+    compat: { keelContract: "^1.0" },
+    governance: {
+      tools: [
+        {
+          name: "write_file",
+          guard: { cap: "fs.write", from: "path", prefix: "fs:" },
+          effects: [{ kind: "fs.write.done", targetFields: ["path"] }],
+        },
+      ],
+    },
+  });
+}
+
 /** 内存后端：真实 Cell 进程体 + 装载门；`release(i)` 才开闸（不开 = 永远不应答）。 */
 class GatedProvider implements IsolationProvider {
   readonly handles: (CellHandle | null)[] = [];
   readonly procs: Proc[] = [];
   readonly entries: string[] = [];
+  readonly boots: Record<string, unknown>[] = [];
 
   spawn(spec: SpawnSpec): CellProcess {
     const hostToCell = new PassThrough();
     const cellToHost = new PassThrough();
     const boot = JSON.parse(spec.bootstrap) as { toolCallTimeoutMs: number };
+    this.boots.push(boot);
     const handle = startCell({
       input: hostToCell,
       output: cellToHost,
@@ -189,6 +220,26 @@ describe("wireCell：起舱 → 绑通道 → 建分区 → 探就绪", () => {
     provider.release(1);
     await b;
     expect(provider.entries).toEqual(["/default/main.js", "/adapter/dist/cell-entry.js"]);
+  });
+
+  it("治理计划随 bootstrap 送达；无声明时载荷形状不变（ADR-0015）", async () => {
+    const plain = wireCell(params());
+    provider.release(0);
+    await plain;
+    expect(provider.boots[0]).not.toHaveProperty("governance");
+
+    const governed = wireCell(params({ manifest: governedManifest() }));
+    provider.release(1);
+    await governed;
+    expect(provider.boots[1].governance).toEqual({
+      version: 1,
+      tools: {
+        write_file: {
+          guard: { cap: "fs.write", from: "path", prefix: "fs:" },
+          effects: [{ kind: "fs.write.done", targetFields: ["path"] }],
+        },
+      },
+    });
   });
 
   it("门未开（插件没装载完）→ 明确失败，且这个舱被收掉：不静默等下去", async () => {

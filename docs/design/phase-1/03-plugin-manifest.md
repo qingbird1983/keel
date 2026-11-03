@@ -39,17 +39,19 @@ DSH 症状 V5（热插拔依赖全局注册表突变）的根源：插件进入�
 
 ## 4. Manifest 结构总览
 
-| 节              | 必填             | 内容                                                                                                                    | 约束来源                |               |                  |
-| --------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------- | ------------- | ---------------- |
-| `kind`          | ✅               | `capability`                                                                                                            | `policy`                | `observation` | 条件分支（§5.6） |
-| `meta`          | ✅               | name / version（semver 精确）/ title / description                                                                      | Schema                  |               |                  |
-| `permissions`   | ✅               | 能力词表项 + allow 限定符                                                                                               | C-D1；词表见 §5.2       |               |                  |
-| `resources`     | ✅               | toolCallTimeoutMs（capability 必填）/ memoryMbSoft / maxToolCallsPerRound；**policy/observation 必须为空对象** **`{}`** | C-D3                    |               |                  |
-| `compensation`  | ✅               | templates\[]（kind → class/action/idempotency/probe）                                                                   | C-M1；语义对齐状态机 §9 |               |                  |
-| `compat`        | ✅               | keelContract 版本范围                                                                                                   | C-D2                    |               |                  |
-| `migration`     | 可选             | from 范围 + steps\[]（有状态插件升级迁移）                                                                              | C-D2；执行者见 §5.5     |               |                  |
-| `hooks`         | policy 必填      | 契约 §4.8 四 hook 的非空子集                                                                                            | 契约白名单              |               |                  |
-| `subscriptions` | observation 必填 | 只读事件订阅模式列表                                                                                                    | 契约 §3.3               |               |                  |
+| 节              | 必填               | 内容                                                                                                                    | 约束来源                |               |                  |
+| --------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------- | ----------------------- | ------------- | ---------------- |
+| `kind`          | ✅                 | `capability`                                                                                                            | `policy`                | `observation` | 条件分支（§5.6） |
+| `meta`          | ✅                 | name / version（semver 精确）/ title / description                                                                      | Schema                  |               |                  |
+| `permissions`   | ✅                 | 能力词表项 + allow 限定符                                                                                               | C-D1；词表见 §5.2       |               |                  |
+| `resources`     | ✅                 | toolCallTimeoutMs（capability 必填）/ memoryMbSoft / maxToolCallsPerRound；**policy/observation 必须为空对象** **`{}`** | C-D3                    |               |                  |
+| `compensation`  | ✅                 | templates\[]（kind → class/action/idempotency/probe）                                                                   | C-M1；语义对齐状态机 §9 |               |                  |
+| `compat`        | ✅                 | keelContract 版本范围                                                                                                   | C-D2                    |               |                  |
+| `migration`     | 可选               | from 范围 + steps\[]（有状态插件升级迁移）                                                                              | C-D2；执行者见 §5.5     |               |                  |
+| `hooks`         | policy 必填        | 契约 §4.8 四 hook 的非空子集                                                                                            | 契约白名单              |               |                  |
+| `subscriptions` | observation 必填   | 只读事件订阅模式列表                                                                                                    | 契约 §3.3               |               |                  |
+| `governance`    | 可选（capability） | tools\[]（工具 → guard / effects 切面绑定）；2026-11-03 追加                                                            | ADR-0015；§5.7          |               |                  |
+| `trust`         | 可选（capability） | `{rawIo?: boolean}`——manifest 申请、宿主授予；默认拒绝；2026-11-03 追加（R5）                                           | ADR-0019；§5.8          |               |                  |
 
 ## 5. 各节详解
 
@@ -96,6 +98,8 @@ allow 的必填性由装配器语义校验执行，Schema 层不强制——这�
 
 - 实现注记（2026-11-02 切片④）：`action.type:"plugin"` 的 `ref` 对应插件模块导出面 `export const compensations: Record<actionRef, handler>`——宿主补偿执行器经**一次性新补偿 Cell 进程**分发 `compensation.exec{actionRef, effectId, targetSummary, paramsDigest, phase:"undo"|"probe"}`（ADR-0005「新 Cell」路径，不依赖故障 Cell 存活）；未知 actionRef 拒绝。`record-only` 无需进程通道，执行器直闭（COMPENSATION\_EXECUTED{recordOnly} + 告警缝）。
 
+- 2026-11-03 修订（[ADR-0016](../../adr/ADR-0016-builtin-compensation-registry.md)）：`record-only` 模板可省略 `action` / `idempotency`（装配器归一为 `builtin/record-only` + `natural`）；其余分级仍必填（Schema `if/then`）。`action.type:"builtin"` 由**宿主内建注册表**执行（首版闭集 `fs.remove`），不 spawn 补偿 Cell；`EFFECT_DECLARED.compensation.actionType` 标注 `plugin` / `builtin`（旧账本缺失按 `plugin` 读）。
+
 ### 5.5 compat + migration（C-D2）
 
 - `compat.keelContract`：semver 范围（如 `^1.0`），必须包含当前 Core 契约版本，否则拒绝装配——宿主升级与插件兼容显式协商，不靠漂移。
@@ -115,6 +119,24 @@ allow 的必填性由装配器语义校验执行，Schema 层不强制——这�
 - policy：`hooks` 必填非空（白名单子集）；`permissions` 必须为空数组（策略插件只插话，不持能力）；`compensation.templates` 必须为空数组、禁 `migration`（策略插件不产副作用、无状态可迁移——2026-11-02 切片③收口 N1/N4）；
 
 - observation：`subscriptions` 必填非空；`permissions` 必须为空数组（只读，契约 §3.3）；禁 `migration`（同上）。
+- capability 的 `governance` 可选；policy / observation 出现 `governance` 即拒（`maxProperties: 0`）。
+- capability 的 `trust` 可选；policy / observation 出现 `trust` 即拒（`maxProperties: 0`）。
+
+### 5.7 governance（2026-11-03 追加，ADR-0015）
+
+- 仅 capability；`tools[]` 每项 = `name`（工具名）+ 可选 `guard` + 可选 `effects[]`，至少一项非空。
+- `guard = {cap: "fs.read"|"fs.write", from: "<params 顶层字段>", prefix?: string}`；`cap` 必须已在 `permissions` 声明且 `allow` 非空。守卫调用既有 `auth.check(cap, prefix + params[from])`，规则来源仍是 `manifestAuthRules`。
+- `effects[] = {kind, targetFields[], digestFields?}`；`kind` 必须命中 `compensation.templates[].kind`；字段只支持顶层字段名，不支持表达式/嵌套路径；数组内不得重复。
+- 宿主把本节编译为 `CellGovernancePlan`，经 `spawnCell` 的 `bootstrapExtra.governance` 随舱下发；**不进 `ASSEMBLY_RECORDED`**（同版本 manifest 可纯复算）。Cell 在 handler 前执行 `guard → effect.declare`，失败即 handler 不执行。
+- 运行时字段缺失/类型不符 → `TRANSPORT/BADFRAME`；计划点名的工具未登记 → `markReady` 抛错（装载可见失败）。
+- 2026-11-03 R3 注记（[ADR-0018](../../adr/ADR-0018-effect-receipts-and-workspace.md)）：`effects[].targetFields` 至少应包含 `path`（或工具实际写入的字段），handler 必须经 `ctx.workspace.create/overwrite` 写入；宿主按声明目标与实际目标的归一值比对，不一致 → `WORKSPACE/PATH`。直接 `fs.writeFile` 的 raw 写不会产生收据，`fs.remove` 不会删除它。
+
+### 5.8 trust（2026-11-03 追加，ADR-0019）
+
+- 仅 capability；形状 `{rawIo?: boolean}`。这是**申请**，不是授权。
+- 宿主 `AssemblerOptions.allowRawIo` 默认 `false`：申请了 rawIo 但未授予 → 装配拒绝（`SCHED/MANIFEST-INVALID`），不把申请当授予。
+- 授予后 `LoadedManifest.trust = "raw"`，并写入 `ASSEMBLY_RECORDED.trust`（缺省 = mediated，旧账本按 mediated 读）。
+- raw IO 在当前进程后端**不被系统调用拦截**；它只是“显式受信 + 审计 + 不享受内置补偿”的标记。真正的隔离靠 Cell 进程 + 后续容器后端；Node 权限模型只作可选纵深防御。
 
 ## 6. 装配与校验流程（fail-closed，C-M3）
 

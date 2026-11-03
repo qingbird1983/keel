@@ -100,14 +100,7 @@ describe("permission-rules：封闭词表接进运行期裁决", () => {
         capability({
           permissions: [{ cap: "memory.backend", allow: ["mem:user-1"] }],
           compensation: {
-            templates: [
-              {
-                kind: "memory.write",
-                class: "record-only",
-                action: { type: "builtin", ref: "noop" },
-                idempotency: "natural",
-              },
-            ],
+            templates: [{ kind: "memory.write", class: "record-only" }],
           },
         }),
       ),

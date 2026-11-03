@@ -1,6 +1,6 @@
 # Keel Core API 契约
 
-- 状态：定稿（2026-11-02 所有者确认；同日修订三处：① ADR-0005 定稿，回填 §7 隔离敏感超时；② 任务 D 成稿，§5 补充三类补偿事件；③ 所有者评审勘误与澄清——§4.3 configure 边界、§4.5 恢复补偿作用域、§6 错误码拆分；切片③实现期注记两处：§4.1 ④⑤、§5 ASSEMBLY_RECORDED；**2026-11-03 Phase 2 切片①追加：§3.3 与 §4.6 增 `tool.register`/`tool.remove` 两个 Cell→Core op，依据 [ADR-0010](../../adr/ADR-0010-runtime-tool-registration-channel.md)**；**2026-11-03 Phase 2 切片②追加：§3.1 增 Cell 装载门、§7 增就绪探测口径，依据 [ADR-0011](../../adr/ADR-0011-cell-load-gate.md)**；**2026-11-03 Phase 2 切片⑤追加与修订：§3.3+§4.7 流式三 op 与断流口径（依据 [ADR-0013](../../adr/ADR-0013-model-stream-pull-chunking.md)）、§4.1 注记⑧⑨⑩（throughSeq 盖章点 / 类型级 schemaVersion / drain 次序）、§4.5 快照落盘（替换那句"内存持有 + backlog"）、§5 三个追加字段、§6 两处口径、§12 关闭"背压与断流"一条**）
+- 状态：定稿（2026-11-02 所有者确认；同日修订三处：① ADR-0005 定稿，回填 §7 隔离敏感超时；② 任务 D 成稿，§5 补充三类补偿事件；③ 所有者评审勘误与澄清——§4.3 configure 边界、§4.5 恢复补偿作用域、§6 错误码拆分；切片③实现期注记两处：§4.1 ④⑤、§5 ASSEMBLY_RECORDED；**2026-11-03 Phase 2 切片①追加：§3.3 与 §4.6 增 `tool.register`/`tool.remove` 两个 Cell→Core op，依据 [ADR-0010](../../adr/ADR-0010-runtime-tool-registration-channel.md)**；**2026-11-03 Phase 2 切片②追加：§3.1 增 Cell 装载门、§7 增就绪探测口径，依据 [ADR-0011](../../adr/ADR-0011-cell-load-gate.md)**；**2026-11-03 Phase 2 切片⑤追加与修订：§3.3+§4.7 流式三 op 与断流口径（依据 [ADR-0013](../../adr/ADR-0013-model-stream-pull-chunking.md)）、§4.1 注记⑧⑨⑩（throughSeq 盖章点 / 类型级 schemaVersion / drain 次序）、§4.5 快照落盘（替换那句"内存持有 + backlog"）、§5 三个追加字段、§6 两处口径、§12 关闭"背压与断流"一条**；**2026-11-03 R3/R5 追加：§4.6 增 `workspace.write`、§5 三个可选字段（`toolCallId` / `receipt` / `trust`）、§6 增 `WORKSPACE/*` 三码、§7 写明其时限取本次 toolCallTimeoutMs，依据 [ADR-0018](../../adr/ADR-0018-effect-receipts-and-workspace.md) / [ADR-0019](../../adr/ADR-0019-trust-tiers-and-cell-isolation.md) / [ADR-0020](../../adr/ADR-0020-workspace-error-codes.md)**）
 - 日期：2026-11-02
 - 关联：[architecture/01](../../architecture/01-keel-overview.md)；[ADR-0001](../../adr/ADR-0001-implementation-stack.md) ~ [ADR-0005](../../adr/ADR-0005-cell-isolation.md)；[phase-0](../../roadmap/phase-0-design-baseline.md)（验收 A2/A3）
 
@@ -120,17 +120,20 @@ DSH 三类症状直接源于控制面缺少硬契约：**V6** Agent Loop 被插�
 
 ### 4.6 上下文管理器
 
-| op                    | 方向                     | 语义                                                                                             | 默认超时 | 幂等性                           | 主要错误                           |
-| --------------------- | ------------------------ | ------------------------------------------------------------------------------------------------ | -------- | -------------------------------- | ---------------------------------- |
-| `context.alloc`       | Host→Core（Cell 建立时） | 创建 scope 私有分区（工具表视图、上下文页、记忆命名空间），返回分区句柄                          | 200ms    | 是（同 scope 幂等）              | `CTX/SCOPE-EXISTS`                 |
-| `tool.discover`       | Cell→Core                | 返回**本 scope** 可见工具表（含 schema 版本）；无全局模式                                        | 100ms    | 是                               | `CTX/SCOPE-UNKNOWN`                |
-| `tool.register`       | Cell→Core                | 本 scope 注册/更新工具（`{name, schema}`，**不含 handler**）；版本由内核按现有条目 +1 指派并返回 | 200ms    | 否（重复调用 = 覆盖且版本再 +1） | `AUTH/DENIED`、`CTX/SCOPE-UNKNOWN` |
-| `tool.remove`         | Cell→Core                | 本 scope 撤名（`newSchemaVersion=0` 传播）；返回是否真的存在过                                   | 200ms    | 是（第二次返回 false）           | `AUTH/DENIED`、`CTX/SCOPE-UNKNOWN` |
-| `context.page.out/in` | Core 内部                | 换页原语：旧页移出/按需移回，页版本入账本                                                        | —        | —                                | `CTX/PAGE-MISSING`                 |
+| op                    | 方向                     | 语义                                                                                                                             | 默认超时                                   | 幂等性                                              | 主要错误                                                                               |
+| --------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | --------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `context.alloc`       | Host→Core（Cell 建立时） | 创建 scope 私有分区（工具表视图、上下文页、记忆命名空间），返回分区句柄                                                          | 200ms                                      | 是（同 scope 幂等）                                 | `CTX/SCOPE-EXISTS`                                                                     |
+| `tool.discover`       | Cell→Core                | 返回**本 scope** 可见工具表（含 schema 版本）；无全局模式                                                                        | 100ms                                      | 是                                                  | `CTX/SCOPE-UNKNOWN`                                                                    |
+| `tool.register`       | Cell→Core                | 本 scope 注册/更新工具（`{name, schema}`，**不含 handler**）；版本由内核按现有条目 +1 指派并返回                                 | 200ms                                      | 否（重复调用 = 覆盖且版本再 +1）                    | `AUTH/DENIED`、`CTX/SCOPE-UNKNOWN`                                                     |
+| `tool.remove`         | Cell→Core                | 本 scope 撤名（`newSchemaVersion=0` 传播）；返回是否真的存在过                                                                   | 200ms                                      | 是（第二次返回 false）                              | `AUTH/DENIED`、`CTX/SCOPE-UNKNOWN`                                                     |
+| `workspace.write`     | Cell→Core                | 受治理写入：`fs.write` 授权 → 认领已声明 effect → Host 执行 `create`(`wx`)/`overwrite` → 写 `EFFECT_SETTLED.receipt`（ADR-0018） | 本次 `toolCallTimeoutMs`（不新增独立时限） | create 目标已存在 = 否；同 effect 已结算 = 幂等重放 | `AUTH/DENIED`、`WORKSPACE/EXISTS`、`WORKSPACE/PATH`、`WORKSPACE/IO`、`SCHED/NOT-FOUND` |
+| `context.page.out/in` | Core 内部                | 换页原语：旧页移出/按需移回，页版本入账本                                                                                        | —                                          | —                                                   | `CTX/PAGE-MISSING`                                                                     |
 
 工具 schema 变更 = 显式事件 `TOOL_SCHEMA_CHANGED`，**仅传播到受影响 scope**（V1：动态增删工具不触碰其他会话缓存）。
 
 > 实现期细化（2026-11-03 Phase 2 切片①，[ADR-0010](../../adr/ADR-0010-runtime-tool-registration-channel.md)）：`tool.register` / `tool.remove` 的落地口径——① **门禁在前**：handler 内先 `auth.check(ref, subject, "tool.register"|"tool.remove", name)`，拒绝即 `AUTH_DENIED` 落账且两半状态都不写；授权规则由 manifest 声明编译（`tool.provide` → 两个 action；`allow` 给了就逐条收窄）。② **两半提交**：Cell 先写私有执行表、跨通道成功后才算完成；通道失败则回滚执行表并把内核错误码原样抛给插件（不留"可见而不可执行"的空壳）。③ **版本单一事实源**：Cell 不自算版本，内核按本 scope 现有条目 +1 后返回真实值。④ **生效时刻 = 下一轮**：写 scope 挂起变更日志，由调度器在轮边界取走并写 `TOOL_SCHEMA_CHANGED`；末轮之后的注册不入账（run 已结束）。⑤ 承接层不做通道级重试（重复调用就是旧框架的覆盖语义）。
+>
+> 实现期细化（2026-11-03 R3，[ADR-0018](../../adr/ADR-0018-effect-receipts-and-workspace.md)）：`workspace.write` 是受治理写文件的唯一黄路径——授权先于认领，路径 `path.resolve` 后必须命中本 run `fs.write.allow`，父目录 `realpath` 再核一次；`create` 用 `open(path,"wx")` 独占，`overwrite` 显式且不享受内建删除；写入成功后由宿主追加 `EFFECT_SETTLED.receipt`，内置 `fs.remove` 只认 `created:true` 且 identity 相符的收据。重试（同 `toolCallId`）复用 effectId 与既有收据，不重复写。
 
 > 实现注记（2026-11-02 切片②）：MVP 落地 scope 分区 + `tool.discover` + schema 变更按 scope 传播（scope 级挂起变更日志，各 run 按游标消费后写入本 run 账本，同 scope 多 run 不丢事件）；`context.page.out/in` 换页原语随上下文页存储后端在 Phase 1 后续切片落地。
 >
@@ -183,27 +186,32 @@ Cell 侧适配器无凭证、无直连网络能力；网关故障 = 发起 Cell 
 
 > 实现期细化（2026-11-03 Phase 2 切片④，[ADR-0012](../../adr/ADR-0012-policy-plugin-process-and-hook-op.md)）：`ASSEMBLY_RECORDED` 载荷**追加** `policies: [{name, version, hooks[]}]`——记录这个 run 绑定了哪些策略插件及各自申领的插话点。动机是 V6 归因的可回答性：策略不插话时账本对它零记录，"绑了但没说话"与"根本没绑"否则不可分辨。追加字段，旧账本样例仍可读（切片⑤ `throughSeq` 的兼容性口径不变）。
 >
+> 实现期细化（2026-11-03 R3/R5，[ADR-0018](../../adr/ADR-0018-effect-receipts-and-workspace.md) / [ADR-0019](../../adr/ADR-0019-trust-tiers-and-cell-isolation.md)）：三个**可选**载荷字段——`EFFECT_DECLARED.toolCallId`（重试去重键，旧账本缺省）、`EFFECT_SETTLED.receipt`（受治理写入的收据，旧账本缺省；内置 `fs.remove` 只认它）、`ASSEMBLY_RECORDED.trust`（只在宿主授予 raw IO 时写 `"raw"`；缺省 = mediated）。不新增事件类型。
+>
 > 实现期细化（2026-11-03 Phase 2 切片⑤）：三个载荷追加字段——`DECISION.throughSeq`（§4.1 注记⑧）、`MODEL_INVOKED.streamId`、`MODEL_USAGE.truncated`（只在截断时写，正常结束不写 = 与非流式时代的形状逐字节一致）。**事件类型一律不新增**：本片的四项回填（throughSeq / 快照落盘 / drain / 流式）合计新增 0 个事件类型、0 个写入者，ADR-0008 决策 3 反对的"每片一条事件"正是被这条纪律挡住的形状。信封 `schemaVersion` 按类型取值（§4.1 注记⑨），本表每一行的"谁写"没变。
 
 ## 6. 错误码
 
 分域字符串 `DOMAIN/KIND`。完整表：
 
-| 码                                                                                                       | 语义               | 可重试                                          |
-| -------------------------------------------------------------------------------------------------------- | ------------------ | ----------------------------------------------- |
-| `AUTH/DENIED`                                                                                            | 授权拒绝（必留痕） | 否（改请求或改策略）                            |
-| `AUTH/SCOPE-UNKNOWN`、`CTX/SCOPE-UNKNOWN`、`CTX/SCOPE-EXISTS`、`SCHED/NOT-FOUND`                         | 寻址类             | 否                                              |
-| `BUDGET/EXHAUSTED`                                                                                       | 作用域链额度耗尽   | 否——触发 §4.3 耗尽语义                          |
-| `BUDGET/RESERVATION-UNKNOWN`、`LEDGER/CURSOR-INVALID`、`RECOVER/RUN-UNKNOWN`、`RECOVER/SNAPSHOT-MISSING` | 状态类             | 否                                              |
-| `SCHED/BACKPRESSURE`、`SCHED/MANIFEST-INVALID`                                                           | 准入类             | 退避后是 / 否（修 manifest）                    |
-| `GATEWAY/UPSTREAM-ERROR`                                                                                 | 模型上游失败       | 按 hook③ 策略                                   |
-| `LEDGER/WRITE-FAILED`                                                                                    | 账本写失败         | 否——fail-stop，走恢复                           |
-| `RECOVER/COMPENSATION-FAILED`                                                                            | 补偿失败           | 否——升级阻断（补偿状态机 §8），豁免或修复后可续 |
-| `TRANSPORT/TIMEOUT`、`TRANSPORT/BADFRAME`                                                                | 通道类             | 幂等请求是                                      |
+| 码                                                                                                       | 语义                | 可重试                                          |
+| -------------------------------------------------------------------------------------------------------- | ------------------- | ----------------------------------------------- |
+| `AUTH/DENIED`                                                                                            | 授权拒绝（必留痕）  | 否（改请求或改策略）                            |
+| `AUTH/SCOPE-UNKNOWN`、`CTX/SCOPE-UNKNOWN`、`CTX/SCOPE-EXISTS`、`SCHED/NOT-FOUND`                         | 寻址类              | 否                                              |
+| `BUDGET/EXHAUSTED`                                                                                       | 作用域链额度耗尽    | 否——触发 §4.3 耗尽语义                          |
+| `BUDGET/RESERVATION-UNKNOWN`、`LEDGER/CURSOR-INVALID`、`RECOVER/RUN-UNKNOWN`、`RECOVER/SNAPSHOT-MISSING` | 状态类              | 否                                              |
+| `SCHED/BACKPRESSURE`、`SCHED/MANIFEST-INVALID`                                                           | 准入类              | 退避后是 / 否（修 manifest）                    |
+| `GATEWAY/UPSTREAM-ERROR`                                                                                 | 模型上游失败        | 按 hook③ 策略                                   |
+| `LEDGER/WRITE-FAILED`                                                                                    | 账本写失败          | 否——fail-stop，走恢复                           |
+| `RECOVER/COMPENSATION-FAILED`                                                                            | 补偿失败            | 否——升级阻断（补偿状态机 §8），豁免或修复后可续 |
+| `TRANSPORT/TIMEOUT`、`TRANSPORT/BADFRAME`                                                                | 通道类              | 幂等请求是                                      |
+| `WORKSPACE/EXISTS`、`WORKSPACE/PATH`、`WORKSPACE/IO`                                                     | 受治理 Workspace 类 | 否（改路径/模式）/ 视底层 IO 错误               |
 
 约定：错误必须带 `code`；`TRANSPORT/TIMEOUT` 时**执行结果未知**——调用方不得假设未发生，必须经补偿核对路径确认（衔接任务 D）。
 
 > 实现期细化（2026-11-03 Phase 2 切片⑤）：① `SCHED/BACKPRESSURE` 有两处准入拒绝——调度器侧与**收尾中的 Cell 拒绝新调用**（§4.1 注记⑩），同一条"退避后是"的语义，不新开 `CELL/DRAINING`（本表是封闭集合，加码要走 ADR）。② 错误跨通道回传时 `detail` 与 `code` 同帧过去：Core 侧的 `KeelError` 不是 cell-runtime 的 `ChannelError`，序列化层曾按类型分支只保 `ChannelError` 的 detail，于是舱内只剩一个光码（断流"给了第几片、结了多少钱"全丢）——真进程流式测试踩到后修在 `toFrameError`，形状仍是 `{code, message, detail?}`。
+>
+> 实现期细化（2026-11-03 R3，[ADR-0020](../../adr/ADR-0020-workspace-error-codes.md)）：新增 `WORKSPACE` 域三码——`WORKSPACE/EXISTS`（create 目标已存在）、`WORKSPACE/PATH`（相对路径/逃逸/非常规文件/与声明目标不一致）、`WORKSPACE/IO`（父目录缺失、权限、写盘失败）。不在 allow 内的路径仍先报 `AUTH/DENIED`（授权先于路径检查）。
 
 ## 7. 超时与重试基线
 
@@ -211,6 +219,7 @@ Cell 侧适配器无凭证、无直连网络能力；网关故障 = 发起 Cell 
 | --------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------- |
 | `auth.check` / `budget.*`                     | 50ms                                                             | 幂等重试 ≤2 次，退避 20ms 起                            |
 | `tool.discover` / `context.*` / `run.status`  | 100~200ms                                                        | 同上                                                    |
+| `workspace.write`                             | 本次 `toolCallTimeoutMs`（与工具调用同预算，不新增时限数）       | 幂等（同 effect 已结算 = 返回既有收据）                 |
 | hook 四件套                                   | 200ms                                                            | 不重试（fallback=默认策略）                             |
 | `run.start`                                   | 5s（含 Cell 进程冷启动，ADR-0005）                               | 幂等重试安全；容器后端启用时重估并修订本表              |
 | Cell 就绪探测 `cell.snapshot`（切片②追加）    | 5s（与 `run.start` 同口径：含进程起飞 + 插件装载，门未开则排队） | **不重试**——超时/通道断即拒绝装配并 dispose（ADR-0011） |

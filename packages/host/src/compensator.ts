@@ -16,7 +16,8 @@
  *   告警缝，闭环以审计持久为准。
  * - 升级出路（§8）：waive（T13 豁免）/ repair（T14 修复后重补偿，attempts 归零，内存
  *   管理通道——跨进程恢复场景登记 backlog）；禁止静默放弃。
- * - 动作通道：一次性新补偿 Cell（ADR-0005「新 Cell」路径），经 factory 注入。
+ * - 动作通道：plugin 动作走一次性新补偿 Cell（ADR-0005「新 Cell」路径），经 factory 注入；
+ *   builtin 动作在宿主执行（ADR-0016，首版 fs.remove），不 spawn 补偿 Cell。
  */
 
 import {
@@ -30,6 +31,8 @@ import {
   type RunRef,
 } from "@keel/core";
 import type { CompensationExecInput } from "@keel/cell-runtime";
+import type { EffectReceipt } from "@keel/runtime-context";
+import { DEFAULT_BUILTINS, type BuiltinAction, type RunPermissionView } from "./builtins.js";
 
 /** 补偿动作 Cell 最小面（生产 = 一次性新 Cell 进程连接；测试注入内存替身）。 */
 export interface CompensationActionCell {
@@ -58,7 +61,17 @@ export interface CompensationExecutorOptions {
   /** 退避上限（默认 30_000，补偿稿 §6）。 */
   backoffCeilingMs?: number;
   /** record-only / 升级告警缝（观测插件接线位；失败吞错不阻断闭环）。 */
-  onAlert?: (info: { ref: RunRef; effectId: string; escalated: boolean }) => Promise<void>;
+  onAlert?: (info: {
+    ref: RunRef;
+    effectId: string;
+    escalated: boolean;
+    reason?: string;
+  }) => Promise<void>;
+  /**
+   * 内置补偿注册表（切片③，ADR-0016）；缺省 = fs.remove。
+   * builtin 动作在宿主执行，不 spawn 补偿 Cell；测试可注入同形替身。
+   */
+  builtins?: ReadonlyMap<string, BuiltinAction>;
 }
 
 /** 投影态（补偿稿 §4.1；投影态 compensable/compensating 不立事件，重放可推导）。 */
@@ -77,9 +90,13 @@ export interface EffectProjectionEntry {
   kind: string;
   compensationClass: CompensationClass;
   actionRef: string;
+  /** plugin = 插件补偿 Cell；builtin = 宿主内建（旧账本缺失按 plugin 读）。 */
+  actionType: "plugin" | "builtin";
   idempotency: IdempotencyStrategy;
   targetSummary: unknown;
   paramsDigest: unknown;
+  /** 受治理写入的收据（ADR-0018；旧账本缺省）。 */
+  receipt?: EffectReceipt;
   probeRef: string | null;
   dependsOn: string[];
   state: EffectState;
@@ -111,6 +128,7 @@ export class CompensationExecutor {
   private readonly maxAttempts: number;
   private readonly backoffCeilingMs: number;
   private readonly onAlert?: CompensationExecutorOptions["onAlert"];
+  private readonly builtins: ReadonlyMap<string, BuiltinAction>;
   /** T14 修复通道（内存管理态）：repair 后 escalated 效果在下次 sweep 重获全新尝试预算。 */
   private readonly repaired = new Set<string>();
 
@@ -126,6 +144,7 @@ export class CompensationExecutor {
     this.maxAttempts = opts.maxAttempts ?? 3;
     this.backoffCeilingMs = opts.backoffCeilingMs ?? 30_000;
     this.onAlert = opts.onAlert;
+    this.builtins = opts.builtins ?? DEFAULT_BUILTINS;
   }
 
   /** 账本重放 → 投影（唯一事实源；恢复/重入一律先重放）。 */
@@ -142,9 +161,11 @@ export class CompensationExecutor {
             kind: p.kind as string,
             compensationClass: p.compensationClass as CompensationClass,
             actionRef: comp.actionRef as string,
+            actionType: comp.actionType === "builtin" ? "builtin" : "plugin",
             idempotency: comp.idempotency as IdempotencyStrategy,
             targetSummary: p.targetSummary ?? null,
             paramsDigest: comp.paramsDigest ?? null,
+            ...(isReceipt(p.receipt) ? { receipt: p.receipt } : {}),
             probeRef: (p.probeRef as string | null) ?? null,
             dependsOn: Array.isArray(p.dependsOn) ? (p.dependsOn as string[]) : [],
             state: "declared",
@@ -161,6 +182,7 @@ export class CompensationExecutor {
               : p.outcome === "unknown"
                 ? "verify-pending"
                 : "settled-failed";
+          if (isReceipt(p.receipt)) e.receipt = p.receipt;
           break;
         }
         case "COMPENSATION_EXECUTED": {
@@ -200,11 +222,22 @@ export class CompensationExecutor {
   ): Promise<boolean> {
     if (opts.mode === "verify") return true; // T4：只核验不回滚；未决留投影由恢复核对
     const projection = await this.project(ref);
-    const candidates = [...projection.values()].filter(
+    const inWindow = [...projection.values()].filter(
+      (e) => opts.mode === "run" || e.seq > (opts.fromSeq ?? 0),
+    );
+    // ADR-0018：fs.remove 只作用于“确实创建”的效果；无收据 = 视为未发生，不进入补偿，
+    // 也不升级阻断（否则“业务校验失败、根本没写”会制造噪声）。跳过要留告警缝，不静默。
+    const skipped = inWindow.filter(
       (e) =>
+        e.compensationClass !== "record-only" && receiptRequired(e) && e.receipt?.created !== true,
+    );
+    for (const e of skipped)
+      await this.alert(ref, e.effectId, false, e.receipt ? "not-created" : "no-receipt");
+    const candidates = inWindow.filter(
+      (e) =>
+        !skipped.includes(e) &&
         (COMPENSABLE.has(e.state) ||
-          (e.state === "escalated" && this.repaired.has(key(ref, e.effectId)))) &&
-        (opts.mode === "run" || e.seq > (opts.fromSeq ?? 0)),
+          (e.state === "escalated" && this.repaired.has(key(ref, e.effectId)))),
     );
     // T14 修复后重获预算
     for (const e of candidates) if (e.state === "escalated") e.attempts = 0;
@@ -214,7 +247,14 @@ export class CompensationExecutor {
     );
     if (candidates.length === 0) return !blocked;
 
-    const needCell = candidates.some((e) => e.compensationClass !== "record-only");
+    const needsBuiltin = candidates.some(
+      (e) => e.compensationClass !== "record-only" && e.actionType === "builtin",
+    );
+    const permissions = needsBuiltin ? await this.readPermissions(ref) : [];
+    // builtin 在宿主执行，只有 plugin 动作才需要一次性补偿 Cell
+    const needCell = candidates.some(
+      (e) => e.compensationClass !== "record-only" && e.actionType !== "builtin",
+    );
     const cell = needCell ? await this.requireFactory() : null;
     try {
       // 波 = 依赖全部落在更早波次的候选（静态分层，依赖只指后）；逐波串行保逆拓扑序，
@@ -222,7 +262,9 @@ export class CompensationExecutor {
       for (const wave of this.waves(candidates)) {
         for (let i = 0; i < wave.length; i += this.parallel) {
           const results = await Promise.all(
-            wave.slice(i, i + this.parallel).map((e) => this.compensateOne(ref, cell, e)),
+            wave
+              .slice(i, i + this.parallel)
+              .map((e) => this.compensateOne(ref, cell, e, permissions)),
           );
           if (results.includes("escalated")) blocked = true;
         }
@@ -278,6 +320,7 @@ export class CompensationExecutor {
     ref: RunRef,
     cell: CompensationActionCell | null,
     e: EffectProjectionEntry,
+    permissions: RunPermissionView[],
   ): Promise<"compensated" | "escalated"> {
     if (e.compensationClass === "record-only") {
       // §7：动作即「强制留痕 + 告警」，闭环以审计持久为准
@@ -290,22 +333,10 @@ export class CompensationExecutor {
       await this.alert(ref, e.effectId, false); // 告警缝内部吞错；await 保证回调先于 sweep 返回
       return "compensated";
     }
-    if (!cell) {
-      // 候选过滤已保证：非 record-only 必有动作 Cell（needCell → factory）
-      throw new KeelError("RECOVER/COMPENSATION-FAILED", "action cell missing", {
-        effectId: e.effectId,
-      });
-    }
     let lastError: unknown = null;
     for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
       const t0 = this.now();
-      const r = await cell.exec({
-        actionRef: e.actionRef,
-        effectId: e.effectId,
-        targetSummary: e.targetSummary ?? undefined,
-        paramsDigest: e.paramsDigest ?? undefined,
-        phase: "undo",
-      });
+      const r = await this.runAction(ref, cell, e, permissions);
       if (r.status === "ok") {
         await this.ledger.append(ref, "COMPENSATION_EXECUTED", {
           effectId: e.effectId,
@@ -330,10 +361,81 @@ export class CompensationExecutor {
     return "escalated";
   }
 
-  private async alert(ref: RunRef, effectId: string, escalated: boolean): Promise<void> {
+  /** 单次补偿动作：builtin 在宿主执行；plugin 走一次性补偿 Cell（ADR-0016）。 */
+  private async runAction(
+    ref: RunRef,
+    cell: CompensationActionCell | null,
+    e: EffectProjectionEntry,
+    permissions: RunPermissionView[],
+  ): Promise<ToolResultLike> {
+    if (e.actionType === "builtin") {
+      const builtin = this.builtins.get(e.actionRef);
+      if (!builtin) {
+        return {
+          status: "error",
+          error: {
+            code: "SCHED/MANIFEST-INVALID",
+            message: `unknown builtin compensation: ${e.actionRef}`,
+          },
+        };
+      }
+      try {
+        return await builtin.exec({ ref, effect: e, permissions });
+      } catch (err) {
+        return {
+          status: "error",
+          error: {
+            code: "COMPENSATION/UNKNOWN",
+            message: err instanceof Error ? err.message : String(err),
+          },
+        };
+      }
+    }
+    if (!cell) {
+      // 候选过滤已保证：plugin 动作必有动作 Cell（needCell → factory）
+      throw new KeelError("RECOVER/COMPENSATION-FAILED", "action cell missing", {
+        effectId: e.effectId,
+      });
+    }
+    return cell.exec({
+      actionRef: e.actionRef,
+      effectId: e.effectId,
+      targetSummary: e.targetSummary ?? undefined,
+      paramsDigest: e.paramsDigest ?? undefined,
+      phase: "undo",
+    });
+  }
+
+  /** 本 run 的装配权限基线（内建 fs.remove 的路径复核依据；缺失 = 无允许路径）。 */
+  private async readPermissions(ref: RunRef): Promise<RunPermissionView[]> {
+    const page = await this.ledger.read({ runId: ref.runId, types: ["ASSEMBLY_RECORDED"] });
+    const payload = page.events[0]?.payload as { permissions?: unknown } | undefined;
+    if (!Array.isArray(payload?.permissions)) return [];
+    const out: RunPermissionView[] = [];
+    for (const item of payload.permissions) {
+      if (typeof item !== "object" || item === null) continue;
+      const cap = (item as { cap?: unknown }).cap;
+      if (typeof cap !== "string") continue;
+      const allow = (item as { allow?: unknown }).allow;
+      out.push({
+        cap,
+        ...(Array.isArray(allow)
+          ? { allow: allow.filter((x): x is string => typeof x === "string") }
+          : {}),
+      });
+    }
+    return out;
+  }
+
+  private async alert(
+    ref: RunRef,
+    effectId: string,
+    escalated: boolean,
+    reason?: string,
+  ): Promise<void> {
     if (!this.onAlert) return;
     try {
-      await this.onAlert({ ref, effectId, escalated });
+      await this.onAlert({ ref, effectId, escalated, ...(reason ? { reason } : {}) });
     } catch {
       /* 告警缝失败不阻断闭环（审计已持久） */
     }
@@ -403,4 +505,23 @@ export class CompensationExecutor {
 
 function key(ref: RunRef, effectId: string): string {
   return `${ref.runId}|${effectId}`;
+}
+
+/** 需要“本次创建”收据的内置动作（ADR-0018）；其余 builtin 不要求收据。 */
+function receiptRequired(e: EffectProjectionEntry): boolean {
+  return e.actionType === "builtin" && e.actionRef === "fs.remove";
+}
+
+function isReceipt(v: unknown): v is EffectReceipt {
+  if (typeof v !== "object" || v === null) return false;
+  const r = v as Record<string, unknown>;
+  return (
+    typeof r.opId === "string" &&
+    typeof r.kind === "string" &&
+    typeof r.target === "string" &&
+    typeof r.created === "boolean" &&
+    typeof r.existed === "boolean" &&
+    typeof r.overwritten === "boolean" &&
+    (r.mode === "create" || r.mode === "overwrite")
+  );
 }
