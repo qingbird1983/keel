@@ -1,0 +1,44 @@
+{
+  "kind": "capability",
+  "meta": {
+    "name": "file-write",
+    "version": "1.0.0",
+    "title": "File Write",
+    "description": "越界工具标杆：受治理的新建写，补偿由底座按收据执行（Phase 3 三件套插件 B）"
+  },
+  "permissions": [
+    { "cap": "tool.provide", "reason": "提供 write_file" },
+    {
+      "cap": "fs.write",
+      "allow": ["fs:/tmp/keel-workspace/**"],
+      "reason": "只写工作区；部署时按真实根目录替换"
+    }
+  ],
+  "resources": { "toolCallTimeoutMs": 10000 },
+  "compensation": {
+    "templates": [
+      {
+        "kind": "fs.write.done",
+        "class": "reversible",
+        "action": { "type": "builtin", "ref": "fs.remove" },
+        "idempotency": "natural"
+      }
+    ]
+  },
+  "governance": {
+    "tools": [
+      {
+        "name": "write_file",
+        "guard": { "cap": "fs.write", "from": "path", "prefix": "fs:" },
+        "effects": [
+          {
+            "kind": "fs.write.done",
+            "targetFields": ["path"],
+            "digestFields": ["path", "content"]
+          }
+        ]
+      }
+    ]
+  },
+  "compat": { "keelContract": "^1.0" }
+}

@@ -1,0 +1,14 @@
+{
+  "kind": "policy",
+  "meta": {
+    "name": "param-guard",
+    "version": "1.0.0",
+    "title": "Param Guard",
+    "description": "策略插件：按参数内容模式否决 write_file 调用（Phase 3 三件套插件 C）"
+  },
+  "permissions": [],
+  "resources": {},
+  "compensation": { "templates": [] },
+  "hooks": ["toolApproval"],
+  "compat": { "keelContract": "^1.0" }
+}
