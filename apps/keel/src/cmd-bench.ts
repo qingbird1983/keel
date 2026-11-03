@@ -1,19 +1,25 @@
 /**
  * keel bench —— A8 四项基准（04 稿 §3 口径）：只建测量不调优，无阈值断言。
  * B1 账本吞吐 / B2 网关延迟（壳层）/ B3 Cell 冷启 / B4 补偿编排延迟（观测项）
- * / B5 流式口径（切片⑤ §6：首片延迟、分片数、单 run 总延迟——同样只测量不设阈值）。
+ * / B5 流式口径（切片⑤ §6：首片延迟、分片数、单 run 总延迟——同样只测量不设阈值）
+ * / B6 插件开销（Phase 3 切片⑤：三件套三行同族口径，互相横向对比——合同"其他"交付物）。
  */
-import { mkdtemp, rm } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { RunDriver, RunRef } from "@keel/core";
-import { wireCell } from "@keel/host";
+import { HookBus, type RunDriver, type RunRef } from "@keel/core";
+import { wireCell, wirePolicies, type LoadedManifest } from "@keel/host";
 import {
   assembleManifest,
   buildRuntime,
+  cellEntryPath,
   closeRuntime,
   fixturePath,
+  policyCellEntryPath,
+  repoRoot,
   runPolicy,
+  runPolicyFor,
   wireRun,
 } from "./runtime.js";
 
@@ -228,6 +234,127 @@ export async function cmdBench(_opts: BenchOptions = {}): Promise<number> {
         `bench B5 did not pull the whole stream: gateway=${String(streamProduced)} cell=${String(cellChunks)} expected=${CHUNKS}`,
       );
     }
+    // ── B6 插件开销（Phase 3 切片⑤，合同"其他"交付物：基准复采只测量不设阈值）。
+    // 三行同族口径 = 直连 cell.executor 的单次往返（真实子进程 + stdio 通道 + 宿主侧治理），
+    // 互相横向对比：a) echo 零治理对照；b) write_file 治理满配（授权 + 舱内 guard + AOP 自动
+    // EFFECT_DECLARED + workspace.write 收据落账）；c) toolApproval hook 跨进程往返（param-guard
+    // 策略舱；echo 无策略行不经过它，B3 已给裸舱对照）。同舱连发消除起舱噪声（起舱见 B3）。
+    const benchRoot = path.join(dir, "bench-workspace").replace(/\\/g, "/");
+    await mkdir(benchRoot, { recursive: true });
+    const pluginJson = (p: string): Record<string, unknown> =>
+      JSON.parse(
+        readFileSync(path.join(repoRoot, "packages", "plugins", p, "keel-plugin.json"), "utf-8"),
+      );
+    const echoManifest = assembleManifest(pluginJson("echo"));
+    const fwRaw = pluginJson("file-write") as {
+      permissions: { cap: string; allow?: string[] }[];
+    };
+    for (const p of fwRaw.permissions) {
+      if (p.cap === "fs.write") p.allow = [`fs:${benchRoot}/**`];
+    }
+    const fwManifest = assembleManifest(fwRaw);
+    const pgManifest = assembleManifest(pluginJson("param-guard")) as LoadedManifest;
+
+    const rt7 = await buildRuntime(dir, {
+      policy: runPolicyFor(
+        [
+          { manifest: echoManifest, subject: "keel-bench" },
+          { manifest: fwManifest, subject: "keel-bench" },
+        ],
+        "p-bench-b6",
+      ),
+    });
+    const mkPluginCell = async (manifest: LoadedManifest, pluginPath: string, tag: string) => {
+      const s = { agentId: "keel-bench", sessionId: `bench-b6-${tag}` };
+      const wired = await wireCell({
+        supervisor: rt7.supervisor,
+        deps: {
+          ledger: rt7.ledger,
+          auth: rt7.auth,
+          budget: rt7.budget,
+          ctx: rt7.ctx,
+          gateway: rt7.gateway,
+        },
+        scope: s,
+        ref: { ...s, runId: `bench-b6-${tag}` },
+        subject: s.agentId,
+        manifest,
+        pluginPath,
+      });
+      return wired.cell;
+    };
+    const echoCell = await mkPluginCell(
+      echoManifest,
+      path.join(repoRoot, "packages", "plugins", "echo", "dist", "index.js"),
+      "echo",
+    );
+    const fwCell = await mkPluginCell(
+      fwManifest,
+      path.join(repoRoot, "packages", "plugins", "file-write", "dist", "index.js"),
+      "fw",
+    );
+
+    const b6N = 20;
+    const echoRound: number[] = [];
+    const fwRound: number[] = [];
+    for (let i = 0; i < 10; i++)
+      await echoCell.executor({ tool: "echo", params: { text: "warm" } });
+    for (let i = 0; i < b6N; i++) {
+      const a = now();
+      await echoCell.executor({ tool: "echo", params: { text: "bench" } });
+      echoRound.push(ms(a, now()));
+    }
+    for (let i = 0; i < 10; i++) {
+      await fwCell.executor({
+        tool: "write_file",
+        params: { path: `${benchRoot}/warm-${i}.txt`, content: "warm" },
+      });
+    }
+    for (let i = 0; i < b6N; i++) {
+      const a = now();
+      const r = await fwCell.executor({
+        tool: "write_file",
+        params: { path: `${benchRoot}/b6-${i}.txt`, content: "bench" },
+      });
+      fwRound.push(ms(a, now()));
+      if (r.status !== "ok") throw new Error(`bench B6 write_file failed: ${JSON.stringify(r)}`);
+    }
+
+    // B6c：hook 跨进程往返（策略舱就绪后直调 HookBus；对 echo 输入恒 approve，量的是插话管道）
+    const b6Bus = new HookBus(rt7.ledger);
+    // bindings 必须保存并收尾：策略舱进程的 stdio 管道会挂住本进程退出（P-003 收束覆盖所有 spawn 源）
+    const b6Policies = await wirePolicies({
+      supervisor: rt7.supervisor,
+      bus: b6Bus,
+      specs: [
+        {
+          manifest: pgManifest,
+          modulePath: path.join(repoRoot, "packages", "plugins", "param-guard", "dist", "index.js"),
+        },
+      ],
+      policyEntryPath: policyCellEntryPath,
+    });
+    const hookRef: RunRef = { ...scope, runId: "bench-b6-hook" };
+    const hookRound: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      await b6Bus.call(hookRef, "toolApproval", 0, {
+        tool: "echo",
+        paramsDigest: { text: "warm" },
+      });
+    }
+    for (let i = 0; i < b6N; i++) {
+      const a = now();
+      await b6Bus.call(hookRef, "toolApproval", i + 1, {
+        tool: "echo",
+        paramsDigest: { text: "bench" },
+      });
+      hookRound.push(ms(a, now()));
+    }
+    await echoCell.drainAndReap();
+    await fwCell.drainAndReap();
+    await Promise.allSettled(b6Policies.map((b) => b.cell.drainAndReap()));
+    await closeRuntime(rt7);
+
     // ── 汇总（markdown 片段，供 report.md 抄录）
     const node = process.version;
     const plat = `${process.platform}/${process.arch}`;
@@ -257,6 +384,15 @@ export async function cmdBench(_opts: BenchOptions = {}): Promise<number> {
     );
     console.info(
       `| B5b 流式（真舱通道） | 一个 run 内舱取完 ${CHUNKS} 片：1 次 start + 逐页 next（默认页 16 + pageSize 4 → 共 3 页 / 3 次往返）×3 | ${cellStream.map((v) => v.toFixed(0)).join(" / ")} ms/run（含起舱与两轮调度；实测舱内收到 ${cellChunks} 片） |`,
+    );
+    console.info(
+      `| B6a 插件·echo 全链 | 直连 executor 单次往返 N=${b6N}（热舱，零治理对照） | min/p50 = ${Math.min(...echoRound).toFixed(1)}/${pct(echoRound, 0.5).toFixed(1)} ms |`,
+    );
+    console.info(
+      `| B6b 插件·write_file 全链 | 直连 executor 单次往返 N=${b6N}（热舱，含授权+guard+声明+收据落账；实测 ${b6N} 文件全部落盘） | min/p50 = ${Math.min(...fwRound).toFixed(1)}/${pct(fwRound, 0.5).toFixed(1)} ms |`,
+    );
+    console.info(
+      `| B6c 插件·策略插话 | toolApproval 跨进程往返 N=${b6N}（param-guard 策略舱，对 echo 输入恒 approve） | min/p50 = ${Math.min(...hookRound).toFixed(1)}/${pct(hookRound, 0.5).toFixed(1)} ms |`,
     );
     return 0;
   } finally {

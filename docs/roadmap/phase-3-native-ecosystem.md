@@ -4,7 +4,8 @@
 - 2026-11-03 修订（所有者要求）：切片计划插入**切片③ Cell-Runtime AOP + 内置补偿底座**（[04 稿](../design/phase-3/04-cell-runtime-aop.md) / [05 稿](../design/phase-3/05-builtin-compensation.md) / [06 DX 报告](../design/phase-3/06-dx-compensation-report.md)，均已定稿），原切片③（插件 B+C）顺延为④，原④（规范回填 + 验收）顺延为⑤；验收场景 C1~C7 不变。
 - 2026-11-03 批准（所有者“通过，定稿开始实施”）：[07 稿](../design/phase-3/07-runtime-context-refactor.md) 转为定稿，D1~D6 按建议落定（[ADR-0017](../adr/ADR-0017-runtime-context-layering.md) / [ADR-0018](../adr/ADR-0018-effect-receipts-and-workspace.md) / [ADR-0019](../adr/ADR-0019-trust-tiers-and-cell-isolation.md)）；在切片④之前插入 **R1~R5 运行上下文重构**，插件 B/C 作为 R6 回到主线。
 - 2026-11-03 完成：R1~R5 已实施（[ADR-0020](../adr/ADR-0020-workspace-error-codes.md) 为实施期新增）；`workspace.write` + 效果收据 + `ToolCatalog`/`PageStore` 拆分 + `setup/effect/dispose` + env/cwd/trust 全部落地，真进程证据见 07 稿 §13；下一片 = 切片④（插件 B/C，R6）。
-- 2026-11-04 完成：**切片④（R6）完成，三件套闭环**——[08 稿](../design/phase-3/08-plugin-b-c.md) 定稿（K1~K5 所有者确认）：插件 B `file-write` 转正（纯 handler + `ctx.workspace`，C3 真进程补偿闭环 B-E1~E5 红测先行）、插件 C `param-guard` 转正（`toolApproval` 否决内容模式，C-E1~E4：归因 + 杀舱 fallback 不级联）；C2/C3/C4 达成（见 §5 打勾注记）；顺手修正 vitest include 缺层（插件包内单测进主线门禁）。下一片 = 切片⑤。
+- 2026-11-04 完成：**切片④（R6）完成，三件套闭环**——[08 稿](../design/phase-3/08-plugin-b-c.md) 定稿（K1~K5 所有者确认）：插件 B `file-write` 转正（纯 handler + `ctx.workspace`，C3 真进程补偿闭环 B-E1~E5 红测先行）、插件 C `param-guard` 转正（`toolApproval` 否决内容模式，C-E1~E4：归因 + 杀舱 fallback 不级联）；C2/C3/C4 达成（见 §5 打勾注记）；顺手修正 vitest include 缺层（插件包内单测进主线门禁）。
+- 2026-11-04 完成：**切片⑤完成，阶段验收收口**——[阶段报告](../design/phase-3/report.md) 定稿：C1~C7 逐条复核全过（含三条一票否决）；规范回填复核（契约 §4.8 hook① 入参形状注记、manifest 稿 R4 生命周期导出面注记，均带日期、无 schema 变更）；插件开销基准 B6（治理满配 ~1ms、策略插话 0.2ms，只测不设阈值）。交付物齐备，`phase-3.end` tag 决定权归所有者。
 - 日期：2026-11-03（起草与定稿同日；同日按所有者要求修订切片计划）
 - 关联：[00-roadmap](00-roadmap.md) §1 看板；[ADR-0014](../adr/ADR-0014-drop-legacy-ecosystem-compat.md)（换轨决定 + 同日实施注记）；[design/phase-3/01-legacy-anti-patterns](../design/phase-3/01-legacy-anti-patterns.md)（**评审否决清单**）；[design/phase-3/02-review-mechanization](../design/phase-3/02-review-mechanization.md)（评审机械化口径 + 插件需求卡）；[design/phase-1/03-plugin-manifest](../design/phase-1/03-plugin-manifest.md)（manifest 规范本体）；[design/phase-1/01-core-api-contract](../design/phase-1/01-core-api-contract.md)（可见面矩阵与能力词表）；[architecture/01](../architecture/01-keel-overview.md) §6（原生插件模型）
 
@@ -54,7 +55,8 @@
 
 > 标注【一票否决】的场景未通过时不得打 `phase-3.end` tag。每条注明锚定的不变量；凡不锚不变量的业务层场景一律不进本表。
 
-- [ ] **C1【一票否决】** 插件 A 授权与工具发现（**I1 控制 / I5 上下文**）：manifest 过五步校验零豁免 → 装载门就绪凭据 → 工具只出现在声明的 scope、跨会话互不可见；越权调用被授权器当场拒绝并留痕；真实进程 run 主场景跑通、账本完整
+- [x] **C1【一票否决】** 插件 A 授权与工具发现（**I1 控制 / I5 上下文**）：manifest 过五步校验零豁免 → 装载门就绪凭据 → 工具只出现在声明的 scope、跨会话互不可见；越权调用被授权器当场拒绝并留痕；真实进程 run 主场景跑通、账本完整
+  > 2026-11-03 达成（切片②）：`tests/native-echo-e2e.test.ts` E1~E6 真进程（03 稿剧本）——五步校验零豁免、装载门就绪、scope 间工具表互不可见、`AUTH_DENIED` 落账本；2026-11-04 复核确认无回归（同文件随主线门禁持续运行）。
 - [x] **C2【一票否决】** 反面教材零命中（**I1 / I4 / I5**）：禁面符号扫描对三件套机械核对零命中；每插件留痕"依据了哪几条、为何不适用"
   > 2026-11-04 达成（切片④）：`native-plugin-scan: clean`（echo/file-write/param-guard 三件全扫）；`REVIEW.md` ×3（02 稿 §5 五段：echo 切片②、B/C 切片④）。C2 的"每插件留痕"已齐，复核归切片⑤。
 - [x] **C3【一票否决】** 插件 B 补偿闭环（**I4 副作用不可无痕 / I3 状态不可丢失**）：越界写先声明补偿 → `EFFECT_DECLARED` 留痕 → 注入故障 → 补偿按依赖序执行 → 回滚闭环有账本证据；**未声明的写当场拒绝、零部分生效**
@@ -62,9 +64,12 @@
   > 2026-11-04 达成（切片④）：转正件 `packages/plugins/file-write` 真进程 B-E1~E5（红测先行，`tests/native-file-write-e2e.test.ts`）——B-E1 注入故障 → 内建 `fs.remove` 只删本次创建（收据 `created:true` + identity）→ `COMPENSATION_EXECUTED` 账本全链；B-E2 越界拒零部分生效；B-E3 重试幂等；B-E4 补偿只读账本可重放；B-E5 预存在目标 0 误删。“补偿按依赖序”由补偿状态机既有测试与 R4 多 effect 证据承担（fixture 机制样例保留，08 稿 §5 分工注记）。
 - [x] **C4** 插件 C 策略介入可归因且不级联（**I1 / I2 故障不可级联**）：危险参数被策略插件拦截，介入逐条可从账本归因（承接 Phase 1 A6 口径）；策略进程崩溃只降级到既有 fallback，不级联 run
   > 2026-11-04 达成（切片④）：转正件 `packages/plugins/param-guard` 真进程联装（`tests/native-param-guard-e2e.test.ts`，C-E1~E4 红测先行）——C-E1 内容模式（guard 结构上看不到的面）deny + 介入 seq 进 `DECISION.basedOn` + handler 零执行；C-E2 放行不误伤；C-E3 kill 策略舱 → `HOOK_VERDICT{fallback:true}` run 照常推进；C-E4 未申领 hook 零介入 + `ASSEMBLY_RECORDED.policies` 记账。
-- [ ] **C5** 隔离与故障半径（**I2**）：注入插件崩溃，仅该 Cell 失败，其他会话不受影响（V2 延续）
-- [ ] **C6** 决策可重放（**I1 / V6**）：三件套任意 run 的决策序列可从账本重放（`throughSeq` 语义下，含策略介入的归因）
-- [ ] **C7** 质量与回归：六道门禁全绿；保留在主线的内核测试（快照/流式/`throughSeq`/策略链）与 Phase 1 A1~A8 主张不退化；三件套零三方运行时依赖机械核对（纪律项，随 C7 一并核）
+- [x] **C5** 隔离与故障半径（**I2**）：注入插件崩溃，仅该 Cell 失败，其他会话不受影响（V2 延续）
+  > 2026-11-04 复核达成：`tests/cell-crash.test.ts`（主线保留：崩溃舱 `RUN_FAILED{CELL/CRASH}`、并行会话正常收束、账本互不可见）+ R5 隔离证据（`packages/host/test/isolation.test.ts`：spawn 环境白名单、工作区 cwd；`tests/native-file-write-aop.test.ts` env/cwd 探针）。三件套均为普通 capability/policy 舱，走同一隔离边界，无特例。
+- [x] **C6** 决策可重放（**I1 / V6**）：三件套任意 run 的决策序列可从账本重放（`throughSeq` 语义下，含策略介入的归因）
+  > 2026-11-04 复核达成：`tests/audit-attribution-replay.test.ts`（①seq 连续归属单一终态收束 ②hook 成对留痕 ③授权拒绝归因齐备 ④`basedOn` 只引已发生事件且覆盖全部 hook 裁决 ⑤`keel replay` 输出归因行）+ `tests/decision-through-seq.test.ts`（直写事件在上界内、旧账本可读）；三件套语境的直接证据 = 切片④ C4 e2e 的介入归因断言（`attributed()`：`HOOK_CALLED`/`HOOK_VERDICT` seq 进后续 `DECISION.basedOn`）。
+- [x] **C7** 质量与回归：六道门禁全绿；保留在主线的内核测试（快照/流式/`throughSeq`/策略链）与 Phase 1 A1~A8 主张不退化；三件套零三方运行时依赖机械核对（纪律项，随 C7 一并核）
+  > 2026-11-04 复核达成：六道门禁全绿（56 文件 420 测试，Phase 1 主张的承载测试全数保留在主线：cell-crash / concurrent-scope-isolation / audit-attribution-replay / decision-through-seq / model-stream-channel / gateway-fail-closed / tool-failure-compensation / snapshot-cross-host 等）；零三方依赖 = 扫描器 B4-deps 机械判定（三件 package.json 零依赖字段）+ 零 import（B4-import）。
 
 ## 6. 依赖与风险
 

@@ -112,6 +112,8 @@ allow 的必填性由装配器语义校验执行，Schema 层不强制——这�
 
 实现注记（2026-11-02 切片④）：插件模块可选导出面与快照链路——`export async function migrate(oldState)`（升级迁移与恢复挂载共用通道：恢复时入参 = 最近快照，契约 §4.5 切片④注记）+ `export function snapshot()`（宿主经私有 op `cell.snapshot` 于轮边界索取私有状态，无此导出 = 无状态 Cell，不写 STATE\_SNAPSHOT\_REF）。快照内容宿主内存持有（D3），账本仅 `STATE_SNAPSHOT_REF{ref, version, round}` 元数据。
 
+实现注记（2026-11-04 切片⑤复核，R4，[ADR-0017](../../adr/ADR-0017-runtime-context-layering.md)）：插件模块另有**生命周期导出面**——可选 `export function setup(ctx)`（装配后调用一次：`ctx.effect` 注册资源清理、`ctx.tools.register` 动态工具）与 `export async function dispose()`（宿主收尾时调用：模块 dispose → 资源 effect LIFO，幂等）。二者是**运行面、不是报关单面**：manifest 无对应字段（缺省 = 无生命周期），宿主按导出存在性自适应，报关单因此保持"声明能力与资源、不声明代码形状"的分工。
+
 ### 5.6 kind 条件分支（Schema allOf/if-then）
 
 - capability：`resources.toolCallTimeoutMs` 必填；禁 `hooks`；
