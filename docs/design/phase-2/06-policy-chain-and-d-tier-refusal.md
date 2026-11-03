@@ -1,8 +1,8 @@
 # Phase 2 切片④：策略插件 → HookBus 装配链，与 D 档硬拒绝的证据
 
-- 状态：**草稿**（等所有者确认 §7 三项；定稿前不写实现代码——铁律 1）
+- 状态：**定稿**（2026-11-03 所有者确认 §7 三项，全部按建议落地：策略插件跑在自己的进程并立 [ADR-0012](../../adr/ADR-0012-policy-plugin-process-and-hook-op.md) / 同一插话点被抢时装配期整份拒 / 装配审计补 `policies` 字段；定稿后开始写本片实现代码——铁律 1）
 - 日期：2026-11-03
-- 关联：[phase-2 合同](../../roadmap/phase-2-cordis-compat.md) §7 切片④（锚 **B4【一票否决】+ B7①**）、§2「做」的回填项 ①、§6 风险 3 与风险 5；[01 稿 迁移边界](01-cordis-migration-boundary.md) #7 / #14（D 档零例外）；[05 稿 迁移手册](05-migration-handbook.md) §8；[契约](../phase-1/01-core-api-contract.md) §3.3 / §4.8 / §5 / §7；[ADR-0005](../../adr/ADR-0005-cell-isolation.md)、[ADR-0011](../../adr/ADR-0011-cell-load-gate.md)；[Phase 1 报告](../phase-1/report.md) §3 第 3 条（登记限制）与 §9 回填清单
+- 关联：[phase-2 合同](../../roadmap/phase-2-cordis-compat.md) §7 切片④（锚 **B4【一票否决】+ B7①**）、§2「做」的回填项 ①、§6 风险 3 与风险 5；[01 稿 迁移边界](01-cordis-migration-boundary.md) #7 / #14（D 档零例外）；[05 稿 迁移手册](05-migration-handbook.md) §8；[契约](../phase-1/01-core-api-contract.md) §3.3 / §4.8 / §5 / §7；[ADR-0005](../../adr/ADR-0005-cell-isolation.md)、[ADR-0011](../../adr/ADR-0011-cell-load-gate.md)、**[ADR-0012](../../adr/ADR-0012-policy-plugin-process-and-hook-op.md)**（本篇定稿的直接产物）；[Phase 1 报告](../phase-1/report.md) §3 第 3 条（登记限制）与 §9 回填清单
 
 ## 1. 这份文档回答什么
 
@@ -34,13 +34,14 @@
 
 ## 3. 方案
 
-### 3.1 B7①：策略插件 → HookBus 装配链（五步）
+### 3.1 B7①：策略插件 → HookBus 装配链（六步）
 
 1. **装载面**：`packages/cell-runtime/src/policy-main.ts`（新进程入口）装载策略模块，只认一种导出：`export const hooks = { toolApproval: fn, stopAdvice: fn, … }`。不喂 `CellClient`、不喂任何主动接口（§3.3"无主动接口"）；装载门复用 ADR-0011（未登记完不应答，漏调 `markReady` 表现为就绪超时 = 可见失败）。
 2. **新 op**：`policy.hook`（宿主→策略舱），载荷 `{ hook, round, input }`，应答 = verdict 原样。**校验仍留在 HookBus**（禁区校验是内核职责，挪进舱内等于让被审者自审）。
-3. **接线**：`packages/host/src/policy-link.ts`：按报关单 `hooks` 白名单逐个 `bus.register(name, (input) => cell.conn.request("policy.hook", { hook: name, round, input }, timeoutMs))`；未声明的 hook **不注册**（无介入即无事件，`hooks.ts` 第 8 行既有口径）。
+3. **接线**：`packages/host/src/policy-link.ts`：按报关单 `hooks` 白名单逐个 `bus.register(name, (input) => cell.conn.request("policy.hook", { hook: name, round, input }, timeoutMs))`；未声明的 hook **不注册**（无介入即无事件，`hooks.ts` 第 8 行既有口径）。**两份策略抢同一 hook → 装配期整份拒绝**（ADR-0012 决策 5）：`HookBus.register` 的"同名覆盖"从此只允许装配器在**已查重**的策略集合上调用——覆盖 = 后一份悄悄吃掉前一份的否决权，账本只看得到"有人说话"看不出说的是谁。
 4. **时限与失败**：策略侧时限 = HookBus 的 200ms（契约 §7，F11）；超时/异常/舱退都走既有 fallback 路径并落 `HOOK_VERDICT{fallback:true}`——**不新增错误码**（与 ADR-0011 同一姿态）。
-5. **交付入口**：`keel run --policy-manifest <path> --policy-module <path>`（可重复），`BuildRuntimeOptions.policies?: {manifest, modulePath}[]`。代码路径由宿主配置给出——**manifest 里没有代码路径字段**（报关单不指定实现，既定设计）。若 §7 第 3 项选"补装配审计"，`ASSEMBLY_RECORDED` 增 `policies: [{name, version, hooks[]}]`（契约 §5 载荷扩展，随 ADR-0012 记）。
+5. **交付入口**：`keel run --policy-manifest <path> --policy-module <path>`（可重复），`BuildRuntimeOptions.policies?: {manifest, modulePath}[]`。代码路径由宿主配置给出——**manifest 里没有代码路径字段**（报关单不指定实现，既定设计）。
+6. **装配审计（已定，ADR-0012 决策 6）**：`ASSEMBLY_RECORDED` 增 `policies: [{name, version, hooks[]}]`——追加字段，Phase 1 旧账本样例仍可读（与 B7⑤ 的兼容口径一致）；契约 §5 随本片施工补一行注记。
 
 ### 3.2 B4：D 档的拒绝点与"零部分生效"核对法
 
@@ -75,7 +76,7 @@
 ## 5. 与切片①②③的接缝（不重做）
 
 - 承接层对 `ctx.hooks.*` 的拒绝**不改**（切片①定的，手册 §8 写的就是"这条路不存在"）——本片只补真进程证据，不开新出口。
-- 装载门与就绪凭据共用（ADR-0011）：策略舱的"舱真的能用"凭据仍用既有 op 的应答，不为就绪再加新 op（细节在 §7 第 1 项定稿后落）。
+- 装载门与就绪凭据共用（ADR-0011）：策略舱的"舱真的能用"凭据仍是一次 `cell.snapshot` 应答（无快照面时回 `{state:null}`，仍是一次应答 = 装载完成），**不为就绪再加新 op**。
 - 切片③的 `ctx.ledger.read` 已经让能力插件能看见本 run 的 `HOOK_*` 事实（策略说了话，被影响的插件自己可查）——本片不再开新面。
 - 切片②的五步校验是 D 档两枚负样本的入口；`keel validate --expect reject` 已有退出码口径，本片直接复用。
 - 手册 §8 那节的"证据由本片补"承诺在此兑现（合同 §6 风险 3 的处置）。
@@ -83,31 +84,31 @@
 ## 6. 体量、依赖与门禁影响
 
 - 代码增量预估：`cell-runtime`（`policy.hook` 路由 + `policy-main` 入口）+~65；`host`（`policy-link` + supervisor 的策略舱位）+~50；`apps/keel`（CLI 两个参数 + `BuildRuntimeOptions.policies`）+~35；**`core` 零改动**（fallback 与留痕语义都是既有的）；最大实现文件仍是 `scheduler.ts` 569 行（红线 600）。
-- 契约与协议：新增 **1 个宿主→舱 op**（`policy.hook`）+ 可能的 `ASSEMBLY_RECORDED` 载荷扩展 → **需要 ADR-0012**（策略舱执行位置、生命周期、op 载荷与失败语义；若扩展审计字段则一并记）。这是本片与切片③（零契约变更）最大的不同，也是 §7 要把执行位置交给所有者定的原因。
+- 契约与协议：新增 **1 个宿主→舱 op**（`policy.hook`）+ `ASSEMBLY_RECORDED.policies` 追加字段 → **已立 [ADR-0012](../../adr/ADR-0012-policy-plugin-process-and-hook-op.md)**（策略舱执行位置与生命周期、op 载荷、失败语义、冲突整份拒、审计扩展；被否方案四条留在文内）。这是本片与切片③（零契约变更）最大的不同，也是 §7 第 1 项要交给所有者定的原因——三项均已确认。
 - fixtures：策略样本 2 枚（正常一对 hook + 违规响应各一份）+ D 档尝试 3-4 枚 + 畸形 manifest 2 份；沿用 `tests/fixtures/cordis-plugins/` 的零改动机械判据与 `.prettierignore` 保护（新生态策略样本属 `tests/fixtures/`，不受该豁免）。
 - 文档：本稿 + 01 稿 #7/#14 两行补实现期注记（追加式，不改档位）+ 05 手册 §8 证据行 + 契约 §4.8/§5 注记（若扩审计字段）+ ADR-0012。依赖：新增 0 个三方依赖。
 - 门禁：六道 + `pnpm clean` 起全链一次；B8 复跑含 Phase 1 契约级五测试点与切片①②③验收组。
 
-## 7. 待所有者确认（三项）
+## 7. 所有者确认结果（2026-11-03，三项均按建议）
 
-1. **策略插件代码跑在哪里**（决定要不要立 ADR-0012）：
-   - **推荐：每 run 一个策略舱**（`policy.hook` 新 op + ADR）。理由 = F6 + I2：进程内 import 会让策略模块读到宿主内存与内核命名空间，契约 §3.3"除 hook 入参外的一切不可见"在接通当天就是谎话；进程边界也让策略崩溃与 run 崩溃分类各归各位。代价 = 每 run 多一个进程、每次插话一次跨进程往返（200ms 预算内，实测数量级毫秒）。
-   - 备选 A：**宿主进程内动态 import**——零协议变更、最省事，但违反 §3.3 与 I2（一个忙等或抛错就带走宿主），且 B4 的"D 档硬拒绝"从此有反例；不推荐。
-   - 备选 B：**每宿主共享一个策略舱**——省进程数，但一次崩溃影响全部在途 run（策略舱没有归属 run 的 ref，退出时既不能 abort 也无从归因），且 run 间共享进程正踩 I2"无跨 Cell 共享可变接口"的边缘。
-2. **两份策略声明同一个 hook 时怎么办**：
-   - **推荐：装配期整份拒绝**（明确错误码，不产候选、不注册）。`HookBus.register` 的注释写着"同名覆盖（装配器职责）"——覆盖就是静默改判：后一份策略悄悄吃掉前一份的否决权，账本里只看得到"有人说了话"，看不出说的是谁。
-   - 备选：按声明顺序后者覆盖并在 `ASSEMBLY_RECORDED` 记被覆盖者；或第一个生效其余记缺项。两者都要额外定义"谁优先"的语义，且都要改账本载荷——比第 3 项的扩展更重。
-3. **装配审计要不要补"绑了哪些策略"**（`ASSEMBLY_RECORDED` 增 `policies` 字段，属契约 §5 载荷扩展）：
-   - **推荐：补**。F8 摆着——策略没插话时账本对它零记录，评审侧无法回答"这一轮究竟是谁的话、有没有话本该说而没说"；V6 的归因主张要的正是这个。扩展是**追加字段**（旧账本样例仍可读，B7⑤ 的兼容性口径不变），随 ADR-0012 一起记。
-   - 备选：不补，只用 `HOOK_*` 事件反推——省一次契约注记，但"绑了却一次没说话"与"根本没绑"在账本上不可分辨。
+1. **策略插件代码跑在哪里 = 自己的进程（每 run 一个策略舱）**，并为此立 [ADR-0012](../../adr/ADR-0012-policy-plugin-process-and-hook-op.md)：
+   - **选定：每 run 一个策略舱**（`policy.hook` 新 op + ADR）。理由 = F6 + I2：进程内 import 会让策略模块读到宿主内存与内核命名空间，契约 §3.3"除 hook 入参外的一切不可见"在接通当天就是谎话；进程边界也让策略崩溃与 run 崩溃分类各归各位。代价 = 每 run 多一个进程、每次插话一次跨进程往返（200ms 预算内，实测数量级毫秒）。
+   - 被否 A：**宿主进程内动态 import**——零协议变更、最省事，但违反 §3.3 与 I2（一个忙等或抛错就带走宿主），且 B4 的"D 档硬拒绝"从此有反例。
+   - 被否 B：**每宿主共享一个策略舱**——省进程数，但一次崩溃影响全部在途 run（策略舱没有归属 run 的 ref，退出时既不能 abort 也无从归因），且 run 间共享进程正踩 I2"无跨 Cell 共享可变接口"的边缘。
+2. **两份策略声明同一个 hook = 装配期整份拒绝**：
+   - **选定：整份拒绝**（明确错误码，不产候选、不注册）。`HookBus.register` 的注释写着"同名覆盖（装配器职责）"——覆盖就是静默改判：后一份策略悄悄吃掉前一份的否决权，账本里只看得到"有人说了话"，看不出说的是谁。
+   - 被否：按声明顺序后者覆盖并在 `ASSEMBLY_RECORDED` 记被覆盖者；或第一个生效其余记缺项。两者都要额外定义"谁优先"的语义，且都要改账本载荷——比第 3 项的扩展更重。
+3. **装配审计 = 补 `policies` 字段**（`ASSEMBLY_RECORDED` 追加，属契约 §5 载荷扩展，已记进 ADR-0012 决策 6）：
+   - **选定：补**。F8 摆着——策略没插话时账本对它零记录，评审侧无法回答"这一轮究竟是谁的话、有没有话本该说而没说"；V6 的归因主张要的正是这个。扩展是**追加字段**（旧账本样例仍可读，B7⑤ 的兼容性口径不变）。
+   - 被否：不补，只用 `HOOK_*` 事件反推——省一次契约注记，但"绑了却一次没说话"与"根本没绑"在账本上不可分辨。
 
 ## 8. 定稿后的落地清单（按序）
 
-- [ ] ADR-0012（策略舱执行位置与生命周期、`policy.hook` 载荷、失败语义、审计字段口径）
+- [x] ADR-0012（策略舱执行位置与生命周期、`policy.hook` 载荷、失败语义、冲突整份拒、审计字段口径）
 - [ ] `cell-runtime`：`policy.hook` 路由 + `policy-main` 入口 + 装载面单测（先红）
-- [ ] `host`：`policy-link.ts`（白名单 → 注册集合）+ 策略舱与 supervisor 的退出不级联证据
+- [ ] `host`：`policy-link.ts`（白名单 → 注册集合 + 抢同一 hook 整份拒）+ 策略舱与 supervisor 的退出不级联证据
 - [ ] `apps/keel`：`BuildRuntimeOptions.policies` + `keel run --policy-*`
-- [ ] `ASSEMBLY_RECORDED.policies`（若 §7 第 3 项选补）+ 契约 §5 注记
+- [ ] `ASSEMBLY_RECORDED.policies` + 契约 §5 注记
 - [ ] 策略样本 + D 档尝试样本 + 畸形 manifest 2 份
 - [ ] `tests/policy-chain-attribution.test.ts`（B7①）与 `tests/cordis-d-tier.test.ts`（B4）**先写红色断言**（铁律 7）
 - [ ] 符号扫描判据扩展；01 稿 #7/#14 实现期注记；05 手册 §8 证据行
@@ -115,9 +116,9 @@
 
 ## 9. 本片的限制（先登记，别等报告）
 
-1. **策略舱在"后续再无 hook 调用"时崩溃不可见于账本**：fallback 只在真的被调用时才留痕；崩溃本身只进 stderr。若 §7 第 3 项选补审计，至少能看出"绑了但没说话"。
+1. **策略舱在"后续再无 hook 调用"时崩溃仍不进账本**：fallback 只在真的被调用时留痕，崩溃本身只有 stderr。补了审计字段之后至少能分辨"绑了但没说话"与"根本没绑"，但"为什么没说"仍是 stderr 级信息。
 2. **hook 入参含工具参数全文**（`scheduler.ts` 417 行的 `paramsDigest: action.params` 现在就是全文）——策略插件因此看得见参数。这属 §3.3 的字面（"hook 入参"），但"摘要"名不符实这件事要么另立回填项、要么改字段语义，本片**不顺手改**。
-3. **多策略并存不做编排**：CLI 接一对或多对参数，但同 hook 冲突按 §7 第 2 项处置；优先级、链式组合属新生态（Phase 3）。
+3. **多策略并存不做编排**：CLI 接一对或多对参数，但同 hook 冲突一律装配期整份拒绝（ADR-0012 决策 5）；优先级与链式组合属新生态（Phase 3）。
 4. **策略舱没有工具时限这个量**（F11）：它不复用 `toolCallTimeoutMs` 的失控强杀宽限——策略进程忙等时，兜底只有 HookBus 的 200ms 超时 + 后续人工回收；物理强杀口径若要强化须与容器后端一起评（backlog）。
 5. **`budgetExhaustedChoice` 的入参带本 run 预算视图**：策略因此能读预算（同属 hook 入参），但不构成新的读面。
 6. **样本仍是合成写法**：真样本到位后按 01 稿 §5 义务回填；D 档零例外不因"存量插件普遍这么写"而开口子。

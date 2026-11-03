@@ -35,38 +35,39 @@ docs/
 
 > 规则：新增文档必须同步登记本表；改状态必须同步本表与 CHANGELOG；`_TEMPLATE.md` 为模板文件，不入本表。
 
-| 文档                                              | 状态 | 一句话说明                                                                                                                      |
-| ------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------- |
-| roadmap/00-roadmap.md                             | 定稿 | 总路线图、唯一进度看板、backlog 与风险登记簿                                                                                    |
-| roadmap/phase-0-design-baseline.md                | 定稿 | Phase 0 范围合同：设计基线（架构沉淀 + A/B/D/C 四份设计）——已收官（report 见 design/phase-0/）                                  |
-| roadmap/phase-1-mvp.md                            | 定稿 | Phase 1 范围合同：MVP 最小闭环（做/不做清单 + 验收场景 A1~A8）                                                                  |
-| roadmap/phase-2-cordis-compat.md                  | 定稿 | Phase 2 范围合同：Cordis 兼容层承接存量插件（三项开工前置已确认，含六片切分与 B1~B8 验收）                                      |
-| standards/01 ~ 09                                 | 定稿 | 仓库结构 / git 工作流 / 文档 / 代码 / 测试 / 安全 / AI 协作 / 体量 / 规范复查                                                   |
-| glossary.md                                       | 草稿 | 术语表（首批 19 条）                                                                                                            |
-| adr/ADR-0001-implementation-stack                 | 定稿 | 实现技术栈：TypeScript / Node.js（MVP）                                                                                         |
-| adr/ADR-0002-single-host-mvp                      | 定稿 | MVP 单机部署形态（接口按可远程化设计）                                                                                          |
-| adr/ADR-0003-model-gateway                        | 定稿 | 模型调用统一经 Core 模型网关（预算权威记账）                                                                                    |
-| adr/ADR-0004-ledger-consistency-point             | 定稿 | 执行账本按轮边界落盘（一致点 + 恢复语义）                                                                                       |
-| architecture/01-keel-overview                     | 定稿 | 架构总览：不变量、三层架构、插件模型、关键机制、验收用例                                                                        |
-| design/phase-1/01-core-api-contract               | 定稿 | Core API 契约：可见面矩阵、接口/事件表、错误码、超时重试、授权×预算时序、hook 白名单                                            |
-| design/phase-1/02-compensation-state-machine      | 定稿 | 补偿事务状态机：效果生命周期、触发与编排、幂等契约、三级分级、升级与豁免                                                        |
-| design/phase-1/03-plugin-manifest                 | 定稿 | 插件 manifest 设计：四要素、能力词表、补偿模板制、版本迁移、装配五步校验（附 schema/ 下 JSON Schema 与两示例）                  |
-| design/phase-1/04-cli-benchmarks-fixtures         | 定稿 | 切片⑤实现口径：CLI 七命令面、A8 四项基准测量口径、fixtures 三组收全清单与实现期定案                                             |
-| design/phase-1/05-cordis-adapter-prototype        | 定稿 | Cordis Adapter 原型口径：旧 API → scope 注册的最小映射、三条规则、有损边界显式报错清单                                          |
-| design/phase-1/report                             | 定稿 | Phase 1 阶段进度报告：A1~A8 逐条验收结果与证据、A8 基准数据、契约级测试点核对、体量核对与规范复查                               |
-| design/phase-2/01-cordis-migration-boundary       | 定稿 | Cordis 迁移边界：15 条旧写法逐档归类（A 直用 / B 补声明 / C 改写 / D 拒绝，D 档零例外）与迁移改法（含切片①补注、切片②两处改判） |
-| design/phase-2/02-adapter-skeleton                | 定稿 | Phase 2 切片①口径：旧 ctx 承接面清单、Cell 内构造 seam、运行期注册的通道与门禁、A 档合成样本组（含最坏写法探针）                |
-| design/phase-2/03-manifest-synthesis              | 定稿 | Phase 2 切片②口径：两遍观察 → 合成候选 → 人工审核 → 五步校验的权限收敛路径，装配编排与升级接缝、就绪时机（锚 B2、B6）           |
-| design/phase-2/04-c-surface-rewrite               | 定稿 | Phase 2 切片③口径：C 档三条改法的地面（三个 Keel 形状新面映射既有 op）+ before/after 真进程样本 + 迁移手册形态（锚 B3）         |
-| design/phase-2/05-migration-handbook              | 首版 | 面向存量插件方的迁移手册：全部 7 条 C 档行的 before/after 片段 + 病灶理由 + 证据位置 + 行为差异（D 档单列，零例外）             |
-| design/phase-2/06-policy-chain-and-d-tier-refusal | 草稿 | Phase 2 切片④口径：策略插件 → HookBus 装配链（执行位置 / 新 op / 失败语义）+ D 档硬拒绝的"零部分生效"核对法（锚 B4、B7①）       |
-| adr/ADR-0005-cell-isolation                       | 定稿 | Cell 隔离选型：MVP 进程级，演进期 IsolationProvider 抽象 + 容器后端                                                             |
-| adr/ADR-0006-mit-license                          | 定稿 | 许可证选用 MIT（版权主体留占位，落实见 ADR-0007）                                                                               |
-| adr/ADR-0007-copyright-attribution                | 定稿 | 版权署名落实为 GitHub 用户名 qingbird1983（LICENSE + 两份 README 同步）                                                         |
-| adr/ADR-0008-decision-attribution-upper-bound     | 定稿 | 决策依据改为"关键引用 + 上界游标 throughSeq"，覆盖组件直写事件（Phase 2 切片⑤落地）                                             |
-| adr/ADR-0009-await-async-resource-release         | 定稿 | 异步资源释放必须 await（standards/04 §3 补条）+ 测试实例登记关闭 + CI 双 Node 矩阵                                              |
-| adr/ADR-0010-runtime-tool-registration-channel    | 定稿 | 运行期工具注册通道：新增 `tool.register`/`tool.remove` 两个 Cell→Core op，`tool.provide` 语义扩到运行期（能力词表不增项）       |
-| adr/ADR-0011-cell-load-gate                       | 定稿 | Cell 装载门与就绪凭据：插件装载完成前不受理调用，宿主以一次 `cell.snapshot` 应答确认就绪（超时口径入契约 §7）                   |
-| design/phase-0/report                             | 定稿 | Phase 0 阶段进度报告：验收 A1~A7 通过、体量与规范复查                                                                           |
+| 文档                                              | 状态 | 一句话说明                                                                                                                                                    |
+| ------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| roadmap/00-roadmap.md                             | 定稿 | 总路线图、唯一进度看板、backlog 与风险登记簿                                                                                                                  |
+| roadmap/phase-0-design-baseline.md                | 定稿 | Phase 0 范围合同：设计基线（架构沉淀 + A/B/D/C 四份设计）——已收官（report 见 design/phase-0/）                                                                |
+| roadmap/phase-1-mvp.md                            | 定稿 | Phase 1 范围合同：MVP 最小闭环（做/不做清单 + 验收场景 A1~A8）                                                                                                |
+| roadmap/phase-2-cordis-compat.md                  | 定稿 | Phase 2 范围合同：Cordis 兼容层承接存量插件（三项开工前置已确认，含六片切分与 B1~B8 验收）                                                                    |
+| standards/01 ~ 09                                 | 定稿 | 仓库结构 / git 工作流 / 文档 / 代码 / 测试 / 安全 / AI 协作 / 体量 / 规范复查                                                                                 |
+| glossary.md                                       | 草稿 | 术语表（首批 19 条）                                                                                                                                          |
+| adr/ADR-0001-implementation-stack                 | 定稿 | 实现技术栈：TypeScript / Node.js（MVP）                                                                                                                       |
+| adr/ADR-0002-single-host-mvp                      | 定稿 | MVP 单机部署形态（接口按可远程化设计）                                                                                                                        |
+| adr/ADR-0003-model-gateway                        | 定稿 | 模型调用统一经 Core 模型网关（预算权威记账）                                                                                                                  |
+| adr/ADR-0004-ledger-consistency-point             | 定稿 | 执行账本按轮边界落盘（一致点 + 恢复语义）                                                                                                                     |
+| architecture/01-keel-overview                     | 定稿 | 架构总览：不变量、三层架构、插件模型、关键机制、验收用例                                                                                                      |
+| design/phase-1/01-core-api-contract               | 定稿 | Core API 契约：可见面矩阵、接口/事件表、错误码、超时重试、授权×预算时序、hook 白名单                                                                          |
+| design/phase-1/02-compensation-state-machine      | 定稿 | 补偿事务状态机：效果生命周期、触发与编排、幂等契约、三级分级、升级与豁免                                                                                      |
+| design/phase-1/03-plugin-manifest                 | 定稿 | 插件 manifest 设计：四要素、能力词表、补偿模板制、版本迁移、装配五步校验（附 schema/ 下 JSON Schema 与两示例）                                                |
+| design/phase-1/04-cli-benchmarks-fixtures         | 定稿 | 切片⑤实现口径：CLI 七命令面、A8 四项基准测量口径、fixtures 三组收全清单与实现期定案                                                                           |
+| design/phase-1/05-cordis-adapter-prototype        | 定稿 | Cordis Adapter 原型口径：旧 API → scope 注册的最小映射、三条规则、有损边界显式报错清单                                                                        |
+| design/phase-1/report                             | 定稿 | Phase 1 阶段进度报告：A1~A8 逐条验收结果与证据、A8 基准数据、契约级测试点核对、体量核对与规范复查                                                             |
+| design/phase-2/01-cordis-migration-boundary       | 定稿 | Cordis 迁移边界：15 条旧写法逐档归类（A 直用 / B 补声明 / C 改写 / D 拒绝，D 档零例外）与迁移改法（含切片①补注、切片②两处改判）                               |
+| design/phase-2/02-adapter-skeleton                | 定稿 | Phase 2 切片①口径：旧 ctx 承接面清单、Cell 内构造 seam、运行期注册的通道与门禁、A 档合成样本组（含最坏写法探针）                                              |
+| design/phase-2/03-manifest-synthesis              | 定稿 | Phase 2 切片②口径：两遍观察 → 合成候选 → 人工审核 → 五步校验的权限收敛路径，装配编排与升级接缝、就绪时机（锚 B2、B6）                                         |
+| design/phase-2/04-c-surface-rewrite               | 定稿 | Phase 2 切片③口径：C 档三条改法的地面（三个 Keel 形状新面映射既有 op）+ before/after 真进程样本 + 迁移手册形态（锚 B3）                                       |
+| design/phase-2/05-migration-handbook              | 首版 | 面向存量插件方的迁移手册：全部 7 条 C 档行的 before/after 片段 + 病灶理由 + 证据位置 + 行为差异（D 档单列，零例外）                                           |
+| design/phase-2/06-policy-chain-and-d-tier-refusal | 定稿 | Phase 2 切片④口径：策略插件 → HookBus 装配链（ADR-0012 落地）+ D 档硬拒绝的"零部分生效"核对法（锚 B4、B7①）                                                   |
+| adr/ADR-0005-cell-isolation                       | 定稿 | Cell 隔离选型：MVP 进程级，演进期 IsolationProvider 抽象 + 容器后端                                                                                           |
+| adr/ADR-0006-mit-license                          | 定稿 | 许可证选用 MIT（版权主体留占位，落实见 ADR-0007）                                                                                                             |
+| adr/ADR-0007-copyright-attribution                | 定稿 | 版权署名落实为 GitHub 用户名 qingbird1983（LICENSE + 两份 README 同步）                                                                                       |
+| adr/ADR-0008-decision-attribution-upper-bound     | 定稿 | 决策依据改为"关键引用 + 上界游标 throughSeq"，覆盖组件直写事件（Phase 2 切片⑤落地）                                                                           |
+| adr/ADR-0009-await-async-resource-release         | 定稿 | 异步资源释放必须 await（standards/04 §3 补条）+ 测试实例登记关闭 + CI 双 Node 矩阵                                                                            |
+| adr/ADR-0010-runtime-tool-registration-channel    | 定稿 | 运行期工具注册通道：新增 `tool.register`/`tool.remove` 两个 Cell→Core op，`tool.provide` 语义扩到运行期（能力词表不增项）                                     |
+| adr/ADR-0011-cell-load-gate                       | 定稿 | Cell 装载门与就绪凭据：插件装载完成前不受理调用，宿主以一次 `cell.snapshot` 应答确认就绪（超时口径入契约 §7）                                                 |
+| adr/ADR-0012-policy-plugin-process-and-hook-op    | 定稿 | 策略插件的执行位置与插话通道：策略代码跑在自己的进程、新增 Host→Cell op `policy.hook`、失败一律既有 fallback、插话点冲突装配期整份拒、装配审计追加 `policies` |
+| design/phase-0/report                             | 定稿 | Phase 0 阶段进度报告：验收 A1~A7 通过、体量与规范复查                                                                                                         |
 
 > research/ 暂无文档；design/phase-1/ 另两份（补偿状态机、插件 manifest）为 Phase 0 后续交付物（见 phase-0 §4），产出即登记本表。
