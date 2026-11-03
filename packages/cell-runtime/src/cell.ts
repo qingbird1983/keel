@@ -60,6 +60,16 @@ export interface CompensationExecInput {
 /** 插件补偿动作处理器（export const compensations 表项；必须容忍目标不存在，状态机 §6）。 */
 export type CompensationHandler = (input: CompensationExecInput) => Promise<unknown> | unknown;
 
+/**
+ * 策略插件的插话处理体（切片④回填项 ①，ADR-0012 决策 1/2）。
+ *
+ * 形状刻意薄到只有一进一出：入参 = 内核给出的 hook 入参（不含任何可操作句柄），
+ * 出参 = verdict 原样。**裁决与响应禁区校验都在内核的 HookBus**——把校验挪进舱内
+ * 等于让被审者自审（ADR-0012 决策 2）。时限也不在这里造：策略舱没有 `toolCallTimeoutMs`
+ * 这个量（报关单 `resources` 必须是空对象），唯一预算是宿主侧 hook 请求超时 + HookBus 超时。
+ */
+export type PolicyHookHandler = (input: unknown) => Promise<unknown> | unknown;
+
 /** 内核指派的工具视图（tool.register 返回；Cell 侧不得自算版本，ADR-0010 决策 4）。 */
 export interface RegisteredToolView {
   name: string;
@@ -110,6 +120,12 @@ export interface CellHandle {
   setMigration(fn: (oldState: unknown) => Promise<unknown> | unknown): void;
   /** 注册补偿动作表（插件 export const compensations；切片④）。 */
   setCompensations(map: Record<string, CompensationHandler>): void;
+  /**
+   * 注册策略插话表（策略舱专用；切片④，ADR-0012）。**与 `setCompensations` 不同**：
+   * 这里登记的是"本舱能应答哪几个 hook"，宿主只会按报关单声明的名字来问——问了没登记的
+   * 名字不会静默走默认值，而是以 `CELL/ACTION-UNKNOWN` 明确拒绝（归因链要能指到"没登记"）。
+   */
+  setHooks(map: Record<string, PolicyHookHandler>): void;
   /** 注册快照索取面（插件 export function snapshot；无注册 = 无状态 Cell，切片④）。 */
   setSnapshotProvider(fn: () => Promise<unknown> | unknown): void;
   /** A5：新 Cell 内、快照挂载后首轮前执行；失败由 Host 回退旧作用域。 */
@@ -140,6 +156,7 @@ export function startCell(opts: CellOptions): CellHandle {
   const conn = new FrameConn(opts);
   const tools = new Map<string, CellTool>();
   const compensations = new Map<string, CompensationHandler>();
+  const hooks = new Map<string, PolicyHookHandler>();
   const now = opts.now ?? (() => Date.now());
   let migration: ((oldState: unknown) => Promise<unknown> | unknown) | null = null;
   let snapshotProvider: (() => Promise<unknown> | unknown) | null = null;
@@ -186,6 +203,20 @@ export function startCell(opts: CellOptions): CellHandle {
       }
       case "cell.snapshot":
         return { state: snapshotProvider ? await snapshotProvider() : null };
+      case "policy.hook": {
+        // 策略舱方向（ADR-0012）：不设舱内时限（F11——策略没有 toolCallTimeoutMs 这个量），
+        // 预算唯一来源是宿主侧请求超时 + 内核 HookBus 超时；两处都走既有 fallback 口径。
+        const req = params as { hook?: unknown; input?: unknown };
+        const fn = hooks.get(String(req.hook));
+        if (!fn) {
+          throw new ChannelError(
+            "CELL/ACTION-UNKNOWN",
+            `policy hook not registered: ${String(req.hook)}`,
+            { hook: req.hook },
+          );
+        }
+        return await fn(req.input);
+      }
       case "cell.migrate":
         if (!migration) {
           throw new ChannelError("CELL/MIGRATION-MISSING", "no migration hook registered");
@@ -268,6 +299,9 @@ export function startCell(opts: CellOptions): CellHandle {
     },
     setCompensations(map) {
       for (const [ref, fn] of Object.entries(map)) compensations.set(ref, fn);
+    },
+    setHooks(map) {
+      for (const [name, fn] of Object.entries(map)) hooks.set(name, fn);
     },
     setSnapshotProvider(fn) {
       snapshotProvider = fn;

@@ -150,7 +150,7 @@ Cell 侧适配器无凭证、无直连网络能力；网关故障 = 发起 Cell 
 
 共性硬规则：同步调用、默认超时 200ms；**hook 失败/超时 = 采用默认策略并记 `HOOK_VERDICT{fallback:true}`**；每次调用与裁决入账本（归因）；白名单封闭——新增 hook 类型必须 ADR（防"变相接管"，architecture/01 §10）。
 
-> 实现期细化（2026-11-03 Phase 2 切片④，[ADR-0012](../../adr/ADR-0012-policy-plugin-process-and-hook-op.md)）：策略插件的代码在**自己的进程**里执行（"策略舱"），宿主经新增的 Host→Cell 方向 op `policy.hook`（载荷 `{hook, round, input}`）调用它——这是 §3.3 那一行"被动、无主动接口"的落地形状：策略舱**不注入 `CellClient`**，除 hook 入参外确实什么都拿不到。裁决与响应禁区校验**仍归内核 `HookBus`**（校验下移到舱内 = 让被审者自审）；超时 / handler 抛错 / 通道断 / 响应违规一律走本节既有 fallback 口径，**不新增错误码、不新增时限数**（策略报关单的 `resources` 按 manifest 稿必须是空对象，插话时限的唯一来源就是本节的 200ms）。同一 hook 被两份策略声明 → **装配期整份拒绝**，不做"同名覆盖"（覆盖 = 静默改判）。
+> 实现期细化（2026-11-03 Phase 2 切片④，[ADR-0012](../../adr/ADR-0012-policy-plugin-process-and-hook-op.md)）：策略插件的代码在**自己的进程**里执行（"策略舱"），宿主经新增的 Host→Cell 方向 op `policy.hook`（载荷 `{hook, input}`——**没有 `round`**：内核递给 handler 的只有入参本体，轮号由同一次调用写入的 `HOOK_CALLED{hook, round}` 记账，见 ADR-0012 实施注记 1）调用它——这是 §3.3 那一行"被动、无主动接口"的落地形状：策略舱**不注入 `CellClient`**，除 hook 入参外确实什么都拿不到。裁决与响应禁区校验**仍归内核 `HookBus`**（校验下移到舱内 = 让被审者自审）；超时 / handler 抛错 / 通道断 / 响应违规一律走本节既有 fallback 口径，**不新增错误码、不新增时限数**（策略报关单的 `resources` 按 manifest 稿必须是空对象，插话时限的唯一来源就是本节的 200ms）。同一 hook 被两份策略声明 → **装配期整份拒绝**，不做"同名覆盖"（覆盖 = 静默改判）。
 
 ## 5. 事件表（账本 schema）
 

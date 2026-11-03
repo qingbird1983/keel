@@ -1,0 +1,15 @@
+{
+  "$schema": "https://keel.dev/schema/keel-plugin.schema.json",
+  "kind": "policy",
+  "meta": {
+    "name": "neg-policy-with-timeout",
+    "version": "1.0.0",
+    "title": "Negative: policy manifest declaring resources",
+    "description": "负例（切片④ F11）：policy 的 resources 必须是空对象——策略插件没有「工具时限」这个量，插话预算只有契约 §7 的 hook 超时一处，不允许为策略另造第二套时限"
+  },
+  "permissions": [],
+  "resources": { "toolCallTimeoutMs": 5000 },
+  "compensation": { "templates": [] },
+  "compat": { "keelContract": "^1.0" },
+  "hooks": ["toolApproval"]
+}

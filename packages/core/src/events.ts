@@ -90,6 +90,12 @@ export interface AssemblyRecordedPayload {
   compensation: { kind: string; compensationClass: string; idempotency: string }[];
   /** 热装配升级时被替换的旧版本（V5：被切换的是作用域绑定，无全局突变）。 */
   replacesVersion?: string;
+  /**
+   * 本 run 绑定的策略插件与各自申领的插话点（切片④ 回填项 ①，ADR-0012 决策 6）。
+   * **追加字段**：缺省不写（没绑策略的运行与 Phase 1 的旧账本样例形状不变、仍可读）。
+   * 动机是 V6 的可回答性——策略不插话时账本对它零记录，"绑了但没说话"必须还能与"根本没绑"分辨。
+   */
+  policies?: { name: string; version: string; hooks: string[] }[];
 }
 
 export interface RoundPayload {

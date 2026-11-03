@@ -10,7 +10,7 @@ import { afterAll, describe, expect, it } from "vitest";
 const repoRoot = path.resolve(".");
 const bin = path.join(repoRoot, "apps", "keel", "dist", "main.js");
 
-function run(args: string[], timeout = 60_000): { status: number; stdout: string } {
+function run(args: string[], timeout = 60_000): { status: number; stdout: string; stderr: string } {
   try {
     const stdout = execFileSync(process.execPath, [bin, ...args], {
       cwd: repoRoot,
@@ -18,10 +18,11 @@ function run(args: string[], timeout = 60_000): { status: number; stdout: string
       timeout,
       stdio: ["ignore", "pipe", "pipe"],
     });
-    return { status: 0, stdout };
+    return { status: 0, stdout, stderr: "" };
   } catch (err) {
-    const e = err as { status?: number; stdout?: string };
-    return { status: e.status ?? 1, stdout: e.stdout ?? "" };
+    // 非零退出也要看得见 stderr：拒绝类断言（keel <cmd>: <message>）走的是 console.error
+    const e = err as { status?: number; stdout?: string; stderr?: string };
+    return { status: e.status ?? 1, stdout: e.stdout ?? "", stderr: e.stderr ?? "" };
   }
 }
 
@@ -30,6 +31,51 @@ afterAll(() => {
 });
 
 describe("keel CLI（bin 冒烟）", () => {
+  it("run --policy-*：策略舱经交付入口接进真实 run（B7① 的 CLI 现场证据）", () => {
+    const r = run([
+      "run",
+      "--manifest",
+      "docs/design/phase-1/schema/examples/capability-webfetch.json",
+      "--plugin",
+      "tests/fixtures/ok-plugin.mjs",
+      "--tool",
+      "ok",
+      "--policy-manifest",
+      "docs/design/phase-1/schema/examples/policy-budget-guard.json",
+      "--policy-module",
+      "tests/fixtures/policies/guard-two-hooks.mjs",
+    ]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("status: halted");
+    // 绑定关系看得见（名字/版本/申领的插话点）——来自装配期起好的策略舱，不是测试自己数的
+    expect(r.stdout).toContain("hooks:  budget-guard@0.3.1→toolApproval|budgetExhaustedChoice");
+    // 一次工具动作 = 一次 hook① 介入，两条留痕都进了事件计数
+    expect(r.stdout).toContain("HOOK_CALLED×1");
+    expect(r.stdout).toContain("HOOK_VERDICT×1");
+  }, 90_000);
+
+  it("run --policy-*：两份策略抢同一插话点 → 装配期整份拒绝（退出码非 0，不起任何舱）", () => {
+    const r = run([
+      "run",
+      "--manifest",
+      "docs/design/phase-1/schema/examples/capability-webfetch.json",
+      "--plugin",
+      "tests/fixtures/ok-plugin.mjs",
+      "--policy-manifest",
+      "docs/design/phase-1/schema/examples/policy-budget-guard.json",
+      "--policy-module",
+      "tests/fixtures/policies/guard-two-hooks.mjs",
+      "--policy-manifest",
+      "docs/design/phase-1/schema/examples/policy-budget-guard.json",
+      "--policy-module",
+      "tests/fixtures/policies/deny-transfer.mjs",
+    ]);
+    expect(r.status).not.toBe(0);
+    // 拒绝的话要说清是哪一条插话点被抢（ADR-0012 决策 5）
+    expect(`${r.stdout}${r.stderr}`).toContain("two policies claim hook");
+    expect(`${r.stdout}${r.stderr}`).not.toContain("runId:");
+  }, 90_000);
+
   it("validate：负路径组全拒（exit 0）", () => {
     const r = run(["validate", "--dir", "fixtures/manifest-negative", "--expect", "reject"]);
     expect(r.status).toBe(0);

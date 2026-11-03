@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { RunDriver } from "@keel/core";
+import type { PolicySpec } from "@keel/host";
 import {
   assembleManifest,
   buildRuntime,
@@ -27,13 +28,34 @@ export interface RunOptions {
   /** 轮数（缺省 2：轮 1 调工具，轮 2 收束）。 */
   rounds?: number;
   dataDir?: string;
+  /**
+   * 策略插件绑定（切片④ 回填项 ①）：`--policy-manifest` 与 `--policy-module` **按顺序成对**，
+   * 可各给多次。两份策略申领同一个插话点 → 装配期整份拒绝（ADR-0012 决策 5）。
+   */
+  policyManifests?: string[];
+  policyModules?: string[];
 }
 
 /** @returns 退出码：0 = 终态 halted；1 = 其他终态/异常。 */
 export async function cmdRun(opts: RunOptions): Promise<number> {
   const manifest = assembleManifest(JSON.parse(readFileSync(opts.manifest, "utf-8")));
+  const policySpecs: PolicySpec[] = (opts.policyManifests ?? []).map((file, i) => {
+    const modulePath = (opts.policyModules ?? [])[i];
+    if (!modulePath) {
+      throw new Error(
+        `--policy-module missing for policy #${i + 1}（策略必须成对给报关单与模块路径）`,
+      );
+    }
+    return {
+      manifest: assembleManifest(JSON.parse(readFileSync(file, "utf-8"))),
+      modulePath,
+    };
+  });
   const dataDir = opts.dataDir ?? (await mkdtemp(path.join(tmpdir(), "keel-run-")));
-  const rt = await buildRuntime(dataDir, { policy: runPolicy(manifest, "keel-cli") });
+  const rt = await buildRuntime(dataDir, {
+    policy: runPolicy(manifest, "keel-cli"),
+    policies: policySpecs,
+  });
   try {
     const tool = opts.tool ?? "ok";
     const total = opts.rounds ?? 2;
@@ -56,6 +78,12 @@ export async function cmdRun(opts: RunOptions): Promise<number> {
     console.info(
       `events: ${events.length} → ${[...counts].map(([t, n]) => `${t}×${n}`).join(" ")}`,
     );
+    if (policySpecs.length > 0) {
+      // 交付入口也要看得见"谁被绑上了"（B7① 的账本凭据之外，这行是给复演人的现场证据）
+      console.info(
+        `hooks:  ${rt.policies.map((b) => `${b.summary.name}@${b.summary.version}→${b.summary.hooks.join("|")}`).join(" ")}`,
+      );
+    }
     return status.state === "halted" ? 0 : 1;
   } finally {
     await closeRuntime(rt);

@@ -64,6 +64,7 @@ export {
 export { ContextManager, type ToolEntry } from "./context.js";
 export {
   HookBus,
+  HOOK_TIMEOUT_MS,
   type BudgetExhaustedChoiceVerdict,
   type HookBusOptions,
   type HookCallResult,

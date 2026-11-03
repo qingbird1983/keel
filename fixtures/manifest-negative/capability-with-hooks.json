@@ -1,0 +1,15 @@
+{
+  "$schema": "https://keel.dev/schema/keel-plugin.schema.json",
+  "kind": "capability",
+  "meta": {
+    "name": "neg-capability-with-hooks",
+    "version": "1.0.0",
+    "title": "Negative: capability manifest carrying hooks",
+    "description": "负例（切片④ B4 / 01 稿 #2 拆支归 #14）：能力插件持钩子面。capability 分支的 hooks 必须为空（maxItems:0），策略与能力是两支——不给「能力插件顺手装钩子」留通道"
+  },
+  "permissions": [{ "cap": "tool.provide" }],
+  "resources": { "toolCallTimeoutMs": 5000 },
+  "compensation": { "templates": [] },
+  "compat": { "keelContract": "^1.0" },
+  "hooks": ["toolApproval"]
+}

@@ -1,6 +1,6 @@
 # Cordis 插件迁移手册（切片③ 首版）
 
-- 状态：**首版**（2026-11-03 随 Phase 2 切片③ 交付；覆盖 [01 稿 边界表](01-cordis-migration-boundary.md) 全部 7 条 C 档行的 before/after，其中 B3 三条有真进程样本）
+- 状态：**首版**（2026-11-03 随 Phase 2 切片③ 交付；覆盖 [01 稿 边界表](01-cordis-migration-boundary.md) 全部 7 条 C 档行的 before/after，其中 B3 三条有真进程样本）。**2026-11-03 切片④ 更新 §8**：D 档的出路从"只给方向"变成可抄的迁移路径（策略舱 + `keel run --policy-*`），并补了证据落点表
 - 读者：**存量 Cordis 插件的写法方**（不是本项目评审）。评审口径看 01/02/03/04 四份设计稿与 [phase-2 合同](../../roadmap/phase-2-cordis-compat.md)
 - 材料性质：本手册的"旧写法片段"是我们按旧框架典型写法**亲手写出的合成样本**，不是从真实存量插件里摘的——真样本到位后按 01 稿 §5 的义务回填，在此之前不得表述为"真实存量插件已验证"
 
@@ -238,7 +238,21 @@ const page = await ctx.ledger.read(); // { events: [...] }，仅本 run
 | #7 插件自己判断预算/停止条件、接管下一动作 | 插件不能替换 Agent Loop（不变量 I1/V6） | 白名单四个 hook（审批 / 停止建议 / 重试建议 / 耗尽选择），且响应里夹带"下一动作"类字段会被直接拒绝 |
 | #14 用策略插件绕开控制面                   | 控制面唯一是内核；这是 Keel 存在的理由  | 同上：`kind:"policy"` 的 manifest 按四 hook 白名单声明；能力插件不持钩子面                         |
 
-D 档零例外（所有者确认 2026-11-02）：不因"存量插件普遍这么写"而开口子。**注意**：策略插件 → hook 总线的装配链尚未接通（Phase 1 登记的限制），本手册这里只给出方向；证据由切片④补（[合同 §6 风险 3](../../roadmap/phase-2-cordis-compat.md)）。承接层对 `ctx.hooks.*` 抛 `ADAPTER/UNSUPPORTED`，不会"先注册上、以后再管"。
+D 档零例外（所有者确认 2026-11-02）：不因"存量插件普遍这么写"而开口子。承接层对 `ctx.hooks.*` 抛 `ADAPTER/UNSUPPORTED`，不会"先注册上、以后再管"。
+
+**2026-11-03 切片④：这一节的"方向"现在有地面了**（原先登记的 Phase 1 限制——"策略插件 → hook 总线的装配链尚未接通"——已兑现，口径见 [ADR-0012](../../adr/ADR-0012-policy-plugin-process-and-hook-op.md)）。迁移路径具体是：
+
+1. 把插件里的自建风控/自建停止逻辑删掉，改成一张 `kind:"policy"` 的报关单，按四 hook 白名单申领（`toolApproval` / `stopAdvice` / `retryAdvice` / `budgetExhaustedChoice`）；
+2. 策略模块只导出一种东西：`export const hooks = { <申领的名字>: async fn }`——**导出的键集必须等于声明的键集**，多了少了都在装载期被拒（不起半活的舱）；
+3. 代码路径由宿主配置给（`keel run --policy-manifest <报关单> --policy-module <模块>`），报关单里没有代码路径字段：声明不指定实现；
+4. 策略进程**没有任何主动接口**：拿不到的东西包括账本句柄、调度器、预算器、以及"安排下一个动作"的权力。响应体里夹带 `nextTool` / `schedule` 之类字段会被内核**整份作废**并回落默认策略——不是"合法字段照用、多余字段忽略"。
+
+| 断言（迁移后要能自己验）       | 证据落点                                                                                              |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| 四个插话点逐条介入且可归因     | `tests/policy-chain-attribution.test.ts`（B7①：真进程 + 真 run + `DECISION.basedOn` 含介入 seq）      |
+| 夹带下一动作 / 自建预算被拒    | 同上文件（策略侧）与 `tests/cordis-d-tier.test.ts`（B4：三枚旧形状尝试样本 + 事件计数核对）           |
+| 抢同一插话点整份拒、不级联     | `packages/host/test/policy-link.test.ts`（零起舱零注册 + 策略舱死亡后 run 照常收束）                  |
+| 装载期形状核对（两张皮不起舱） | `packages/cell-runtime/test/policy-cell.test.ts` 与 `tests/policy-chain-attribution.test.ts` 的负样本 |
 
 ## 9. 迁移检查清单
 
@@ -252,4 +266,4 @@ D 档零例外（所有者确认 2026-11-02）：不因"存量插件普遍这么
 - [ ] 全文检索 `ctx.share` / `ctx.effects.reclaim` / `ctx.hooks` / `ctx.config` / `ctx.llm` / `ctx.net` / `ctx.scope` ——**必须零命中**（这些面一条都没放行）
 - [ ] 长任务与定时器不指望阻塞主进程（每 run 独立进程，快照面暴露私有状态）
 
-真进程验收看 `tests/cordis-c-surface.test.ts`（B3）与 `tests/cordis-symbol-scan.test.ts`（B5：样本里每个 `ctx.*` 符号必须在四桶清单里有归属，未归类即红）。
+真进程验收看 `tests/cordis-c-surface.test.ts`（B3）、`tests/cordis-d-tier.test.ts`（B4 的 D 档拒绝与零部分生效）、`tests/policy-chain-attribution.test.ts`（B7① 的策略介入与归因）与 `tests/cordis-symbol-scan.test.ts`（B5：样本里每个 `ctx.*` 符号必须在四桶清单里有归属，未归类即红）。

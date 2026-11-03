@@ -5,7 +5,8 @@
  *
  * 已落地（切片③④ + Phase 2 切片①②）：进程后端 / Supervisor 生命周期与退出三分类 / 装配五步校验 /
  * 热装配与回退 / effect.declare 服务端（C-M1 焊点）/ 效果追踪与结算 / 补偿投影与编排 /
- * recover.plan/execute / 轮边界快照索取缝 / 声明→规则编译 / 运行期注册通道服务端 / 装配收敛点 wireCell（含就绪探测）。
+ * recover.plan/execute / 轮边界快照索取缝 / 声明→规则编译 / 运行期注册通道服务端 / 装配收敛点 wireCell（含就绪探测）/
+ * 策略插件装配链 wirePolicies（切片④，ADR-0012）。
  */
 
 export {
@@ -53,6 +54,13 @@ export {
   type WireCellParams,
   type WiredCell,
 } from "./wire-cell.js";
+export {
+  wirePolicies,
+  type PolicyBinding,
+  type PolicySummary,
+  type PolicySpec,
+  type WirePoliciesParams,
+} from "./policy-link.js";
 export {
   OBSERVED_ACTION_CAPS,
   contractRange,

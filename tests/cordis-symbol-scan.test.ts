@@ -68,9 +68,10 @@ const ALL_SURFACE = [
 const files = sampleFiles();
 
 describe("合成样本的「零改动 / 有损改写」机械判据（A/B/C 三档同批扫描，锚 B5）", () => {
-  it("样本组齐备：A 档 5 枚常规 + 4 枚探针 + 对照与反例，B 档 5 枚（03 稿 §7），C 档 7 枚成对（04 稿 §3.3）", () => {
+  it("样本组齐备：A 档 5 枚常规 + 4 枚探针 + 对照与反例，B 档 5 枚（03 稿 §7），C 档 7 枚成对（04 稿 §3.3），D 档 3 枚尝试 + B7 工具集 1 枚（06 稿 §3.2）", () => {
     expect(files.sort()).toEqual(
       [
+        "attribution-tools.cjs",
         "lib/extra-tools.cjs",
         "lib/late-count.cjs",
         "neg-undeclared.cjs",
@@ -97,6 +98,9 @@ describe("合成样本的「零改动 / 有损改写」机械判据（A/B/C 三�
         "tierC-08-share.cjs",
         "tierC-09-declare.cjs",
         "tierC-09-reclaim.cjs",
+        "tierD-07-carry-next.cjs",
+        "tierD-07-selfbudget-stop.cjs",
+        "tierD-14-self-hooks.cjs",
       ].sort(),
     );
   });
@@ -157,6 +161,28 @@ describe("合成样本的「零改动 / 有损改写」机械判据（A/B/C 三�
     for (const face of CORDIS_SURFACE.guide) {
       expect(CORDIS_SURFACE.mapped).not.toContain(face);
     }
+  });
+
+  it("判据 5 增量（切片④）：D 档尝试样本只碰两个面，hooks.register 仍在 refused（进 guide 即谎报）", () => {
+    const dFiles = files.filter((n) => n.startsWith("tierD-"));
+    expect(dFiles.sort()).toEqual([
+      "tierD-07-carry-next.cjs",
+      "tierD-07-selfbudget-stop.cjs",
+      "tierD-14-self-hooks.cjs",
+    ]);
+    const dSymbols = new Set<string>();
+    for (const f of dFiles) {
+      for (const s of ctxSymbols(readFileSync(path.join(PLUGIN_DIR, f), "utf8"))) {
+        dSymbols.add(s);
+      }
+    }
+    // 三枚尝试样本没有引出任何新面（"为了让它跑通而顺手加的地面"在这里被机器挡住）
+    expect([...dSymbols].sort()).toEqual(["hooks.register", "tools.register"]);
+    // #14 的出口只有"改报关单"这一条：这条面永远在 refused，不得被记成 guide/mapped
+    expect(CORDIS_SURFACE.refused).toContain("hooks.register");
+    expect(CORDIS_SURFACE.guide).not.toContain("hooks.register");
+    expect(CORDIS_SURFACE.mapped).not.toContain("hooks.register");
+    for (const face of CORDIS_SURFACE.guide) expect(dSymbols.has(face)).toBe(false);
   });
 
   it("承接面清单本身与边界表口径一致（映射三项 = #1；拒绝项覆盖 #2/#4/#5/#6/#8/#9/#14/#15）", () => {
