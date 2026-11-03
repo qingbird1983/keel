@@ -17,7 +17,7 @@ export const tools = [
       const first = await client.modelStreamStart({
         reqId: String(p.reqId ?? "req-all"),
         model: String(p.model ?? "m-stream"),
-        params: { n: Number(p.n ?? 20) },
+        params: { chunks: Number(p.chunks ?? 20) },
         estimate: Number(p.estimate ?? 50),
       });
       const seqs = first.chunks.map((c) => c.seq);
@@ -49,7 +49,7 @@ export const tools = [
       const first = await client.modelStreamStart({
         reqId: String(p.reqId ?? "req-cancel"),
         model: String(p.model ?? "m-stream"),
-        params: { n: Number(p.n ?? 20) },
+        params: { chunks: Number(p.chunks ?? 20) },
         estimate: Number(p.estimate ?? 50),
       });
       const delivered = first.chunks.length;

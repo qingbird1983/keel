@@ -1,6 +1,6 @@
 # Cordis 插件迁移手册（切片③ 首版）
 
-- 状态：**首版**（2026-11-03 随 Phase 2 切片③ 交付；覆盖 [01 稿 边界表](01-cordis-migration-boundary.md) 全部 7 条 C 档行的 before/after，其中 B3 三条有真进程样本）。**2026-11-03 切片④ 更新 §8**：D 档的出路从"只给方向"变成可抄的迁移路径（策略舱 + `keel run --policy-*`），并补了证据落点表
+- 状态：**首版**（2026-11-03 随 Phase 2 切片③ 交付；覆盖 [01 稿 边界表](01-cordis-migration-boundary.md) 全部 7 条 C 档行的 before/after，其中 B3 三条有真进程样本）。**2026-11-03 切片④ 更新 §8**：D 档的出路从"只给方向"变成可抄的迁移路径（策略舱 + `keel run --policy-*`），并补了证据落点表。**2026-11-03 切片⑤ 新增 §9/§10**：快照落盘之后"重启可恢复"的正确用法（含 `snapshot()` 的 JSON 可序列化约束与目录口径）、流式通道回填后旧面的去处（`ctx.llm` 未知成员不再是裸 `TypeError`）
 - 读者：**存量 Cordis 插件的写法方**（不是本项目评审）。评审口径看 01/02/03/04 四份设计稿与 [phase-2 合同](../../roadmap/phase-2-cordis-compat.md)
 - 材料性质：本手册的"旧写法片段"是我们按旧框架典型写法**亲手写出的合成样本**，不是从真实存量插件里摘的——真样本到位后按 01 稿 §5 的义务回填，在此之前不得表述为"真实存量插件已验证"
 
@@ -254,7 +254,54 @@ D 档零例外（所有者确认 2026-11-02）：不因"存量插件普遍这么
 | 抢同一插话点整份拒、不级联     | `packages/host/test/policy-link.test.ts`（零起舱零注册 + 策略舱死亡后 run 照常收束）                  |
 | 装载期形状核对（两张皮不起舱） | `packages/cell-runtime/test/policy-cell.test.ts` 与 `tests/policy-chain-attribution.test.ts` 的负样本 |
 
-## 9. 迁移检查清单
+## 9. 快照：私有状态 + 宿主重启后真能接着跑（切片⑤新增）
+
+**谁需要这一节**：插件在自己进程里存了状态（累加器、已建好的索引、重连需要的句柄参数），并且指望"宿主换了一个进程还能续上"。
+
+**旧写法的病灶**：Phase 1 的快照只住在宿主内存里。账本上写着 `STATE_SNAPSHOT_REF`，内容却随宿主进程一起没了——`keel recover` 换一个进程跑，必然 `RECOVER/SNAPSHOT-MISSING`，而且失败点离原因很远（当时的复现测试红就红在这里）。
+
+**改法（可抄）**：插件导出两个面，形状本来就是这样，本片只是让第一个面的**内容约束**成为事实：
+
+```js
+export function snapshot() {
+  return { ticks: state.ticks };
+} // 必须是纯 JSON 可序列化
+export function migrate(oldState) {
+  state = oldState ?? { ticks: 0 };
+  return { ...state };
+}
+```
+
+四条要记住的口径：
+
+1. **`snapshot()` 返回值必须能被 `JSON.stringify` 完整表达**。函数、symbol、`bigint`、循环引用 = **可见失败**（该 run 非零退出并打 `snapshot-persist: FAILED round=…`），不是"那几个字段悄悄没了"。这条是新增的隐含约束：`JSON.stringify` 对函数与 symbol 的默认行为是**丢掉**，内核加了守卫就是为了不把"丢掉"当成成功。
+2. **目录**：`keel run … --snapshots <dir>`；不给就落在由 `--data-dir` 派生的同级 `<name>-snapshots`。`keel recover` 必须给**同一个目录**，否则等价于第 1 条限制里的"内容不在"。
+3. **写序 = 先内容后引用**：账本里出现某个 ref 就意味着那一刻文件已落盘；此后 ref 取不到内容只可能是目录被外部清掉（错误会把 ref 打在明面上）。
+4. **版本号跨进程接续**：重启后不会从 `snap-1` 重新计数去覆盖历史快照——历史快照是归因材料，覆盖它等于改历史。
+
+**跑在哪**：`packages/host/test/snapshot-store.test.ts`（八条：ref 形状不变但路径另派生、冷启动接续、tmp+rename 不留残件、不可序列化即抛且不落 ref、坏 ref 读成"没有"）与 `tests/snapshot-cross-host.test.ts`（真子进程：进程 A 崩溃 → 新进程 recover 读到 `{"ticks":2}` → `RUN_RECOVERED`；目录被删 → `SNAPSHOT-MISSING` 且 ref 可见）。
+
+**行为差异**：从"重启即失忆、且失忆得看不出来"变成"重启可恢复；不能恢复时会明确告诉你哪一份快照没了"。
+
+## 10. 流式：内核回填了通道，旧面一条都没放行（切片⑤新增）
+
+**旧写法**：`ctx.llm.chat(...)` 一直是显式拒（边界表 #6，C 档）。切片⑤之前，写成 `ctx.llm.chatStream(...)` 这类**不存在的成员**会拿到 `undefined`，随后是一次裸 `TypeError: ctx.llm.chatStream is not a function`——那种失败没有改法去处，等于"没交代"。
+
+**现在的行为**：`ctx.llm` 这个命名空间的任何字符串成员都抛 `ADAPTER/UNSUPPORTED` + 去处（指向 `ctx.model.invoke`）。这**不是**"旧框架有 `chatStream`"的断言：承接层不替旧框架发明 API，边界表 #6 那一行也没有新增符号归属（机械核对在 `tests/cordis-symbol-scan.test.ts`）。真样本暴露出具体旧符号时，按 B5 义务先补边界表行再收口。
+
+**内核侧的流式在哪**：它是**新生态**的舱内客户端面——`client.modelStreamStart` / `modelStreamNext` / `modelStreamCancel`（`@keel/cell-runtime`），走 `model.stream.*` 三个 op。报关单不需要新字段：`model.adapter` 一项能力编译出 `model.invoke` + `model.stream` 两条动作（[ADR-0013](../../adr/ADR-0013-model-stream-pull-chunking.md) 决策 6）。
+
+**旧插件要流式 = C 档改写**：改的是调用点（把"我自己开一条流"改成"逐页向内核取"），承接层不做自动映射——把旧流式面自动接到新通道，就是把 #6 谎报成 A 档。改写时要接受的三条语义：
+
+1. 拉式：**不 `next` 就不向上游取片**（背压由构造消解，没有"事件推过来接不住"这回事）；
+2. 断流（等待到点 / 总长到点 / 主动 `cancel`）= **已产出部分照常结算**，`MODEL_USAGE.truncated:true`；一片都没出的断流是失败，但仍然闭环不留悬空预扣；
+3. 上游中途抛 = 报错，**不会**把半截内容标成"这次说完了"。
+
+**跑在哪**：`packages/core/test/gateway-stream.test.ts`（记账四条不变式 + 四种终局）、`tests/model-stream-channel.test.ts`（真子进程：分片顺序、跨通道错误带 `detail`、邻居舱零扰动）、`keel bench` 的 B5a/B5b 两行（首片与全流延迟，只测量不设阈值）。
+
+**行为差异**：流式第一次在同一套授权/预算/账本不变式里；旧面依旧一条不通，但**不再以裸 `TypeError` 的形式不通**。
+
+## 11. 迁移检查清单
 
 - [ ] activation 里的注册/查表都 `await` 了（§1）
 - [ ] 删掉了所有自取密钥与自带 SDK 的调用，改成 manifest 声明能力（§2、§3）
@@ -265,5 +312,7 @@ D 档零例外（所有者确认 2026-11-02）：不因"存量插件普遍这么
 - [ ] 去掉了 `ctx.bus.*`；改用工具参数或 `ctx.ledger.read`（§7）
 - [ ] 全文检索 `ctx.share` / `ctx.effects.reclaim` / `ctx.hooks` / `ctx.config` / `ctx.llm` / `ctx.net` / `ctx.scope` ——**必须零命中**（这些面一条都没放行）
 - [ ] 长任务与定时器不指望阻塞主进程（每 run 独立进程，快照面暴露私有状态）
+- [ ] 有私有状态且指望"重启续上"的：`snapshot()` 返回值能被 `JSON.stringify` 完整表达（无函数 / symbol / `bigint` / 循环引用），`run` 与 `recover` 给同一个 `--snapshots`（§9）
+- [ ] 要流式的：改写成内核的 `model.stream.*` 三 op 并声明 `model.adapter`，接受"断流按已产出部分结算"与"上游抛 = 报错不返半截"两条语义（§10）
 
 真进程验收看 `tests/cordis-c-surface.test.ts`（B3）、`tests/cordis-d-tier.test.ts`（B4 的 D 档拒绝与零部分生效）、`tests/policy-chain-attribution.test.ts`（B7① 的策略介入与归因）与 `tests/cordis-symbol-scan.test.ts`（B5：样本里每个 `ctx.*` 符号必须在四桶清单里有归属，未归类即红）。

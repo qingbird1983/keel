@@ -1,6 +1,6 @@
 # Keel Core API 契约
 
-- 状态：定稿（2026-11-02 所有者确认；同日修订三处：① ADR-0005 定稿，回填 §7 隔离敏感超时；② 任务 D 成稿，§5 补充三类补偿事件；③ 所有者评审勘误与澄清——§4.3 configure 边界、§4.5 恢复补偿作用域、§6 错误码拆分；切片③实现期注记两处：§4.1 ④⑤、§5 ASSEMBLY_RECORDED；**2026-11-03 Phase 2 切片①追加：§3.3 与 §4.6 增 `tool.register`/`tool.remove` 两个 Cell→Core op，依据 [ADR-0010](../../adr/ADR-0010-runtime-tool-registration-channel.md)**；**2026-11-03 Phase 2 切片②追加：§3.1 增 Cell 装载门、§7 增就绪探测口径，依据 [ADR-0011](../../adr/ADR-0011-cell-load-gate.md)**）
+- 状态：定稿（2026-11-02 所有者确认；同日修订三处：① ADR-0005 定稿，回填 §7 隔离敏感超时；② 任务 D 成稿，§5 补充三类补偿事件；③ 所有者评审勘误与澄清——§4.3 configure 边界、§4.5 恢复补偿作用域、§6 错误码拆分；切片③实现期注记两处：§4.1 ④⑤、§5 ASSEMBLY_RECORDED；**2026-11-03 Phase 2 切片①追加：§3.3 与 §4.6 增 `tool.register`/`tool.remove` 两个 Cell→Core op，依据 [ADR-0010](../../adr/ADR-0010-runtime-tool-registration-channel.md)**；**2026-11-03 Phase 2 切片②追加：§3.1 增 Cell 装载门、§7 增就绪探测口径，依据 [ADR-0011](../../adr/ADR-0011-cell-load-gate.md)**；**2026-11-03 Phase 2 切片⑤追加与修订：§3.3+§4.7 流式三 op 与断流口径（依据 [ADR-0013](../../adr/ADR-0013-model-stream-pull-chunking.md)）、§4.1 注记⑧⑨⑩（throughSeq 盖章点 / 类型级 schemaVersion / drain 次序）、§4.5 快照落盘（替换那句"内存持有 + backlog"）、§5 三个追加字段、§6 两处口径、§12 关闭"背压与断流"一条**）
 - 日期：2026-11-02
 - 关联：[architecture/01](../../architecture/01-keel-overview.md)；[ADR-0001](../../adr/ADR-0001-implementation-stack.md) ~ [ADR-0005](../../adr/ADR-0005-cell-isolation.md)；[phase-0](../../roadmap/phase-0-design-baseline.md)（验收 A2/A3）
 
@@ -47,6 +47,8 @@ DSH 三类症状直接源于控制面缺少硬契约：**V6** Agent Loop 被插�
 账本 `append` 与 `checkpoint` 仅为 Core 内部函数，不出现在任何对外命名空间——调度器是唯一写入者（单写者，ADR-0004）。
 
 > 实现期细化（2026-11-03 Phase 2 切片①，[ADR-0010](../../adr/ADR-0010-runtime-tool-registration-channel.md)）：Cell 行追加 `tool.register` / `tool.remove`——**只携带工具名与 schema，永不携带 handler**（执行体留在 Cell 私有表，内核只认名字）；作用域与主体仍由通道绑定盖章，Cell 不可自报。二者是 Cell 可见面里唯一的**写**入口，故必须先过 `auth.check`（未声明 `tool.provide` 即拒并落 `AUTH_DENIED`），默认拒绝语义与 I4 一致。
+>
+> 实现期细化（2026-11-03 Phase 2 切片⑤，[ADR-0013](../../adr/ADR-0013-model-stream-pull-chunking.md)）：Cell 行再追加 `model.stream.start` / `model.stream.next` / `model.stream.cancel` 三个 op（§4.7 的流式落地形状）。权限动作 `model.stream` 随报关单的 `model.adapter` 编译，**能力词表与报关单字段零扩展**；会话归属由通道绑定的 `(runId, subject)` 盖章，Cell 不能拿别人的 `streamId` 取片。
 
 ## 4. 接口定义
 
@@ -67,6 +69,8 @@ DSH 三类症状直接源于控制面缺少硬契约：**V6** Agent Loop 被插�
 > 实现期细化（2026-11-02 切片③）：④ Cell 进程退出三分类（ADR-0005）经 Supervisor `abort` 缝写 `RUN_FAILED`，原因码 `CELL/CRASH` / `CELL/KILLED` / `CELL/CLEAN-EXIT`（载荷级字符串，不扩 §6 错误码表）；abort 与 cancel 语义对偶——cancel → `RUN_HALTED`，abort → `RUN_FAILED`，在途轮先正常收束再落终态；⑤ 装配记录经 `ASSEMBLY_RECORDED` 于 `run.start` 作为首事件落账（§5 注记）。
 >
 > 实现期细化（2026-11-02 切片④）：⑥ 补偿触发三模式与调度缝映射——预算耗尽中断 → `verify`（补偿稿 T4：只核验未决、不回滚）；`run.cancel`/halt 收束 → `run`（T5：全 Run 回滚）；fail-stop → `run`（T3：全 Run 回滚，尽力收尾）。`EFFECT_SETTLED` 由宿主效果追踪器写入（executor 包装按工具结果映射：ok→`done`、error/timeout→`unknown` 保守，超时语义遵循 §6「结果未知」）；落点序 = `EFFECT_DECLARED` → `EFFECT_SETTLED` → `TOOL_RESULT`；⑦ 恢复延续：`RunManifest.recoveredFrom` 携带旧 runId 与一致点 seq，`RUN_RECOVERED{newRunId, recoveredFromSeq}` 于新 run 首事件槽写入（随 ASSEMBLY_RECORDED 槽位，先于 `RUN_STARTED`）。
+>
+> 实现期细化（2026-11-03 Phase 2 切片⑤，[ADR-0008](../../adr/ADR-0008-decision-attribution-upper-bound.md) 落地）：⑧ `DECISION` 载荷追加 `throughSeq` = **本决策写入之前该 run 已存在的最大 seq**，由**账本在写队列执行期盖章**（`Ledger.append(..., {stampSeqBeforeAs})`），不由调度器自报——seq 本身在写入点分配，调用方先读后写会漏掉读与写之间落账的直写事件。`basedOn` 保持"关键引用"不扩成枚举（账本体积按轮线性）。归因表述 = 依据见 `basedOn`，看得见的一切 ≤ `throughSeq`。⑨ 信封 `schemaVersion` 改**按事件类型**取值（`EVENT_SCHEMA_VERSION` 表：`DECISION`/`MODEL_INVOKED`/`MODEL_USAGE` = 2，其余 = 1）——全局一枚常量递增会宣告所有类型都改过格式，而那不为真；读方不得因缺 `throughSeq` 报错，缺 = "旧账本，无显式上界"（`keel replay` 把这区分打在输出里）。⑩ Cell 收尾（drain）的确定次序：进入 `halting` 即**拒绝新动作**（`SCHED/BACKPRESSURE`，§6 既有准入码，语义是准入拒绝而非通道坏了）→ 等在途动作集合收束 → 硬界 = 既有的 `toolKillGraceMs`，期满仍在途则 kill → `reaped`。产物是宿主侧返回值 `DrainOutcome{inFlightAtStart, refused, settled, waitedMs, killed}`，**不是账本事件**（§5 是封闭集合；"在途动作因收尾而结果未知"已由 `EFFECT_SETTLED{status:"unknown"}` 留痕）。热升级的换绑**不 drain 旧舱**：`RunManifest.executor` 逐 run 捕获，提前 drain = 打断那个还在跑的 run（B6 主张靠这条次序钉住，不是靠巧合）。
 
 ### 4.2 授权器
 
@@ -111,6 +115,8 @@ DSH 三类症状直接源于控制面缺少硬契约：**V6** Agent Loop 被插�
 作用域澄清（2026-11-02 修订）：未决效果的补偿与核对在**原 runId 作用域内**完成；补偿闭环（或豁免）后，才以新 runId 延续。新 runId 不继承任何未决效果。
 
 > 实现期细化（2026-11-02 切片④）：补偿动作经**新补偿 Cell 进程**通道执行（同插件一次性 spawn、跑完即弃——ADR-0005「Host 侧上下文（或新 Cell）」路径；私有 op `compensation.exec`，未知 actionRef 拒绝，重试 ≤3 次/退避 ≤30s 钳制随补偿稿 §6）；快照挂载复用 `cell.migrate` 通道（入参 oldState = 快照，迁移钩兼作恢复挂载点，manifest 稿 §5.5 注记）；`RUN_RECOVERED` 作为新 run 首事件（§4.1 注记⑦）；`execute` 前置 = 旧 run 已终态（failed/halted）；快照 MVP = 宿主内存持有 + 账本 `STATE_SNAPSHOT_REF` 元数据（物理持久化登记 backlog）。
+>
+> 实现期细化（2026-11-03 Phase 2 切片⑤）：上面最后一句的"内存持有 + backlog"**已被替换**——快照内容落盘（`SnapshotStore({rootDir})`），写序 = **先内容后引用**（`save()` 成功之后宿主才写 `STATE_SNAPSHOT_REF`，账本不会留下指向不存在内容的 ref），原子性 = 同目录 tmp+rename，冷启动扫目录接续版本号（否则重启后从头计数会覆盖历史快照 = 归因污染）。ref 字符串形状不变（`<agentId>|<sessionId>/snap-<version>`），**路径另行派生** `<root>/<agentId>/<sessionId>/snap-<version>.json`——`|` 在 Windows 是非法文件名字符，ref 是标识符不是路径。目录来自 `keel run/recover --snapshots <dir>`，缺省 = 由账本根派生同级 `<name>-snapshots`（`dataDir` 的含义不变）。落盘失败是**可见失败**（交付入口报 `snapshot-persist: FAILED` 并非零退出），不做"跳过这次快照继续跑"。`RECOVER/SNAPSHOT-MISSING` 语义不变：ref 在、内容不在 = 外部破坏/目录丢失。
 
 ### 4.6 上下文管理器
 
@@ -132,12 +138,14 @@ DSH 三类症状直接源于控制面缺少硬契约：**V6** Agent Loop 被插�
 
 ### 4.7 模型网关（ADR-0003）
 
-| op             | 方向      | 语义                                                                                                            | 默认超时               | 幂等性                 | 主要错误                                                    |
-| -------------- | --------- | --------------------------------------------------------------------------------------------------------------- | ---------------------- | ---------------------- | ----------------------------------------------------------- |
-| `model.invoke` | Cell→Core | 授权 → `budget.reserve`（预扣估算）→ Core 持凭证代理调用 → `settle`（权威计量）→ 写 `MODEL_INVOKED/MODEL_USAGE` | 120s（非流式）         | 是（同 id 不重复计费） | `GATEWAY/UPSTREAM-ERROR`、`AUTH/DENIED`、`BUDGET/EXHAUSTED` |
-| `model.stream` | Cell→Core | 同上，流式透传；用量以流结束时机网关计量为准                                                                    | 连接 300s / 首字节 30s | 否（流式不重放）       | 同上                                                        |
+| op             | 方向      | 语义                                                                                                                                                                                                                      | 默认超时               | 幂等性                                                        | 主要错误                                                             |
+| -------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `model.invoke` | Cell→Core | 授权 → `budget.reserve`（预扣估算）→ Core 持凭证代理调用 → `settle`（权威计量）→ 写 `MODEL_INVOKED/MODEL_USAGE`                                                                                                           | 120s（非流式）         | 是（同 id 不重复计费）                                        | `GATEWAY/UPSTREAM-ERROR`、`AUTH/DENIED`、`BUDGET/EXHAUSTED`          |
+| `model.stream` | Cell→Core | **拉式分片三 op**（切片⑤落地形状，见下注记与 [ADR-0013](../../adr/ADR-0013-model-stream-pull-chunking.md)）：`start` = 授权 + 预扣 + 首页，`next` = 按消费方节奏取页，`cancel` = 主动收摊；用量在**流终局**按权威计量结算 | 首字节 30s / 总长 300s | 否（流式不重放；同 reqId 命中既有会话 = 返回同一 `streamId`） | 同 `model.invoke`，另加 `SCHED/NOT-FOUND`（会话不属于本 run 本主体） |
 
 Cell 侧适配器无凭证、无直连网络能力；网关故障 = 发起 Cell 本轮失败（`RUN_FAILED`），不级联其他 Cell。
+
+> 实现期细化（2026-11-03 Phase 2 切片⑤，[ADR-0013](../../adr/ADR-0013-model-stream-pull-chunking.md)）：**"流式透传"是形状上的重新解释，不是照字面把上游连接搭进舱内**。帧协议是一请求一响应（§3.1），推式分片要作废这条被 Supervisor 三处超时依赖的不变式，故选拉式：舱逐页取，内核逐页产。四条口径——① 记账时序一条不松：授权一次 → 预扣一次 → `MODEL_INVOKED` 一次（载荷追加 `streamId`）→ **每片不写事件**（否则账本体积成为流长度的函数）→ 终局 `MODEL_USAGE{usage, cost, truncated?}` + `settle`；无 settle 不算完成。② 背压由构造消解（§12 那条待决的前半）：消费方不 `next` 就不向上游取。③ 断流口径（待决的后半）：等待到点 / 总长到点 / `cancel` 三条终局都**按已产出部分结算并退还剩余预扣**，`MODEL_USAGE.truncated:true`；一片都没出的断流 = 失败（`GATEWAY/UPSTREAM-ERROR` + `detail.reason:"STREAM_STALL"|"STREAM_DEADLINE"`），但仍先 settle 闭环。④ 上游**中途抛**是第四条终局：先按断流口径闭环（settle 已产出部分 + `truncated:true` 用量），再把 `GATEWAY/UPSTREAM-ERROR{reason:"STREAM_UPSTREAM_THROW", produced, cost}` 报给发起方——半截答案不包装成 `done:true` 的完整回答（禁止静默降级）。未实现 `stream()` 的上游被请求流式 = 显式失败（`detail.reason:"UPSTREAM_NO_STREAM"`），**不降级为非流式**。时限全部取 §7 既有三档，不新增数、不新增错误码、不新增事件类型。
 
 ### 4.8 策略扩展点（D1：封闭白名单，仅此四个）
 
@@ -174,6 +182,8 @@ Cell 侧适配器无凭证、无直连网络能力；网关故障 = 发起 Cell 
 | CHECKPOINT                                                    | 一致点 seq、轮号                                                             | ADR-0004；重放自校验锚                                                                                                                     |
 
 > 实现期细化（2026-11-03 Phase 2 切片④，[ADR-0012](../../adr/ADR-0012-policy-plugin-process-and-hook-op.md)）：`ASSEMBLY_RECORDED` 载荷**追加** `policies: [{name, version, hooks[]}]`——记录这个 run 绑定了哪些策略插件及各自申领的插话点。动机是 V6 归因的可回答性：策略不插话时账本对它零记录，"绑了但没说话"与"根本没绑"否则不可分辨。追加字段，旧账本样例仍可读（切片⑤ `throughSeq` 的兼容性口径不变）。
+>
+> 实现期细化（2026-11-03 Phase 2 切片⑤）：三个载荷追加字段——`DECISION.throughSeq`（§4.1 注记⑧）、`MODEL_INVOKED.streamId`、`MODEL_USAGE.truncated`（只在截断时写，正常结束不写 = 与非流式时代的形状逐字节一致）。**事件类型一律不新增**：本片的四项回填（throughSeq / 快照落盘 / drain / 流式）合计新增 0 个事件类型、0 个写入者，ADR-0008 决策 3 反对的"每片一条事件"正是被这条纪律挡住的形状。信封 `schemaVersion` 按类型取值（§4.1 注记⑨），本表每一行的"谁写"没变。
 
 ## 6. 错误码
 
@@ -192,6 +202,8 @@ Cell 侧适配器无凭证、无直连网络能力；网关故障 = 发起 Cell 
 | `TRANSPORT/TIMEOUT`、`TRANSPORT/BADFRAME`                                                                | 通道类             | 幂等请求是                                      |
 
 约定：错误必须带 `code`；`TRANSPORT/TIMEOUT` 时**执行结果未知**——调用方不得假设未发生，必须经补偿核对路径确认（衔接任务 D）。
+
+> 实现期细化（2026-11-03 Phase 2 切片⑤）：① `SCHED/BACKPRESSURE` 有两处准入拒绝——调度器侧与**收尾中的 Cell 拒绝新调用**（§4.1 注记⑩），同一条"退避后是"的语义，不新开 `CELL/DRAINING`（本表是封闭集合，加码要走 ADR）。② 错误跨通道回传时 `detail` 与 `code` 同帧过去：Core 侧的 `KeelError` 不是 cell-runtime 的 `ChannelError`，序列化层曾按类型分支只保 `ChannelError` 的 detail，于是舱内只剩一个光码（断流"给了第几片、结了多少钱"全丢）——真进程流式测试踩到后修在 `toFrameError`，形状仍是 `{code, message, detail?}`。
 
 ## 7. 超时与重试基线
 
@@ -255,9 +267,9 @@ Cell        Core(auth)      Core(budget)     Gateway      账本
 
 ## 12. 待决问题
 
-| 问题                                                                 | 决定时限                                                              |
-| -------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `ledger.read` 游标语义（持续追加流的消费/滞留）细节                  | Phase 1 实现期细化，不阻塞定稿                                        |
-| `model.stream` 背压与断流恢复语义                                    | Phase 1 基准后回填                                                    |
-| `budget.configure` 的 Agent 级配置入口（所有者工具 or 配置文件热载） | MVP 用配置文件；接口已预留                                            |
-| 隔离敏感超时回填                                                     | ✅ 已解决：ADR-0005 定稿，§7 已回填（2026-11-02）；容器后端启用时重估 |
+| 问题                                                                 | 决定时限                                                                                  |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `ledger.read` 游标语义（持续追加流的消费/滞留）细节                  | Phase 1 实现期细化，不阻塞定稿                                                            |
+| `model.stream` 背压与断流恢复语义                                    | ✅ 已解决：切片⑤定形（拉式分片 + 四条记账不变式 + 断流部分结算），见 §4.7 注记与 ADR-0013 |
+| `budget.configure` 的 Agent 级配置入口（所有者工具 or 配置文件热载） | MVP 用配置文件；接口已预留                                                                |
+| 隔离敏感超时回填                                                     | ✅ 已解决：ADR-0005 定稿，§7 已回填（2026-11-02）；容器后端启用时重估                     |

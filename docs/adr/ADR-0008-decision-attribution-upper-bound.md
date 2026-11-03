@@ -30,3 +30,10 @@ Phase 1 验收 A6（审计归因，一票否决）暴露一处语义缺口：`DE
 - 积极：审计重放不再出现"依据列表里找不到某条已发生事件"的误读；V6 主张表述更准确。
 - 代价/风险：多一个事件字段（每轮 1 个整数，成本可忽略）；契约与 fixtures 需同步，Phase 2 前既有账本与新账本共存，读方必须有版本兼容分支（Phase 1 报告 §3 第 2 条限制届时关闭）。
 - 重评条件：若出现"必须精确知道决策引用了哪些非关键事件"的真实审计需求（如合规逐笔取证），再评估逐笔引用方案。
+
+## 实施注记（2026-11-03 切片⑤施工期追加；只补事实，不改上面任何一条决策）
+
+1. **决策 2 的上界由账本在写入点盖章，不由调度器自报**。形状：`Ledger.append(ref, type, payload, { stampSeqBeforeAs: "throughSeq" })`——账本在**写队列执行期**取本 scope 的高水位写进载荷的这个键。理由是 F3：seq 本身就是在这个执行期分配的，"调用方先读一下最大 seq 再拼进载荷"会漏掉读与写之间落账的直写事件，而那正是本篇背景段要修的那类错（A6 实测的 seq 17）。盖章是类型无关的（键名由调用方给），账本仍然不知道 DECISION 是什么；`scheduler.ts` 只有那一处传 `"throughSeq"`。
+2. **决策 4 的"信封 schemaVersion 递增"落在类型级**：`EVENT_SCHEMA_VERSION: Partial<Record<EventType, number>>`，`DECISION` / `MODEL_INVOKED` / `MODEL_USAGE` = 2，其余按 §5 现值 = 1，写点在 `ledger.ts` 的 `makeEvent` 一处。全局常量一枚递增会宣告**所有**事件类型都改过格式（不为真），且反证切片④给 `ASSEMBLY_RECORDED` 追加 `policies` 那次没处盖章——两处扩展由此用同一口径。这是实施层对决策 4 的补正，"递增"这条主张本身没动。
+3. **稠密性哨兵**：今天每 run 单写者、`lastSeq+1` 递增，所以 `throughSeq === seq-1` 恒成立。测试把它钉成断言（`packages/core/test/ledger.test.ts` 的交错直写用例 + `tests/decision-through-seq.test.ts` 的真实 run），哪天写入面变了（分片、批量、多写者）先红，而不是让归因表述悄悄漂移。字段的可推导性因此是**登记过的事实**，不是"其实没必要加"的漏洞——价值在内核亲口声明边界，不在新信息。
+4. **读方落点两处**：`keel replay` 有 `throughSeq=N` 时打数字，没有时明打 `throughSeq=(no explicit bound: pre-v2 ledger)`——审计员看得见"这是旧账本"而不是"内核漏写了"；Phase 1 的 fixtures 目录原样可读，无迁移。
