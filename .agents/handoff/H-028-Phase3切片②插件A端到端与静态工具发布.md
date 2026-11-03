@@ -12,7 +12,7 @@
 4. **内核补齐（D1 方案 1）**：`main.ts` 装载义务 = 本地登记 **和** 经既有 op `tool.register` 的跨进程发布（与承接层两步式同形），完成才 `markReady()`；任一发布失败 = 进程 crash（可见失败优于静默降级）；ADR-0011 追加带日期实施注记（不新增 ADR，D2）
 5. **echo 包**：`packages/plugins/echo/`（真报关单 keel-plugin.json + 零 import src + 包内单测 3 条 + REVIEW.md 五段留痕）；workspace 增一行 `packages/plugins/*`（03 稿 §5.1 初稿"零根配置改动"有误，已带注记修正）
 6. **集成面收口（03 稿 §4.5）**：发布一通后"宿主必须编译报关单规则"成硬前提——CLI 五处（scenario a2/a3/a4 policy 位、hotswap、recover、bench B3 改走 wireCell）+ 8 个 rig 补 register/remove 规则；两个被炸出来的 rig 潜伏缺陷（serveCellChannel 漏传 deps / 残缺 deps / serve 前被 await 隔开）修复；A1（一票否决承载）boot 状态加"等静态发布落分区"栅栏并重算指纹/计数（静态 3 / 动态 6，ok v2 起）
-7. **扫描器载体收窄**：test/ 目录与 *.test.* 文件排除（02 稿 §7 带日期注记——插件单测必须 import vitest，运行面 = src→dist；**不是符号豁免**）
+7. **扫描器载体收窄**：test/ 目录与 `*.test.*` 文件排除（02 稿 §7 带日期注记——插件单测必须 import vitest，运行面 = src→dist；**不是符号豁免**）
 8. **P-002 复发记录**：同款接线坑三种形（漏传/残缺/晚挂）+ 装配次序硬约束（spawn 后任何 await 前挂好 serve+alloc）+ "内核收紧暴露存量潜伏缺陷是收益不是回归"的处置口径
 
 ## 验证
