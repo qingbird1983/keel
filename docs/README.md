@@ -60,7 +60,7 @@ docs/
 | design/phase-2/04-c-surface-rewrite               | 定稿 | Phase 2 切片③口径：C 档三条改法的地面（三个 Keel 形状新面映射既有 op）+ before/after 真进程样本 + 迁移手册形态（锚 B3）                                       |
 | design/phase-2/05-migration-handbook              | 首版 | 面向存量插件方的迁移手册：全部 7 条 C 档行的 before/after 片段 + 病灶理由 + 证据位置 + 行为差异（D 档单列，零例外）                                           |
 | design/phase-2/06-policy-chain-and-d-tier-refusal | 定稿 | Phase 2 切片④口径：策略插件 → HookBus 装配链（ADR-0012 落地）+ D 档硬拒绝的"零部分生效"核对法（锚 B4、B7①）                                                   |
-| design/phase-2/07-contract-revision-and-backfill  | 草稿 | Phase 2 切片⑤口径：`DECISION.throughSeq`（ADR-0008 落地）+ 快照物理持久化 + 旧 Cell drain 确定次序 + `model.stream` 通道形状与记账时序（锚 B7②③④⑤、B8）       |
+| design/phase-2/07-contract-revision-and-backfill  | 定稿 | Phase 2 切片⑤口径：`DECISION.throughSeq`（ADR-0008 落地）+ 快照物理持久化 + 旧 Cell drain 确定次序 + `model.stream` 通道形状与记账时序（锚 B7②③④⑤、B8）       |
 | adr/ADR-0005-cell-isolation                       | 定稿 | Cell 隔离选型：MVP 进程级，演进期 IsolationProvider 抽象 + 容器后端                                                                                           |
 | adr/ADR-0006-mit-license                          | 定稿 | 许可证选用 MIT（版权主体留占位，落实见 ADR-0007）                                                                                                             |
 | adr/ADR-0007-copyright-attribution                | 定稿 | 版权署名落实为 GitHub 用户名 qingbird1983（LICENSE + 两份 README 同步）                                                                                       |
