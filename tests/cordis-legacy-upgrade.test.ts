@@ -234,8 +234,13 @@ describe("B6①：无迁移声明的旧插件——原子换绑后 run 真跑", 
 describe("B6②：声明迁移的旧插件——首个迁移调用即回退，旧绑定原样", () => {
   it("新舱拿 CELL/MIGRATION-MISSING 当场丢弃，绑定表停在 1.0.0，旧舱的 run 照跑", async () => {
     const v1 = assembleManifest(legacyRaw("1.0.0", ["flip"], false));
+    const v2 = assembleManifest(legacyRaw("1.1.0", ["flip", "extra"], true));
+    // 权限面给到两版名字的上界：本条要测的是"迁移钩缺失 → 回退"，不是"多声明被拒"。
+    // 用旧报关单的话，新舱的 extra 会被当场拒 → 未决拒绝 → 舱崩，于是同一个舱里并存两条失败，
+    // 谁先到达是不确定的（本地 Windows 先拿到 migrate 错误，CI 的 Linux 先拿到通道断）——
+    // 一条测试只留一个失败原因，另一个用策略排除。"多声明被拒"在 B2③ 已单独硬测。
     const rt = await buildRuntime(path.join(dir, "rollback"), {
-      policy: runPolicy(v1, AGENT, "p-b6-rollback"),
+      policy: runPolicy(v2, AGENT, "p-b6-rollback"),
     });
     const { factory, made } = wiringFactory(rt, ["b6-r-v1", "b6-r-v2"]);
     const manager = new AssemblyManager({
@@ -263,16 +268,14 @@ describe("B6②：声明迁移的旧插件——首个迁移调用即回退，�
         "CELL/MIGRATION-MISSING",
       );
 
-      // 回退主张：绑定表回到旧版本。被丢弃的新舱没起过 run——它的账本里只有一条事实：
-      // 升级尝试期间权限上界仍是**旧报关单**，多声明的 extra 当场被拒（fail-closed，I4）
+      // 回退主张：绑定表回到旧版本；被丢弃的新舱没起过 run，账本里一条痕迹都没有
       expect(manager.current(scope)?.manifest.meta.version).toBe("1.0.0");
-      const orphan = await safeReadRun(rt, "b6-r-v2");
-      expect(orphan.map((e) => e.type)).toEqual(["AUTH_DENIED"]);
-      expect((orphan[0].payload as { resource?: string }).resource).toBe("extra");
+      expect(await safeReadRun(rt, "b6-r-v2")).toEqual([]);
 
-      // 如实记录一条**没被回收**的副作用：被丢弃的新舱在 activation 里把 flip 顶到了 v2，
-      // 分区留着这一笔，而执行体仍是旧舱——"回退不回收分区注册"是本片的真实边界（03 稿 §12 限制 8）
-      expect(visible(rt)).toEqual(["flip@2"]);
+      // 如实记录一条**没被回收**的副作用：被丢弃的新舱在 activation 里把 flip 顶到了 v2、
+      // 并挂上了 extra，分区留着这两笔，而执行体仍是旧舱——
+      // "回退不回收分区注册"是本片的真实边界（03 稿 §12 限制 8）
+      expect(visible(rt)).toEqual(["extra@1", "flip@2"]);
 
       // 旧舱照旧能用——回退不是"把会话搞坏"，是"这次升级没发生"
       const again = await runOn(rt, made[0], v1, ["flip"]);
