@@ -47,6 +47,68 @@ export interface CordisRegistryPort {
   list(): Promise<CordisToolView[]>;
 }
 
+/**
+ * 改法地面（切片③）：C 档"必须改一小段"的那几行改写后要调的**新面**，不是旧面改名。
+ * 三条都映射内核既有的通道 op（`model.invoke` / `effect.declare` / `ledger.read`）——
+ * 零新 op、零新错误码、零协议变更（04 稿 §2 F2）。
+ */
+
+/** `ctx.model.invoke` 的请求体：`estimate` 必填（预扣依据），计量由内核权威实结。 */
+export interface CordisModelRequest {
+  model: string;
+  params?: unknown;
+  /** 发起方估算（预扣额度）；缺它就无法诚实预扣，故必填。 */
+  estimate: number;
+}
+
+/** 网关返回形（`replay:true` = 同 reqId 命中已结算调用：未重打上游、未重复计费）。 */
+export interface CordisModelResult {
+  result: unknown;
+  usage: unknown;
+  cost: number;
+  replay: boolean;
+}
+
+/**
+ * `ctx.effects.declare` 的入参：**没有 `effectId`、也没有 `compensation.actionRef`**——
+ * 效果号由 Cell 侧 runtime 指派，补偿动作与幂等口径由 manifest 报关单决定（C-M1 焊点）：
+ * 插件能临场编造的只有"我动了什么、动了哪个目标"。
+ */
+export interface CordisEffectDecl {
+  effectKind: string;
+  targetSummary?: unknown;
+  /** 动作摘要（进账本，供补偿动作与审计对照）。 */
+  paramsDigest?: unknown;
+  dependsOn?: string[];
+  retention?: unknown;
+}
+
+/** 声明回执（内核落账后给出的定位）。 */
+export interface CordisEffectView {
+  effectId: string;
+  seq: number;
+}
+
+/** `ctx.ledger.read` 的过滤面：没有 runId 位——run 由通道盖章，插件不选 run。 */
+export interface CordisLedgerFilter {
+  types?: string[];
+  seqFrom?: number;
+  seqTo?: number;
+}
+
+/** 改法地面的出口形状（与注册端口分开：诊断端口背后没有网关/账本/追踪器，04 稿 §2 F7）。 */
+export interface CordisGuidePort {
+  modelInvoke(reqId: string, req: CordisModelRequest): Promise<CordisModelResult>;
+  declareEffect(decl: CordisEffectDecl): Promise<CordisEffectView>;
+  ledgerRead(filter: CordisLedgerFilter): Promise<unknown>;
+}
+
+/** 承接层构造旧 ctx 所需的两半：注册面 + 改法地面。缺任何一半都不该构造 ctx。 */
+export interface CordisPorts {
+  registry: CordisRegistryPort;
+  guide: CordisGuidePort;
+}
+
 export interface CordisToolsApi {
   register(def: CordisToolDef): Promise<CordisToolView>;
   register(name: string, schema?: unknown, handler?: CordisHandler): Promise<CordisToolView>;
@@ -58,8 +120,29 @@ export interface CordisCtx {
   readonly tools: CordisToolsApi;
   /** 旧框架的跨插件共享状态：显式拒绝（改为只读注入 + 显式能力申请，边界 #8）。 */
   readonly share: { get(key: string): unknown; set(key: string, value: unknown): void };
-  /** 旧框架的副作用回收：显式拒绝（改为声明式补偿，边界 #9）。 */
-  readonly effects: { reclaim(id: string): unknown };
+  /**
+   * 旧框架的副作用回收：`reclaim` 显式拒绝（它就是"出事再临时决定回收"的形态，边界 #9）；
+   * `declare` 是本行的**改法地面**（动手前报关，映射既有 `effect.declare` op）。
+   */
+  readonly effects: {
+    reclaim(id: string): unknown;
+    declare(decl: CordisEffectDecl): Promise<CordisEffectView>;
+  };
+  /**
+   * 改法地面（边界 #6 的去处）：模型调用的唯一通道。
+   * `reqId` 是**第一个必填参数**——幂等口径要求调用方给出请求号（契约 §8），
+   * 自动生成等于每次都是新请求，"同请求不重复计费"这条保护就没有落点。
+   */
+  readonly model: {
+    invoke(reqId: string, req: CordisModelRequest): Promise<CordisModelResult>;
+  };
+  /**
+   * 改法地面（边界 #11/#12/#15 共同的"读只读账本"出路）：只见本 run，
+   * run 由宿主在通道绑定上盖章——过滤面里出现 runId 即抛（不静默丢弃）。
+   */
+  readonly ledger: {
+    read(filter?: CordisLedgerFilter): Promise<unknown>;
+  };
   /** 能力插件不持钩子面（边界 #2 拆支 → #14 D 档通道）。 */
   readonly hooks: { register(name: string, fn?: unknown): unknown };
   /** 跨插件事件总线：通道不存在（边界 #15，C 档）。 */
@@ -67,11 +150,11 @@ export interface CordisCtx {
     emit(topic: string, payload?: unknown): unknown;
     on(topic: string, fn?: unknown): unknown;
   };
-  /** 配置/密钥自取：改为声明 + 受控注入（边界 #4，B 档）。 */
+  /** 配置/密钥自取：显式拒绝（边界 #4，切片② 定稿改判 C——改声明能力，不再自取密钥）。 */
   readonly config: { get(key: string): unknown };
   /** 自带网络面：改为声明 + 词表裁决（边界 #5，B 档；注意 02 稿 F4）。 */
   readonly net: { fetch(url: string, init?: unknown): unknown };
-  /** 大模型直调（旧插件自带 SDK 与 key）：改为走网关（边界 #6，C 档）。 */
+  /** 大模型直调（旧插件自带 SDK 与 key）：显式拒绝，改法地面是上面的 `ctx.model.invoke`（边界 #6，C 档）。 */
   readonly llm: { chat(prompt: unknown, opts?: unknown): unknown };
   /**
    * 作用域自省不提供：Cell 永不持有 (agentId, sessionId, runId)——读任何字段即抛，
@@ -80,18 +163,18 @@ export interface CordisCtx {
   readonly scope: never;
 }
 
-/** 各未映射面的改法去处（"不能这么写"必须配"这么写也能达到目的"）。 */
+/** 各未映射面的改法去处（"不能这么写"必须配"这么写也能达到目的"；切片③ 起有地面可指）。 */
 const WAY_OUT = {
   share:
-    "keep state where it is produced (own Cell), expose via read-only injection + declared capability, or pass it through tool params — 边界 #8, C 档",
+    "keep state where it is produced (own Cell), let the kernel carry the value as tool-call params, or read this run's ledger via ctx.ledger.read — 边界 #8, C 档（改法地面 = tierC-08-carry 样本）",
   effects:
-    "declare compensation up front: manifest compensation.templates + runtime EFFECT_DECLARED — 边界 #9, C 档",
-  llm: "call the model through the gateway (no credentials in plugin) via the Cell client invoke shape — 边界 #6, C 档",
+    'declare before acting: manifest compensation.templates + ctx.effects.declare({effectKind, ...}) — 边界 #9, C 档（reclaim 就是"临时决定回收"的形态，不放行）',
+  llm: "call the model through the gateway: ctx.model.invoke(reqId, {model, params, estimate}) — 边界 #6, C 档（reqId 必填且由调用方给：同请求重放不重复计费）",
   hooks:
     'hooks are declared by kind:"policy" manifests on the four-hook whitelist; capability plugins hold no hook surface — 边界 #2/#14, D 档',
-  bus: "pass intent as tool-call params (authorized + ledgered), or read the ledger (read-only) — 边界 #15, C 档",
+  bus: "pass intent as tool-call params (authorized + ledgered), or read this run's ledger via ctx.ledger.read — 边界 #15, C 档（跨 run 订阅归 Phase 3）",
   config:
-    "no manifest means no value: declare what you need and let the host inject it — 边界 #4, B 档（合成声明在切片②）",
+    "no self-fetched secrets: declare the capability instead (model → cap model.adapter then ctx.model.invoke; network → cap net.fetch with an allow-list) — 边界 #4, C 档（切片② 定稿改判；观察不到的调用面进缺项清单，03 稿 §4）",
   net: "outbound network is a declared capability with a host allow-list — 边界 #5, B 档；注意 02 稿 F4：当前进程后端不拦截舱内原生 fetch",
   scope:
     "the host stamps the scope on the channel binding and the Cell never learns it (02 稿 §3) — use tool params to carry any per-run label",
@@ -107,6 +190,8 @@ function refused(what: string, wayOut: string): never {
 /**
  * 旧 ctx 的完整可见面清单——**B5 符号闭环的对照表**：
  * 合成样本里出现的每个 `ctx.*` 符号都必须命中这里某一项，否则即"未归类符号"（tests/cordis-symbol-scan.test.ts 机械核对）。
+ * 四桶互不重叠（index.test 机械核对）；**改法地面单列一桶、不进 `mapped`**——
+ * `mapped` 的语义是"旧 API 已自动映射、代码不用改"，把需要改写的东西塞进去就是把 C 档谎报成 A 档（04 稿 §3.2）。
  */
 export const CORDIS_SURFACE = {
   /** 本片已映射（A 档动作面）。 */
@@ -125,10 +210,23 @@ export const CORDIS_SURFACE = {
   ] as const,
   /** 不提供（读取即抛）。 */
   withheld: ["scope"] as const,
+  /**
+   * 改法地面（C 档改写后才能调用的 Keel 形状新面，映射内核既有通道 op）：
+   * 出现在样本里是**预期**的——它们证明"改一小段"确实有去处，而不是手册上的愿望。
+   */
+  guide: ["model.invoke", "effects.declare", "ledger.read"] as const,
 } as const;
 
-/** 由端口构造旧形状 ctx（两个端口共用同一面，差异只在端口背后）。 */
-export function buildCordisCtx(port: CordisRegistryPort): CordisCtx {
+/** 缺必填参数（异步面以拒绝的承诺浮现，与 `tools.*` 同一姿态：错误必须可见，不许悄悄返回成功）。 */
+function argsMissing(what: string, why: string): Promise<never> {
+  return Promise.reject(
+    new CordisAdapterError("ADAPTER/ARGS-REQUIRED", `${what} is required: ${why}`),
+  );
+}
+
+/** 由两半端口构造旧形状 ctx（两个端口共用同一面，差异只在端口背后；04 稿 §2 F7）。 */
+export function buildCordisCtx(ports: CordisPorts): CordisCtx {
+  const { registry, guide } = ports;
   const tools: CordisToolsApi = {
     register(
       defOrName: CordisToolDef | string,
@@ -143,25 +241,111 @@ export function buildCordisCtx(port: CordisRegistryPort): CordisCtx {
           new CordisAdapterError("ADAPTER/SCOPE-REQUIRED", "tool name required"),
         );
       }
-      return port.register(name, body.schema ?? null, body.handler);
+      return registry.register(name, body.schema ?? null, body.handler);
     },
-    remove: (name: string) => port.remove(name),
-    list: () => port.list(),
+    remove: (name: string) => registry.remove(name),
+    list: () => registry.list(),
   };
 
   return {
     tools,
+    /**
+     * 边界 #6 的改法地面：`reqId` 必填且由调用方给（同 reqId 命中已结算调用 = 未重打上游、
+     * 未重复计费）；`estimate` 必填（没有它就无法诚实预扣）。承接层不代造请求号——
+     * 自动生成等于每次都是新请求，那条保护在这条路上直接失效（04 稿 §8 第 1 项）。
+     */
+    model: {
+      invoke(reqId: string, req: CordisModelRequest): Promise<CordisModelResult> {
+        if (typeof reqId !== "string" || reqId.trim() === "") {
+          return argsMissing(
+            "model.invoke(reqId, …): reqId",
+            "the caller owns the request id: the gateway replays the same reqId without re-billing, so an auto-generated id is always a new request（边界 #6）",
+          );
+        }
+        const body = (req ?? {}) as CordisModelRequest;
+        if (typeof body.model !== "string" || body.model.trim() === "") {
+          return argsMissing(
+            "model.invoke: model",
+            "which declared model to call（cap model.adapter）",
+          );
+        }
+        if (
+          typeof body.estimate !== "number" ||
+          !Number.isFinite(body.estimate) ||
+          body.estimate < 0
+        ) {
+          return argsMissing(
+            "model.invoke: estimate",
+            "the reservation is booked from your estimate; the kernel settles with its own authoritative metering",
+          );
+        }
+        return guide.modelInvoke(reqId, {
+          model: body.model,
+          params: body.params,
+          estimate: body.estimate,
+        });
+      },
+    },
+    /**
+     * 边界 #11/#12/#15 共同的"读只读账本"出路：只见本 run，且 **run 由宿主在通道绑定上盖章**——
+     * 过滤面里出现 `runId` 即抛（跨 run 读取归 Phase 3；静默丢弃等于假装拦截成功）。
+     */
+    ledger: {
+      read(filter?: CordisLedgerFilter): Promise<unknown> {
+        const f = (filter ?? {}) as Record<string, unknown>;
+        if (f.runId !== undefined) {
+          return argsMissing(
+            "ledger.read: no runId",
+            "the run is stamped on the channel binding by the host; cross-run reads are not on this surface（边界 #11，Phase 3 归观测生态）",
+          );
+        }
+        const out: CordisLedgerFilter = {};
+        if (Array.isArray(f.types)) out.types = f.types as string[];
+        if (typeof f.seqFrom === "number") out.seqFrom = f.seqFrom;
+        if (typeof f.seqTo === "number") out.seqTo = f.seqTo;
+        return guide.ledgerRead(out);
+      },
+    },
+    /**
+     * 边界 #9 的改法地面：**动手前报关**。`effectId` 由 Cell 侧指派、补偿动作与幂等口径
+     * 来自 manifest 的 `compensation.templates`（C-M1 焊点），所以这三个字段**出现即拒**——
+     * 让插件以为自己能选补偿动作，就是把"临场编造"换了个名字放进来。
+     */
+    effects: {
+      reclaim(id: string): unknown {
+        return refused(`effect reclaim (${id})`, WAY_OUT.effects);
+      },
+      declare(decl: CordisEffectDecl): Promise<CordisEffectView> {
+        const d = (decl ?? {}) as unknown as Record<string, unknown>;
+        if (typeof d.effectKind !== "string" || d.effectKind.trim() === "") {
+          return argsMissing(
+            "effects.declare: effectKind",
+            "it must match a declared compensation.templates kind — undeclared effects are refused by the kernel（C-M1）",
+          );
+        }
+        for (const owned of ["effectId", "compensation", "probeRef"] as const) {
+          if (d[owned] !== undefined) {
+            return argsMissing(
+              `effects.declare: no ${owned}`,
+              `${owned} is not the plugin's to choose: the Cell assigns effectId and the manifest template fixes the compensation action and idempotency（C-M1）`,
+            );
+          }
+        }
+        return guide.declareEffect({
+          effectKind: d.effectKind,
+          ...(d.targetSummary !== undefined ? { targetSummary: d.targetSummary } : {}),
+          ...(d.paramsDigest !== undefined ? { paramsDigest: d.paramsDigest } : {}),
+          ...(Array.isArray(d.dependsOn) ? { dependsOn: d.dependsOn as string[] } : {}),
+          ...(d.retention !== undefined ? { retention: d.retention } : {}),
+        });
+      },
+    },
     share: {
       get(key: string): unknown {
         return refused(`shared context read (${key})`, WAY_OUT.share);
       },
       set(key: string): void {
         return refused(`shared context write (${key})`, WAY_OUT.share);
-      },
-    },
-    effects: {
-      reclaim(id: string): unknown {
-        return refused(`effect reclaim (${id})`, WAY_OUT.effects);
       },
     },
     hooks: {

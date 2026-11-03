@@ -13,6 +13,16 @@ import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type {
+  AuthRule,
+  LedgerEvent,
+  ModelUpstream,
+  RunDriver,
+  RunRef,
+  RunStatus,
+  Scope,
+  ToolEntry,
+} from "@keel/core";
 import {
   Authorizer,
   Budgeter,
@@ -21,22 +31,19 @@ import {
   Ledger,
   ModelGateway,
   Scheduler,
-  type AuthRule,
-  type LedgerEvent,
-  type RunDriver,
-  type RunRef,
-  type RunStatus,
-  type Scope,
-  type ToolEntry,
+  type CompensationScope,
 } from "@keel/core";
 import {
   Assembler,
   CellSupervisor,
+  CompensationExecutor,
   EffectTracker,
   ProcessIsolationProvider,
   SupervisedCell,
   manifestAuthRules,
   serveCellChannel,
+  type CompensationActionCell,
+  type CompensationTemplateDecl,
   type LoadedManifest,
   type PermissionDecl,
 } from "@keel/host";
@@ -71,6 +78,11 @@ export interface RoundPlan {
   absent?: string[];
   call?: { tool: string; params?: unknown };
   awaitCellExit?: boolean;
+  /**
+   * 切片③（B3 的 #9 链）：本轮以 abort 收束——`RUN_FAILED` 是补偿状态机的触发点之一
+   * （`failRun` 尽力收尾 = compensate("run")），用来观察"报关过 → 舱内失败 → 补偿真的执行"。
+   */
+  abort?: { code: string; message?: string };
   done?: boolean;
 }
 
@@ -82,6 +94,13 @@ export interface LegacyRunSpec {
   pluginPath: string;
   /** manifest 声明（缺省 = 只声明 tool.provide）；给 [] 即"未报关"负例。 */
   caps?: PermissionDecl[];
+  /**
+   * 补偿模板（切片③ #9）：`effect.declare` 的 C-M1 对照表就来自这里——
+   * 没报关的 effectKind 会被内核拒且不留副作用。
+   */
+  templates?: RawTemplate[];
+  /** 接补偿执行器（run 模式 = 全 Run 回滚，动作舱用**承接层入口**装载旧插件的补偿表）。 */
+  compensate?: boolean;
   toolCallTimeoutMs?: number;
   plan: RoundPlan[];
   /**
@@ -112,6 +131,8 @@ export interface RunProbe {
   activationRounds: number;
   /** 激活屏障是否因超时/舱退而放弃等待（负例路径的证据位）。 */
   barrierGaveUp: boolean;
+  /** 补偿重派缝（仅 `compensate: true` 的 run 有）：B3 用它证"闭环后再派不重复执行"。 */
+  compensate?: () => Promise<boolean>;
   done: Promise<RunStatus>;
 }
 
@@ -123,17 +144,27 @@ export function names(entries: ToolEntry[]): string[] {
   return entries.map((t) => t.name).sort();
 }
 
+/** 报关单里的原始补偿模板形状（`class` 是输入侧字段名，与 assembler 一致）。 */
+export interface RawTemplate {
+  kind: string;
+  class: CompensationTemplateDecl["compensationClass"];
+  action: { type: "plugin" | "builtin"; ref: string };
+  idempotency: CompensationTemplateDecl["idempotency"];
+  probe?: { ref: string };
+}
+
 /** 组装旧插件用的 manifest（切片②才引入合成路径，本片按"已报关"给声明）。 */
 export function legacyManifest(
   caps: PermissionDecl[] = [{ cap: "tool.provide" }],
   toolCallTimeoutMs = 5_000,
+  templates: RawTemplate[] = [],
 ): LoadedManifest {
   return new Assembler({ schema: manifestSchema }).assemble({
     kind: "capability",
     meta: { name: `cordis-${caps.length}`, version: "1.0.0", title: "legacy", description: "x" },
     permissions: caps,
     resources: { toolCallTimeoutMs },
-    compensation: { templates: [] },
+    compensation: { templates },
     compat: { keelContract: "^1.0" },
   });
 }
@@ -188,9 +219,16 @@ async function probeCellAlive(cell: SupervisedCell): Promise<boolean> {
 /**
  * 一套完整内核 + 若干旧插件 run。close() 负责收束 Cell 与账本（standards/04 §3 确定性释放；
  * ADR-0009：Ledger 实例一律登记，不留浮空句柄）。
- */ export function createLegacyRig(opts: { log?: (line: string) => void } = {}) {
+ *
+ * `upstream` 可注入（切片③ F8）：B3 的 #6 要观察"预扣/实结/同 reqId 重放不重复计费"，
+ * 那就必须能数清**上游真的被打了几次**——缺省仍是零用量桩（既有主张不变）。
+ */ export function createLegacyRig(
+  opts: { log?: (line: string) => void; upstream?: ModelUpstream } = {},
+) {
   const instances: Ledger[] = [];
   const cells: SupervisedCell[] = [];
+  /** 补偿升级告警缝（B3 的 #9 观察位）。 */
+  const alerts: { runId: string; effectId: string; escalated: boolean }[] = [];
   let dir = "";
   let ledger!: Ledger;
   let ctxMgr!: ContextManager;
@@ -211,7 +249,9 @@ async function probeCellAlive(cell: SupervisedCell): Promise<boolean> {
       ledger,
       auth,
       budget,
-      upstream: { invoke: async () => ({ result: {}, usage: { tokens: 0 }, cost: 0 }) },
+      upstream: opts.upstream ?? {
+        invoke: async () => ({ result: {}, usage: { tokens: 0 }, cost: 0 }),
+      },
     });
     scheduler = new Scheduler({
       ledger,
@@ -237,7 +277,7 @@ async function probeCellAlive(cell: SupervisedCell): Promise<boolean> {
   function runLegacy(spec: LegacyRunSpec): RunProbe {
     const scope: Scope = { agentId: spec.agentId, sessionId: spec.sessionId };
     const ref: RunRef = { ...scope, runId: spec.runId };
-    const manifest = legacyManifest(spec.caps, spec.toolCallTimeoutMs);
+    const manifest = legacyManifest(spec.caps, spec.toolCallTimeoutMs, spec.templates);
     const tracker = new EffectTracker({ ledger });
     const cell = supervisor.spawnCell({
       manifest,
@@ -331,6 +371,12 @@ async function probeCellAlive(cell: SupervisedCell): Promise<boolean> {
             probe.violations.push(`round ${c.round}: "${bad}" must be invisible`);
         }
         if (plan.done) return { done: true, summary: `${spec.runId}-end` };
+        if (plan.abort) {
+          // **不 await**：abort() 返回的是 done，而 done 只能在本轮收束之后落定——
+          // 此刻 decide 正被轮循环 await，等它就是自锁（standards/04 的 await 位纪律）。
+          void scheduler.abort(ref.runId, plan.abort.code, plan.abort.message);
+          return { done: true, summary: `${spec.runId} abort-requested` };
+        }
         if (plan.call) {
           return {
             summary: `${spec.runId} r${c.round}`,
@@ -341,14 +387,65 @@ async function probeCellAlive(cell: SupervisedCell): Promise<boolean> {
       },
     };
 
+    /**
+     * 补偿执行器（B3 的 #9 链）：动作舱 = **同插件的新 Cell**，且必须走承接层入口——
+     * 默认入口要 `export const tools`，旧插件的 `module.exports.compensations` 表接不上
+     * （04 稿 §3.3 的接线缺口；apps/keel 的 `actionSpec.cellEntry` 是同一处的生产形态）。
+     */
+    let compensator: ((mode: CompensationScope) => Promise<boolean>) | undefined;
+    if (spec.compensate) {
+      const executor = new CompensationExecutor(
+        {
+          ledger,
+          factory: async (): Promise<CompensationActionCell> => {
+            const actionCell = supervisor.spawnCell({
+              manifest,
+              pluginPath: spec.pluginPath,
+              cellEntry: cordisCellEntry,
+            });
+            cells.push(actionCell);
+            const timeout =
+              (manifest.resources.toolCallTimeoutMs ?? 0) + supervisor.graceMs + 1_000;
+            return {
+              exec: (input) => actionCell.conn.request("compensation.exec", input, timeout),
+              dispose: () => actionCell.drainAndReap(),
+            };
+          },
+        },
+        {
+          onAlert: async (info) =>
+            void alerts.push({
+              runId: info.ref.runId,
+              effectId: info.effectId,
+              escalated: info.escalated,
+            }),
+        },
+      );
+      compensator = (mode) => executor.compensate(ref, { mode });
+      probe.compensate = () => executor.compensate(ref, { mode: "run" });
+    }
+
     const started = scheduler.start({
       ref,
       subject: scope.agentId,
       executor: cell.executor,
       driver,
       assembly: manifest.record,
+      compensator,
     });
-    probe.done = started.done;
+    /**
+     * 静默起舱失败的收口（切片③ 踩到过一次）：run 在**装载屏障还没满足时**就失败，
+     * plan 的 visible/absent 一条都不会跑，违规表因此是空的——测试会"通过前提"然后
+     * 在后面的断言上莫名失败。这里把它变成一条明确的违规，让归因停在真正的原因上。
+     */
+    probe.done = started.done.then((st) => {
+      if (barrier && st.state === "failed") {
+        probe.violations.push(
+          `run ${spec.runId} failed while the activation barrier was still up (reason=${st.reasonCode ?? "?"})`,
+        );
+      }
+      return st;
+    });
     cell.attachRun(ref);
     opts.log?.(`run ${spec.runId} started (plugin=${path.basename(spec.pluginPath)})`);
     return probe;
@@ -379,6 +476,12 @@ async function probeCellAlive(cell: SupervisedCell): Promise<boolean> {
     get ledger() {
       return ledger;
     },
+    /** 本 rig 的账本临时目录（样本用它的绝对路径做副作用标记得到的载体；setup 之后才有值）。 */
+    get dir() {
+      return dir;
+    },
+    /** 补偿升级告警缝（B3 观察位：升级 = 补偿自身失败，不该静默）。 */
+    alerts,
   };
 }
 

@@ -2,9 +2,14 @@
  * 机械测试 —— 「零改动」不许靠口头声明（02 稿 §7 判据 1/2/5，锚 B5 的合成组这一半）。
  *
  * 两件事：
- * 1. A/B 档样本确实是"存量插件的形状"：CommonJS、不 import 任何内核包名与内核符号、ctx 全靠注入；
+ * 1. 样本确实是"存量插件的形状"：CommonJS、不 import 任何内核包名与内核符号、ctx 全靠注入；
  * 2. 样本里出现的每一个 `ctx.*` 符号都能在承接面清单（`CORDIS_SURFACE`）里找到归属行——
  *    出现未归类符号即红，处置顺序是**先补边界表再收口**（01 稿 §5 回填义务的机器化）。
+ *
+ * 切片③起清单有**四桶**：`mapped`（A 档：旧 API 自动映射）/ `refused`（显式拒绝）/
+ * `withheld`（不提供）/ `guide`（**改法地面**：C 档改写后才能调用的 Keel 形状新面）。
+ * C 档样本必然出现在 `guide` 上——那不是"框架支持了旧写法"，而是"那一小段确实改了"；
+ * 把 guide 塞进 mapped 就是把 C 档谎报成 A 档，正是 B5 一票否决的漂移形态（04 稿 §3.2）。
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -57,12 +62,13 @@ const ALL_SURFACE = [
   ...CORDIS_SURFACE.mapped,
   ...CORDIS_SURFACE.refused,
   ...CORDIS_SURFACE.withheld,
+  ...CORDIS_SURFACE.guide,
 ];
 
 const files = sampleFiles();
 
-describe("A/B 档合成样本的「零改动」机械判据", () => {
-  it("样本组齐备：A 档 5 枚常规 + 4 枚探针 + 对照与反例，B 档合成样本 5 枚（03 稿 §7）", () => {
+describe("合成样本的「零改动 / 有损改写」机械判据（A/B/C 三档同批扫描，锚 B5）", () => {
+  it("样本组齐备：A 档 5 枚常规 + 4 枚探针 + 对照与反例，B 档 5 枚（03 稿 §7），C 档 7 枚成对（04 稿 §3.3）", () => {
     expect(files.sort()).toEqual(
       [
         "lib/extra-tools.cjs",
@@ -84,6 +90,13 @@ describe("A/B 档合成样本的「零改动」机械判据", () => {
         "tierB-03-native-io.cjs",
         "tierB-04-v1.cjs",
         "tierB-04-v2.cjs",
+        "tierC-06-gateway.cjs",
+        "tierC-06-self-key.cjs",
+        "tierC-08-carry.cjs",
+        "tierC-08-peer.cjs",
+        "tierC-08-share.cjs",
+        "tierC-09-declare.cjs",
+        "tierC-09-reclaim.cjs",
       ].sort(),
     );
   });
@@ -121,6 +134,31 @@ describe("A/B 档合成样本的「零改动」机械判据", () => {
     }
   });
 
+  it("判据 5 增量（切片③）：三条改法地面各被 C 档 after 样本真的用过，before 的旧面也在场", () => {
+    const cTier = new Set<string>();
+    for (const f of files.filter((n) => n.startsWith("tierC-"))) {
+      for (const sym of ctxSymbols(readFileSync(path.join(PLUGIN_DIR, f), "utf8"))) {
+        cTier.add(sym);
+      }
+    }
+    // 新面不是文档里的说法：#6/#8/#9 的 after 各调用一条，且都出现在真实进程样本里
+    for (const face of CORDIS_SURFACE.guide) {
+      expect(cTier.has(face), `guide face unused by C-tier samples: ${face}`).toBe(true);
+    }
+    // before 用旧面（可见失败的那三个符号）——旧面一条都没被"顺手放行"
+    for (const legacy of ["llm.chat", "share.set", "effects.reclaim"]) {
+      expect(
+        cTier.has(legacy),
+        `before-sample must still exercise the refused face: ${legacy}`,
+      ).toBe(true);
+      expect(CORDIS_SURFACE.refused).toContain(legacy);
+    }
+    // 归属纪律：guide 不得同时出现在 mapped（出现即把 C 档谎报成 A 档）
+    for (const face of CORDIS_SURFACE.guide) {
+      expect(CORDIS_SURFACE.mapped).not.toContain(face);
+    }
+  });
+
   it("承接面清单本身与边界表口径一致（映射三项 = #1；拒绝项覆盖 #2/#4/#5/#6/#8/#9/#14/#15）", () => {
     expect([...CORDIS_SURFACE.mapped]).toEqual(["tools.register", "tools.remove", "tools.list"]);
     expect(CORDIS_SURFACE.refused).toContain("hooks.register"); // #2 拆支 → #14 D 档
@@ -132,5 +170,9 @@ describe("A/B 档合成样本的「零改动」机械判据", () => {
     expect(CORDIS_SURFACE.refused).toContain("config.get"); // #4
     expect(CORDIS_SURFACE.refused).toContain("net.fetch"); // #5
     expect(CORDIS_SURFACE.withheld).toContain("scope");
+    // 改法地面三条与边界表逐行对得上（01 稿 #6/#9/#11 的注记就是这三条）
+    expect(CORDIS_SURFACE.guide).toContain("model.invoke"); // #6 → 网关
+    expect(CORDIS_SURFACE.guide).toContain("effects.declare"); // #9 → 声明期报关
+    expect(CORDIS_SURFACE.guide).toContain("ledger.read"); // #11/#12/#15 → 只读账本
   });
 });
