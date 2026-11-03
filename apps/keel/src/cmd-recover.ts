@@ -12,6 +12,7 @@ import {
   closeRuntime,
   fixturePath,
   readRun,
+  runPolicy,
   wireRun,
 } from "./runtime.js";
 
@@ -57,7 +58,11 @@ export async function cmdRecover(opts: RecoverOptions): Promise<number> {
   const manifest = opts.manifest
     ? assembleManifest(JSON.parse(readFileSync(opts.manifest, "utf-8")))
     : assembleManifest(recoverManifestRaw());
-  const rt = await buildRuntime(opts.dataDir, { snapshotDir: opts.snapshotDir });
+  // 报关单编译进策略（声明编译是唯一规则源）：装载期静态发布经 tool.register 裁决（03 稿 §4）
+  const rt = await buildRuntime(opts.dataDir, {
+    snapshotDir: opts.snapshotDir,
+    policy: runPolicy(manifest, oldRef.agentId),
+  });
   try {
     const plan = await rt.recovery.plan(oldRef);
     console.info(`plan: oldRunId=${plan.oldRunId}`);

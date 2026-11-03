@@ -49,14 +49,26 @@ const manifestSchema: object = JSON.parse(
   ),
 );
 
-const policy = { version: "p1", allow: [{ subject: "*", action: "tool.invoke", resource: "*" }] };
+// 装载期静态发布经 tool.register 裁决（03 稿 §4）：规则必须来自报关单编译面（此处与无 allow 报关单等价）
+const policy = {
+  version: "p1",
+  allow: [
+    { subject: "*", action: "tool.invoke", resource: "*" },
+    { subject: "*", action: "tool.register", resource: "*" },
+    { subject: "*", action: "tool.remove", resource: "*" },
+  ],
+};
 
 let dir: string;
 let ledger: Ledger;
+let auth: Authorizer;
+let budget: Budgeter;
+let gateway: ModelGateway;
 let ctxMgr: ContextManager;
 let scheduler: Scheduler;
 let supervisor: CellSupervisor;
 let compensationExecutor: CompensationExecutor;
+let compActionSeq = 0;
 const ledgers: Ledger[] = [];
 const alerts: { runId: string; effectId: string; escalated: boolean }[] = [];
 
@@ -64,8 +76,8 @@ beforeAll(async () => {
   dir = await mkdtemp(path.join(tmpdir(), "keel-a4-"));
   ledger = new Ledger({ rootDir: dir });
   ledgers.push(ledger);
-  const auth = new Authorizer(policy, ledger);
-  const budget = new Budgeter(ledger);
+  auth = new Authorizer(policy, ledger);
+  budget = new Budgeter(ledger);
   ctxMgr = new ContextManager();
   scheduler = new Scheduler({
     ledger,
@@ -73,12 +85,12 @@ beforeAll(async () => {
     budget,
     ctx: ctxMgr,
     hooks: new HookBus(ledger),
-    gateway: new ModelGateway({
+    gateway: (gateway = new ModelGateway({
       ledger,
       auth,
       budget,
       upstream: { invoke: async () => ({ result: {}, usage: { tokens: 0 }, cost: 0 }) },
-    }),
+    })),
   });
   supervisor = new CellSupervisor({
     provider: new ProcessIsolationProvider(),
@@ -95,6 +107,21 @@ beforeAll(async () => {
       ledger,
       factory: async (): Promise<CompensationActionCell> => {
         const cell = supervisor.spawnCell({ manifest, pluginPath: plugin });
+        // 动作舱同样是默认入口舱：装载义务含静态发布（03 稿 §4），spawn 即接 serve + alloc，
+        // 否则装载期 tool.register 落 BADFRAME、舱装载即死、补偿必失败。
+        compActionSeq += 1;
+        const scope = { agentId: "agent-a4", sessionId: `comp-action-${String(compActionSeq)}` };
+        serveCellChannel(
+          cell.conn,
+          {
+            scope,
+            ref: { ...scope, runId: `comp-action-${String(compActionSeq)}` },
+            subject: scope.agentId,
+            templates: new Map(manifest.templates.map((t) => [t.kind, t])),
+          },
+          { ledger, auth, budget, ctx: ctxMgr, gateway, tracker: new EffectTracker({ ledger }) },
+        );
+        ctxMgr.alloc(scope);
         const timeout = (manifest.resources.toolCallTimeoutMs ?? 0) + supervisor.graceMs + 1_000;
         return {
           exec: (input) => cell.conn.request("compensation.exec", input, timeout),
@@ -164,7 +191,8 @@ function wireScope(params: { runId: string; effectKind: string; gate?: Promise<v
       subject: scope.agentId,
       templates: new Map(manifest.templates.map((t) => [t.kind, t])),
     },
-    { ledger, tracker },
+    // deps 全量（装载期静态发布 tool.register 走 auth/ctx——03 稿 §4）；此前残缺被旧行为掩盖
+    { ledger, auth, budget, ctx: ctxMgr, gateway, tracker },
   );
   ctxMgr.alloc(scope);
   const driver: RunDriver = {

@@ -7,6 +7,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { RunDriver, RunRef } from "@keel/core";
+import { wireCell } from "@keel/host";
 import {
   assembleManifest,
   buildRuntime,
@@ -95,19 +96,36 @@ export async function cmdBench(_opts: BenchOptions = {}): Promise<number> {
     }
     await closeRuntime(rt2);
 
-    // ── B3 Cell 冷启动：spawnCell → 首次工具往返（真实子进程），N=5
-    const rt3 = await buildRuntime(dir);
+    // ── B3 Cell 冷启动：起舱到可用（wireCell = spawn → serve → alloc → 就绪探测，ADR-0011）
+    // → 首次工具往返（真实子进程），N=5。装载义务含静态工具发布（03 稿 §4），
+    // 探测应答 = 发布完成的凭据——比旧口径（裸 spawnCell + 直发工具往返）多一次探测往返，
+    // 但"可用"的定义从此不含未完成的装载。
     const manifest = assembleManifest(okManifestRaw());
+    const rt3 = await buildRuntime(dir, {
+      policy: runPolicy(manifest, "keel-cli"),
+    });
     const cold: number[] = [];
     for (let i = 0; i < 5; i++) {
       const a = now();
-      const run = await rt3.supervisor.spawnCell({
+      const scope = { agentId: "keel-cli", sessionId: `bench-cold-${String(i)}` };
+      const { cell } = await wireCell({
+        supervisor: rt3.supervisor,
+        deps: {
+          ledger: rt3.ledger,
+          auth: rt3.auth,
+          budget: rt3.budget,
+          ctx: rt3.ctx,
+          gateway: rt3.gateway,
+        },
+        scope,
+        ref: { ...scope, runId: `bench-cold-${String(i)}` },
+        subject: scope.agentId,
         manifest,
         pluginPath: fixturePath("ok-plugin.mjs"),
       });
-      await run.executor({ tool: "ok", params: {} });
+      await cell.executor({ tool: "ok", params: {} });
       cold.push(ms(a, now()));
-      await run.drainAndReap();
+      await cell.drainAndReap();
     }
     await closeRuntime(rt3);
 

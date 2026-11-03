@@ -52,10 +52,21 @@ const manifestSchema: object = JSON.parse(
   ),
 );
 
-const policy = { version: "p1", allow: [{ subject: "*", action: "tool.invoke", resource: "*" }] };
+// 装载期静态发布经 tool.register 裁决（03 稿 §4）：规则必须来自报关单编译面（此处与无 allow 报关单等价）
+const policy = {
+  version: "p1",
+  allow: [
+    { subject: "*", action: "tool.invoke", resource: "*" },
+    { subject: "*", action: "tool.register", resource: "*" },
+    { subject: "*", action: "tool.remove", resource: "*" },
+  ],
+};
 
 let dir: string;
 let ledger: Ledger;
+let auth: Authorizer;
+let budget: Budgeter;
+let gateway: ModelGateway;
 let ctxMgr: ContextManager;
 let scheduler: Scheduler;
 let supervisor: CellSupervisor;
@@ -71,8 +82,8 @@ beforeAll(async () => {
   dir = await mkdtemp(path.join(tmpdir(), "keel-a3-"));
   ledger = new Ledger({ rootDir: dir });
   ledgers.push(ledger);
-  const auth = new Authorizer(policy, ledger);
-  const budget = new Budgeter(ledger);
+  auth = new Authorizer(policy, ledger);
+  budget = new Budgeter(ledger);
   ctxMgr = new ContextManager();
   snapshots = new SnapshotStore({ rootDir: path.join(dir, "snapshots") });
   const recordCompensator = new CompensationExecutor({ ledger, factory: null }); // record-only 免通道
@@ -84,12 +95,12 @@ beforeAll(async () => {
       budget,
       ctx: ctxMgr,
       hooks: new HookBus(ledger),
-      gateway: new ModelGateway({
+      gateway: (gateway = new ModelGateway({
         ledger,
         auth,
         budget,
         upstream: { invoke: async () => ({ result: {}, usage: { tokens: 0 }, cost: 0 }) },
-      }),
+      })),
     },
     {
       // 快照索取缝（D3，切片④）：CHECKPOINT → STATE_SNAPSHOT_REF → ROUND_ENDED（I3）
@@ -163,7 +174,9 @@ function wireScope(params: { runId: string; driver: RunDriver }): {
       subject: scope.agentId,
       templates: new Map(manifest.templates.map((t) => [t.kind, t])),
     },
-    { ledger, tracker },
+    // deps 必须全量（装载期静态发布 tool.register 要走 auth/ctx——03 稿 §4）；此前缺省
+    // 只传 {ledger, tracker}，被"装载期零 Cell→宿主请求"的旧行为掩盖。
+    { ledger, auth, budget, ctx: ctxMgr, gateway, tracker },
   );
   ctxMgr.alloc(scope);
   // 刻意不接 compensator：中断后效果保持未决，验证 recover.execute 的补偿步（先核对后续跑）
@@ -242,7 +255,8 @@ describe("A3（V3）：kill Cell 中途 → recover.plan/execute 以新 runId �
       };
       const tracker2 = new EffectTracker({ ledger });
       const cell2 = supervisor.spawnCell({ manifest, pluginPath: plugin, tracker: tracker2 });
-      await cell2.migrate(mountState); // 挂载通道 = cell.migrate（契约 §4.5 切片④注记）
+      // serve/alloc 必须先于任何 await（03 稿 §4：装载期发布是 Cell→宿主请求，
+      // serve 晚挂一拍 = "no serve handler" → 舱装载即死）；migrate 挂载排在门开之后自然到达。
       serveCellChannel(
         cell2.conn,
         {
@@ -251,9 +265,10 @@ describe("A3（V3）：kill Cell 中途 → recover.plan/execute 以新 runId �
           subject: scope2.agentId,
           templates: new Map(manifest.templates.map((t) => [t.kind, t])),
         },
-        { ledger, tracker: tracker2 },
+        { ledger, auth, budget, ctx: ctxMgr, gateway, tracker: tracker2 },
       );
       ctxMgr.alloc(scope2); // 幂等
+      await cell2.migrate(mountState); // 挂载通道 = cell.migrate（契约 §4.5 切片④注记）
       const started = scheduler.start({
         ref: ref2,
         subject: scope2.agentId,

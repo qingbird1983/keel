@@ -1,0 +1,13 @@
+{
+  "kind": "capability",
+  "meta": {
+    "name": "echo",
+    "version": "1.0.0",
+    "title": "Echo",
+    "description": "只读工具：原样返回输入文本（Phase 3 三件套插件 A）"
+  },
+  "permissions": [{ "cap": "tool.provide", "reason": "提供单个只读工具 echo，验证授权与工具发现" }],
+  "resources": { "toolCallTimeoutMs": 10000 },
+  "compensation": { "templates": [] },
+  "compat": { "keelContract": "^1.0" }
+}

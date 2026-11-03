@@ -6,9 +6,15 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { AssemblyManager, Assembler, type ManagedCell } from "@keel/host";
+import {
+  AssemblyManager,
+  Assembler,
+  EffectTracker,
+  serveCellChannel,
+  type ManagedCell,
+} from "@keel/host";
 import type { Scope } from "@keel/core";
-import { buildRuntime, closeRuntime, fixturePath, loadSchema } from "./runtime.js";
+import { buildRuntime, closeRuntime, fixturePath, loadSchema, runPolicy } from "./runtime.js";
 
 export interface HotswapOptions {
   dataDir?: string;
@@ -21,6 +27,7 @@ export interface HotswapOutcome {
 }
 
 const scope: Scope = { agentId: "keel-cli", sessionId: "hotswap-demo" };
+let spawnSeq = 0;
 
 /** 有状态演示 manifest：v1 无迁移；v2 带 migration（from ^1.0）；插件决定迁移成败。 */
 function manifestRaw(version: string, migration: boolean): unknown {
@@ -53,16 +60,47 @@ function manifestRaw(version: string, migration: boolean): unknown {
 
 /** 热装配复演主体（scenario a5 与本命令共用）。 */
 export async function hotswapDemo(dataDir: string): Promise<HotswapOutcome> {
-  const rt = await buildRuntime(dataDir);
-  const lines: string[] = [];
   const assembler = new Assembler({ schema: loadSchema() });
+  // 报关单编译进策略（声明编译是唯一规则源）：默认入口发布静态工具经 tool.register 裁决，
+  // demoPolicy 不含 register 规则——绑定的 v1 报关单必须先于 runtime 装配（03 稿 §4）。
+  const v1 = assembler.assemble(manifestRaw("1.0.0", false));
+  const rt = await buildRuntime(dataDir, { policy: runPolicy(v1, scope.agentId) });
+  const lines: string[] = [];
   const manager = new AssemblyManager({
     assembler,
-    factory: { spawn: (spec) => rt.supervisor.spawnCell(spec) },
+    // 装载义务含静态工具发布（03 稿 §4）：bind 路径的舱也必须有人应答 Cell→宿主请求，
+    // 否则 tool.register 落 BADFRAME、舱装载即死。spawn 即接 serve + alloc（bind 不探测，
+    // 时序 = manifest 稿 §6 的装配链；起 run 的路径另有 wireRun→wireCell 的就绪凭据）。
+    factory: {
+      spawn: (spec) => {
+        const cell = rt.supervisor.spawnCell(spec);
+        const n = ++spawnSeq;
+        const s: Scope = { agentId: scope.agentId, sessionId: `hotswap-${String(n)}` };
+        const tracker = new EffectTracker({ ledger: rt.ledger });
+        serveCellChannel(
+          cell.conn,
+          {
+            scope: s,
+            ref: { ...s, runId: `hotswap-${String(n)}` },
+            subject: scope.agentId,
+            templates: new Map(spec.manifest.templates.map((t) => [t.kind, t])),
+          },
+          {
+            ledger: rt.ledger,
+            auth: rt.auth,
+            budget: rt.budget,
+            ctx: rt.ctx,
+            gateway: rt.gateway,
+            tracker,
+          },
+        );
+        rt.ctx.alloc(s);
+        return cell;
+      },
+    },
   });
   const cells = new Set<ManagedCell>();
   try {
-    const v1 = assembler.assemble(manifestRaw("1.0.0", false));
     const v1Binding = manager.bind(scope, {
       manifest: v1,
       pluginPath: fixturePath("recover-plugin.mjs"),

@@ -54,6 +54,9 @@ const policy = {
   allow: [
     { subject: "*", action: "tool.invoke", resource: "probe-paths" },
     { subject: "*", action: "model.invoke", resource: "gpt-mini" },
+    // 装载期静态发布经 tool.register 裁决（03 稿 §4）：规则必须来自报关单编译面（此处与无 allow 报关单等价）
+    { subject: "*", action: "tool.register", resource: "*" },
+    { subject: "*", action: "tool.remove", resource: "*" },
   ],
 };
 

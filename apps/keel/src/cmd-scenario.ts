@@ -14,9 +14,12 @@ import {
   fixturePath,
   readRun,
   repoRoot,
+  runPolicy,
+  runPolicyFor,
   snapshotDirOf,
   until,
   wireRun,
+  type PolicyInput,
   type Runtime,
 } from "./runtime.js";
 import { listManifestFiles, validateTargets } from "./cmd-validate.js";
@@ -47,9 +50,10 @@ function capManifestRaw(name: string, templates: unknown[]): unknown {
 async function withRuntime<T>(
   tag: string,
   fn: (rt: Runtime, dataDir: string) => Promise<T>,
+  policy?: PolicyInput,
 ): Promise<T> {
   const dataDir = await mkdtemp(path.join(tmpdir(), `keel-${tag}-`));
-  const rt = await buildRuntime(dataDir);
+  const rt = await buildRuntime(dataDir, { policy });
   try {
     return await fn(rt, dataDir);
   } finally {
@@ -64,52 +68,60 @@ async function withRuntime<T>(
 async function scenarioA2(): Promise<ScenarioResult> {
   const lines: string[] = [];
   try {
-    return await withRuntime("a2", async (rt) => {
-      const boomM = assembleManifest(capManifestRaw("boom-demo", []));
-      const okM = assembleManifest(capManifestRaw("ok-demo", []));
-      const crashDriver: RunDriver = {
-        decide: async (c) =>
-          c.round === 1
-            ? { summary: "boom", actions: [{ kind: "tool", tool: "boom", params: {} }] }
-            : { done: true, summary: "never" },
-      };
-      const okDriver: RunDriver = {
-        decide: async (c) =>
-          c.round === 1
-            ? { summary: "ok", actions: [{ kind: "tool", tool: "ok", params: {} }] }
-            : { done: true, summary: "end" },
-      };
-      const boom = await wireRun(rt, {
-        runId: "run-boom",
-        driver: crashDriver,
-        manifest: boomM,
-        pluginPath: fixturePath("boom-plugin.mjs"),
-        scope: { agentId: "keel-a2", sessionId: "sess-boom" },
-      });
-      const ok = await wireRun(rt, {
-        runId: "run-ok",
-        driver: okDriver,
-        manifest: okM,
-        pluginPath: fixturePath("ok-plugin.mjs"),
-        scope: { agentId: "keel-a2", sessionId: "sess-ok" },
-      });
-      const [boomStatus, okStatus] = await Promise.all([boom.done, ok.done]);
-      const boomEvs = await readRun(rt, "run-boom");
-      const okEvs = await readRun(rt, "run-ok");
-      lines.push(
-        `boom run: ${boomStatus.state} (${boomStatus.reasonCode ?? "-"}) — expect failed (CELL/CRASH)`,
-      );
-      lines.push(`ok run:   ${okStatus.state} — expect halted（并行会话不受影响）`);
-      const isolated =
-        boomEvs.every((e) => e.runId === "run-boom") && okEvs.every((e) => e.runId === "run-ok");
-      lines.push(`ledger isolation: boom/ok 事件 runId 无混杂 = ${isolated}`);
-      const pass =
-        boomStatus.state === "failed" &&
-        boomStatus.reasonCode === "CELL/CRASH" &&
-        okStatus.state === "halted" &&
-        isolated;
-      return { pass, lines };
-    });
+    // 报关单先于 runtime 装配（policy 编译需要它们——声明编译是唯一规则源，runtime.ts runPolicy 注记）
+    const boomM = assembleManifest(capManifestRaw("boom-demo", []));
+    const okM = assembleManifest(capManifestRaw("ok-demo", []));
+    return await withRuntime(
+      "a2",
+      async (rt) => {
+        const crashDriver: RunDriver = {
+          decide: async (c) =>
+            c.round === 1
+              ? { summary: "boom", actions: [{ kind: "tool", tool: "boom", params: {} }] }
+              : { done: true, summary: "never" },
+        };
+        const okDriver: RunDriver = {
+          decide: async (c) =>
+            c.round === 1
+              ? { summary: "ok", actions: [{ kind: "tool", tool: "ok", params: {} }] }
+              : { done: true, summary: "end" },
+        };
+        const boom = await wireRun(rt, {
+          runId: "run-boom",
+          driver: crashDriver,
+          manifest: boomM,
+          pluginPath: fixturePath("boom-plugin.mjs"),
+          scope: { agentId: "keel-a2", sessionId: "sess-boom" },
+        });
+        const ok = await wireRun(rt, {
+          runId: "run-ok",
+          driver: okDriver,
+          manifest: okM,
+          pluginPath: fixturePath("ok-plugin.mjs"),
+          scope: { agentId: "keel-a2", sessionId: "sess-ok" },
+        });
+        const [boomStatus, okStatus] = await Promise.all([boom.done, ok.done]);
+        const boomEvs = await readRun(rt, "run-boom");
+        const okEvs = await readRun(rt, "run-ok");
+        lines.push(
+          `boom run: ${boomStatus.state} (${boomStatus.reasonCode ?? "-"}) — expect failed (CELL/CRASH)`,
+        );
+        lines.push(`ok run:   ${okStatus.state} — expect halted（并行会话不受影响）`);
+        const isolated =
+          boomEvs.every((e) => e.runId === "run-boom") && okEvs.every((e) => e.runId === "run-ok");
+        lines.push(`ledger isolation: boom/ok 事件 runId 无混杂 = ${isolated}`);
+        const pass =
+          boomStatus.state === "failed" &&
+          boomStatus.reasonCode === "CELL/CRASH" &&
+          okStatus.state === "halted" &&
+          isolated;
+        return { pass, lines };
+      },
+      runPolicyFor([
+        { manifest: boomM, subject: "keel-a2" },
+        { manifest: okM, subject: "keel-a2" },
+      ]),
+    );
   } catch (err) {
     return {
       pass: false,
@@ -122,90 +134,94 @@ async function scenarioA2(): Promise<ScenarioResult> {
 async function scenarioA3(): Promise<ScenarioResult> {
   const lines: string[] = [];
   try {
-    return await withRuntime("a3", async (rt) => {
-      const manifest = assembleManifest(
-        capManifestRaw("recover-demo", [
-          {
-            kind: "recover.ticked",
-            class: "record-only",
-            action: { type: "plugin", ref: "mark" },
-            idempotency: "natural",
-          },
-        ]),
-      );
-      const plugin = fixturePath("recover-plugin.mjs");
-      const driver1: RunDriver = {
-        decide: async (c) =>
-          c.round === 1
-            ? { summary: "bump", actions: [{ kind: "tool", tool: "bump", params: {} }] }
-            : { summary: "slow", actions: [{ kind: "tool", tool: "bump-slow", params: {} }] },
-      };
-      const first = await wireRun(rt, {
-        runId: "a3-run-1",
-        driver: driver1,
-        manifest,
-        pluginPath: plugin,
-        scope: { agentId: "keel-a3", sessionId: "sess-a3" },
-      });
-      await until(async () =>
-        (await readRun(rt, "a3-run-1")).some((e) => e.type === "STATE_SNAPSHOT_REF"),
-      );
-      await until(
-        async () =>
-          (await readRun(rt, "a3-run-1")).filter((e) => e.type === "EFFECT_DECLARED").length >= 2,
-      );
-      await first.cell.kill(); // **硬中断**（受控 → killed 分类，ADR-0005）：a3 的前提是"在途被打断"
-      const s1 = await first.done;
-      const plan = await rt.recovery.plan(first.ref);
-      lines.push(
-        `kill: ${s1.state} (${s1.reasonCode ?? "-"}); plan: checkpoint round=${String(plan.checkpoint?.round)}（在途轮已收束） pending=${String(plan.pending.length)} snapshot v${String(plan.snapshot?.version)}@round${String(plan.snapshot?.round)}`,
-      );
-      let continuationTicks = -1;
-      const driver2: RunDriver = {
-        decide: async (c) => {
-          if (c.round === 1) {
-            return {
-              summary: "resume",
-              actions: [{ kind: "tool", tool: "get-state", params: {} }],
-            };
-          }
-          continuationTicks =
-            (c.history[0]?.resultDigest as { ticks?: number } | undefined)?.ticks ?? -1;
-          return { done: true, summary: "recovered-end" };
+    const manifest = assembleManifest(
+      capManifestRaw("recover-demo", [
+        {
+          kind: "recover.ticked",
+          class: "record-only",
+          action: { type: "plugin", ref: "mark" },
+          idempotency: "natural",
         },
-      };
-      const resumed = await rt.recovery.execute(first.ref, async (_p, mountState) => {
-        const run = await wireRun(rt, {
-          runId: "a3-run-2",
-          driver: driver2,
+      ]),
+    );
+    return await withRuntime(
+      "a3",
+      async (rt) => {
+        const plugin = fixturePath("recover-plugin.mjs");
+        const driver1: RunDriver = {
+          decide: async (c) =>
+            c.round === 1
+              ? { summary: "bump", actions: [{ kind: "tool", tool: "bump", params: {} }] }
+              : { summary: "slow", actions: [{ kind: "tool", tool: "bump-slow", params: {} }] },
+        };
+        const first = await wireRun(rt, {
+          runId: "a3-run-1",
+          driver: driver1,
           manifest,
           pluginPath: plugin,
           scope: { agentId: "keel-a3", sessionId: "sess-a3" },
-          mountState,
-          recoveredFrom: { runId: "a3-run-1", seq: plan.checkpoint?.seq ?? 0 },
         });
-        return { runId: "a3-run-2", done: run.done };
-      });
-      const status = await resumed.done;
-      const newEvs = await readRun(rt, "a3-run-2");
-      const recovered = newEvs.find((e) => e.type === "RUN_RECOVERED");
-      const executed = (await readRun(rt, "a3-run-1")).filter(
-        (e) => e.type === "COMPENSATION_EXECUTED",
-      ).length;
-      lines.push(
-        `execute: new run ${status.state}; RUN_RECOVERED=${recovered ? j(recovered.payload) : "MISSING"}; 挂载快照 ticks=${String(continuationTicks)}; 旧 run 补偿闭环×${String(executed)}`,
-      );
-      const pass =
-        s1.reasonCode === "CELL/KILLED" &&
-        plan.checkpoint?.round === 2 &&
-        plan.pending.length === 2 &&
-        plan.snapshot?.round === 1 &&
-        status.state === "halted" &&
-        recovered !== undefined &&
-        continuationTicks === 1 &&
-        executed === 2;
-      return { pass, lines };
-    });
+        await until(async () =>
+          (await readRun(rt, "a3-run-1")).some((e) => e.type === "STATE_SNAPSHOT_REF"),
+        );
+        await until(
+          async () =>
+            (await readRun(rt, "a3-run-1")).filter((e) => e.type === "EFFECT_DECLARED").length >= 2,
+        );
+        await first.cell.kill(); // **硬中断**（受控 → killed 分类，ADR-0005）：a3 的前提是"在途被打断"
+        const s1 = await first.done;
+        const plan = await rt.recovery.plan(first.ref);
+        lines.push(
+          `kill: ${s1.state} (${s1.reasonCode ?? "-"}); plan: checkpoint round=${String(plan.checkpoint?.round)}（在途轮已收束） pending=${String(plan.pending.length)} snapshot v${String(plan.snapshot?.version)}@round${String(plan.snapshot?.round)}`,
+        );
+        let continuationTicks = -1;
+        const driver2: RunDriver = {
+          decide: async (c) => {
+            if (c.round === 1) {
+              return {
+                summary: "resume",
+                actions: [{ kind: "tool", tool: "get-state", params: {} }],
+              };
+            }
+            continuationTicks =
+              (c.history[0]?.resultDigest as { ticks?: number } | undefined)?.ticks ?? -1;
+            return { done: true, summary: "recovered-end" };
+          },
+        };
+        const resumed = await rt.recovery.execute(first.ref, async (_p, mountState) => {
+          const run = await wireRun(rt, {
+            runId: "a3-run-2",
+            driver: driver2,
+            manifest,
+            pluginPath: plugin,
+            scope: { agentId: "keel-a3", sessionId: "sess-a3" },
+            mountState,
+            recoveredFrom: { runId: "a3-run-1", seq: plan.checkpoint?.seq ?? 0 },
+          });
+          return { runId: "a3-run-2", done: run.done };
+        });
+        const status = await resumed.done;
+        const newEvs = await readRun(rt, "a3-run-2");
+        const recovered = newEvs.find((e) => e.type === "RUN_RECOVERED");
+        const executed = (await readRun(rt, "a3-run-1")).filter(
+          (e) => e.type === "COMPENSATION_EXECUTED",
+        ).length;
+        lines.push(
+          `execute: new run ${status.state}; RUN_RECOVERED=${recovered ? j(recovered.payload) : "MISSING"}; 挂载快照 ticks=${String(continuationTicks)}; 旧 run 补偿闭环×${String(executed)}`,
+        );
+        const pass =
+          s1.reasonCode === "CELL/KILLED" &&
+          plan.checkpoint?.round === 2 &&
+          plan.pending.length === 2 &&
+          plan.snapshot?.round === 1 &&
+          status.state === "halted" &&
+          recovered !== undefined &&
+          continuationTicks === 1 &&
+          executed === 2;
+        return { pass, lines };
+      },
+      runPolicy(manifest, "keel-a3"),
+    );
   } catch (err) {
     return {
       pass: false,
@@ -249,7 +265,10 @@ async function scenarioA4(): Promise<ScenarioResult> {
       ]),
     );
     // P-002：补偿执行器的动作 Cell 材料（factory）必须在构造时在场——manifest 先于 buildRuntime
-    const rt = await buildRuntime(dataDir, { actionSpec: { manifest, pluginPath: plugin } });
+    const rt = await buildRuntime(dataDir, {
+      actionSpec: { manifest, pluginPath: plugin },
+      policy: runPolicy(manifest, "keel-a4"),
+    });
     try {
       const armRun = async (
         runId: string,
