@@ -47,9 +47,26 @@ describe("模块面（承接层导出）", () => {
     expect(mod).toBeTypeOf("object");
   });
 
-  it("承接面常量自洽：mapped / refused / withheld 三集互不重叠", () => {
-    const all = [...CORDIS_SURFACE.mapped, ...CORDIS_SURFACE.refused, ...CORDIS_SURFACE.withheld];
+  it("承接面常量自洽：mapped / refused / withheld / guide 四集互不重叠（B5 对照表的地基）", () => {
+    const all = [
+      ...CORDIS_SURFACE.mapped,
+      ...CORDIS_SURFACE.refused,
+      ...CORDIS_SURFACE.withheld,
+      ...CORDIS_SURFACE.guide,
+    ];
     expect(new Set(all).size).toBe(all.length);
+  });
+
+  it("改法地面单列一桶，不混进 mapped（混进去 = 把 C 档谎报成 A 档，B5 一票否决的漂移形态）", () => {
+    for (const face of CORDIS_SURFACE.guide) {
+      expect(CORDIS_SURFACE.mapped).not.toContain(face);
+      expect(CORDIS_SURFACE.refused).not.toContain(face);
+    }
+    expect([...CORDIS_SURFACE.guide].sort()).toEqual([
+      "effects.declare",
+      "ledger.read",
+      "model.invoke",
+    ]);
   });
 });
 
@@ -136,13 +153,15 @@ describe("有损边界（显式报错，不静默降级）", () => {
     }
   });
 
-  it("拒绝信息带改法去处（「不能这么写」必须配「这么写也能达到目的」）", () => {
+  it("拒绝信息带改法去处（「不能这么写」必须配「这么写也能达到目的」；切片③ 起去处有地面可指）", () => {
     const { a } = rig();
-    expect(() => a.share.get("k")).toThrowError(/read-only injection/);
-    expect(() => a.effects.reclaim("e1")).toThrowError(/declared compensation|compensation/);
+    expect(() => a.share.get("k")).toThrowError(/ctx\.ledger\.read|tool-call params/);
+    expect(() => a.effects.reclaim("e1")).toThrowError(/ctx\.effects\.declare|compensation/);
     expect(() => a.hooks.register("beforeTool")).toThrowError(/whitelist/);
     expect(() => a.bus.emit("topic")).toThrowError(/tool-call params/);
-    expect(() => a.llm.chat({ q: 1 })).toThrowError(/gateway/);
+    expect(() => a.llm.chat({ q: 1 })).toThrowError(/ctx\.model\.invoke|gateway/);
+    // #4 切片② 改判 C 后文案不得再写 "B 档"（F9：文案滞后就是归因滞后）
+    expect(() => a.config.get("SECRET")).toThrowError(/边界 #4, C 档/);
   });
 
   it("作用域自省不提供：读取 ctx.scope 的任何字段即抛（不是 undefined）", () => {

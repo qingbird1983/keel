@@ -4,6 +4,10 @@
  * 它**不承载 handler**：宿主持有插件执行体既无意义也破 I1，所以经此端口注册的工具
  * "可见而不可执行"——这是既定边界（02 稿 §2 F2），Phase 1 的 A1 用它当增删施加通道。
  * 真实迁入路径是 `cell-port.ts`（舱内端口）。
+ *
+ * 切片③新增的**改法地面**（`ctx.model.invoke` / `ctx.effects.declare` / `ctx.ledger.read`）
+ * 在本端口**逐项显式拒绝**（`ADAPTER/PORT-UNSUPPORTED`，04 稿 §2 F7）：宿主侧这里没有网关、
+ * 没有账本订阅、没有效果追踪器，"看起来能调"就是假链路——真链路只在舱内端口那条路上。
  */
 
 import type { ContextManager, RunRef } from "@keel/core";
@@ -11,6 +15,7 @@ import {
   buildCordisCtx,
   CordisAdapterError,
   type CordisCtx,
+  type CordisGuidePort,
   type CordisRegistryPort,
 } from "./core.js";
 
@@ -61,7 +66,31 @@ export function hostRegistryPort(params: CreateCordisCtxParams): CordisRegistryP
   };
 }
 
+/**
+ * 宿主侧的改法地面 = 三面全部拒绝。
+ * 错误码与"旧面没映射"（`ADAPTER/UNSUPPORTED`）分开：这里不是没映射，是**这条端口后面没有内核**。
+ */
+export function hostGuideRefused(): CordisGuidePort {
+  const refuse = (face: string): never => {
+    throw new CordisAdapterError(
+      "ADAPTER/PORT-UNSUPPORTED",
+      `${face} is not available on the host port: it binds the Core context partition only (no gateway / ledger / effect tracker behind it). Real model calls, effect declarations and ledger reads happen in the plugin's own process via createCordisCellCtx — 诊断端口不假装能跑真链路（04 稿 §2 F7）`,
+    );
+  };
+  return {
+    async modelInvoke() {
+      return refuse("ctx.model.invoke");
+    },
+    async declareEffect() {
+      return refuse("ctx.effects.declare");
+    },
+    async ledgerRead() {
+      return refuse("ctx.ledger.read");
+    },
+  };
+}
+
 /** 宿主侧构造的旧形状 ctx（Phase 1 原型的调用形状保持不变，方法改为 async）。 */
 export function createCordisCtx(params: CreateCordisCtxParams): CordisCtx {
-  return buildCordisCtx(hostRegistryPort(params));
+  return buildCordisCtx({ registry: hostRegistryPort(params), guide: hostGuideRefused() });
 }

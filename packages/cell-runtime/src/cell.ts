@@ -35,7 +35,13 @@ export type ToolExecResult =
 export interface EffectDeclaration {
   effectKind: string;
   targetSummary?: unknown;
-  compensation: { actionRef: string; paramsDigest?: unknown; idempotency: string };
+  /**
+   * `actionRef` 与 `idempotency` **不是发起方可决定的量**：服务端按 manifest 报关单填
+   * `template.action.ref` 与 `template.idempotency`（C-M1 焊点——临场编造的补偿进不来）。
+   * 两者保留为可选只为兼容既有调用方；提交值不改变落账载荷。切片③的承接层面因此只暴露
+   * `paramsDigest`（04 稿 §3.1 施工期细化：可选化是类型层收敛，帧载荷与裁决均未变）。
+   */
+  compensation: { actionRef?: string; paramsDigest?: unknown; idempotency?: string };
   probeRef?: string;
   dependsOn?: string[];
   retention?: unknown;

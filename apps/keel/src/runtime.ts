@@ -143,8 +143,13 @@ export interface Runtime {
 }
 
 export interface BuildRuntimeOptions {
-  /** 补偿动作 Cell 的材料（ADR-0005「新 Cell」一次性通道）；缺省 = record-only 直闭，无通道。 */
-  actionSpec?: { manifest: LoadedManifest; pluginPath: string };
+  /**
+   * 补偿动作 Cell 的材料（ADR-0005「新 Cell」一次性通道）；缺省 = record-only 直闭，无通道。
+   * `cellEntry` 缺省 = supervisor 的新生态入口；**承接旧插件时必须给承接层入口**，
+   * 否则回滚舱用默认入口装载（它要 `export const tools`），旧插件的
+   * `module.exports.compensations` 表根本接不上——回滚闭环走不通（04 稿 §3.3 的接线缺口）。
+   */
+  actionSpec?: { manifest: LoadedManifest; pluginPath: string; cellEntry?: string };
   /**
    * 运行期授权策略（03 稿 §4 第 2 条）：装配真实/合成报关单的路径必须显式给出 `runPolicy` 的编译结果。
    * 缺省 = 演示策略 `p1`（只服务 Phase 1 场景复演与 benchmark），不再是无人认领的隐式默认。
@@ -225,10 +230,16 @@ export async function buildRuntime(
           ledger,
           // 补偿动作通道 = 一次性新补偿 Cell：同插件 spawn → compensation.exec → dispose（A4 rig 同构）
           factory: async (): Promise<CompensationActionCell> => {
-            const spec = opts.actionSpec as { manifest: LoadedManifest; pluginPath: string };
+            const spec = opts.actionSpec as {
+              manifest: LoadedManifest;
+              pluginPath: string;
+              cellEntry?: string;
+            };
             const cell = rt.supervisor.spawnCell({
               manifest: spec.manifest,
               pluginPath: spec.pluginPath,
+              // 旧插件走承接层入口（缺省 = 新生态默认入口）：与起 run 用的是同一个入口位
+              cellEntry: spec.cellEntry,
             });
             const timeout =
               (spec.manifest.resources.toolCallTimeoutMs ?? 0) + rt.supervisor.graceMs + 1_000;
