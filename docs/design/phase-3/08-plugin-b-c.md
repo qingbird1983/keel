@@ -1,6 +1,6 @@
 # Phase 3 切片④：插件 B（file-write）转正 + 插件 C（param-guard）
 
-- 状态：**草案**（2026-11-04；提纲与 K1~K5 已由所有者确认，全文待评审转定稿——铁律 1）
+- 状态：**定稿**（2026-11-04 所有者确认 K1~K5 并批准开工；B-E5 与 C-E2 措辞为实施期增补，见 §12；全文可复核）
 - 日期：2026-11-04
 - 关联：[02 稿](02-review-mechanization.md) §4（三件套需求卡，本稿唯一需求来源）；[05 稿](05-builtin-compensation.md)（builtin 补偿 + R3 收据注记）；[07 稿](07-runtime-context-refactor.md)（R1~R5 已落地底座）；[03 稿](03-plugin-a-echo.md)（插件 A 包形样板）；[01 清单](01-legacy-anti-patterns.md)（禁面）；[ADR-0015](../../adr/ADR-0015-manifest-governance-and-cell-aop.md) / [ADR-0016](../../adr/ADR-0016-builtin-compensation-registry.md) / [ADR-0018](../../adr/ADR-0018-effect-receipts-and-workspace.md) / [ADR-0020](../../adr/ADR-0020-workspace-error-codes.md)；[policy-link](../../../packages/host/src/policy-link.ts)（ADR-0012 装配链）
 - DSH 症状锚：插件 B ↔ "卸载即无痕在越界副作用上失效"（01 清单 I 族）；插件 C ↔ "Agent Loop 被插件化导致控制流可被替换"（01 清单 A 族——策略只插话，不接管控制流）
@@ -142,7 +142,8 @@ export const tools = [
 | B-E1 | **补偿闭环主体**   | write_file 新建文件真实落盘 → 注入故障使 run 失败 → builtin `fs.remove` 执行 → **文件消失**；账本序完整：`ASSEMBLY_RECORDED` → `TOOL_INVOKE` → `EFFECT_DECLARED`（`compensation.actionType:"builtin"`）→ `EFFECT_SETTLED`（`receipt.created === true`，含 identity）→ `COMPENSATION_EXECUTED`（`removed` = 目标路径） |
 | B-E2 | 越界拒、零部分生效 | `path` 不在 allow 清单 → handler **零执行**（文件不存在、无 `EFFECT_SETTLED`）；内核留 `AUTH_DENIED`（`fs.write`），工具结果 `AUTH/DENIED`                                                                                                                                                                            |
 | B-E3 | 重试幂等           | 同 `toolCallId` 重试 → 复用既有收据、**不重复写**（R4 语义在转正件上验证一次）                                                                                                                                                                                                                                        |
-| B-E4 | 状态可恢复（I3）   | B-E1 的账本含补偿候选投影所需的全部字段——补偿执行器**只读账本**即可找到目标（无内存态依赖）                                                                                                                                                                                                                           |
+| B-E4 | 状态可恢复（I3）   | 补偿执行器**只读账本**即可重放补偿候选；已补偿效果重放幂等（无新增 `COMPENSATION_EXECUTED`）                                                                                                                                                                                                                          |
+| B-E5 | 新建语义 + 0 误删  | 预存在目标 → `WORKSPACE/EXISTS`（ADR-0020）、内容保留、无收据 → 不进内建删除（§10 使用须知的行为面证据；实施期增补）                                                                                                                                                                                                  |
 
 分工注记（K1/K4）：预存在文件不误删、覆盖写不进内建删除、多 effect 部分失败只补偿已发生、路径逃逸/身份不符拒绝——这些**机制证据**已在 `packages/host/test/workspace.test.ts` / `compensator.test.ts` 与 `tests/native-file-write-aop.test.ts`（fixture）锚定，转正件不重复铺开；C3 以转正件的 B-E1 闭环为准。
 
@@ -185,14 +186,14 @@ export const tools = [
 | #    | 场景           | 断言                                                                                                                                                                                                                                                                             |
 | ---- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | C-E1 | 拦截 + 可归因  | content 含 `TOPSECRET` → `TOOL_RESULT{status:"error", error:{code:"AUTH/DENIED", by:"policy-hook", reason 含 "TOPSECRET"}}`；该轮介入的 `HOOK_CALLED` / `HOOK_VERDICT{verdict:"deny"}` seq 出现在后续 `DECISION.basedOn`；**handler 未执行**（文件不存在、无 `EFFECT_DECLARED`） |
-| C-E2 | 放行不误伤     | 正常 content → `HOOK_VERDICT{verdict:"allow", fallback:false}`，文件落盘（联装成立：C 拦 B 只按规则，不波及正常写）                                                                                                                                                              |
+| C-E2 | 放行不误伤     | 正常 content → `HOOK_VERDICT{verdict:"approve", fallback:false}`，文件落盘（联装成立：C 拦 B 只按规则，不波及正常写；裁决值域 = approve/deny，契约 §4.8）                                                                                                                        |
 | C-E3 | 崩溃降级（I2） | kill 策略舱进程 → 介入走既有 fallback：`HOOK_VERDICT{fallback:true}`，run 照常推进不崩（B7① 口径延续；策略舱不 attachRun，F5）                                                                                                                                                   |
 | C-E4 | 无介入无事件   | 未申领的 `stopAdvice` / `retryAdvice` / `budgetExhaustedChoice` 零 `HOOK_CALLED`；`ASSEMBLY_RECORDED.policies` = `[{ name:"param-guard", version:"1.0.0", hooks:["toolApproval"] }]`                                                                                             |
 
 ## 8. 施工顺序与转正留痕
 
 1. **本文定稿**（所有者评审通过）；
-2. 插件 B：包骨架 → e2e 红测（B-E1~E4 先红）→ 实现（§4.2/4.3 本就已具备全部机制，红转绿）；
+2. 插件 B：包骨架 → e2e 红测（B-E1~E5 先红）→ 实现（§4.2/4.3 本就已具备全部机制，红转绿）；
 3. 插件 C：包骨架 → e2e 红测（C-E1~E4 先红）→ 实现；
 4. 两份 `REVIEW.md`（02 稿 §5 五段模板）：manifest 摘录、01 清单 18 行逐条留痕、看代码三件事、门禁与真进程退出码证据、不可观察面清单；
 5. 禁面扫描实扫零命中（`packages/plugins` 三件全扫）；C1~C7 复核留给切片⑤，本片只对账 C2/C3/C4/C7；
@@ -225,3 +226,13 @@ export const tools = [
 - **I4**：越界写先声明（AOP 自动）→ `EFFECT_DECLARED` 先于任何 IO；未声明写（allow 外）当场拒绝零部分生效（B-E2）；builtin 只认收据（F7）。
 - **I5**：无全局注册表；工具经装配进声明 scope，策略舱不见除入参外的任何会话态。
 - **禁面**：转正件零 import（F6）、无 budget/sessionId/ctx.get 等符号；扫描器实扫负样本组照旧防假绿。
+
+## 12. 实施记录（2026-11-04，切片④）
+
+- **插件 B 转正**：`packages/plugins/file-write/`（§4.1~4.3 逐条落地，无偏差）；e2e `tests/native-file-write-e2e.test.ts` B-E1~E5 红测先行（转正件缺席 = 红，`Test Files 1 failed`；就位 = 绿，5/5）。
+- **插件 C 转正**：`packages/plugins/param-guard/`（§6.1~6.3 逐条落地，无偏差）；e2e `tests/native-param-guard-e2e.test.ts` C-E1~E4 红测先行（同法），联装 = 插件 B 工具舱 + `wirePolicies` 策略舱。
+- **实施期两处口径落地**（§5/§7 已同步）：B-E5（预存在目标 → `WORKSPACE/EXISTS` + 0 误删）为使用须知的行为面证据，增补进用例表；C-E2 裁决值域按契约 §4.8 修正为 `approve/deny`（草案误写 "allow"）。
+- **实施期新增裁决（需留意）**：`policies` 装配摘要由调用方合入 `scheduler.start` 的 assembly（`apps/keel/src/runtime.ts` 既有口径），e2e 照此构造；这不是新机制，是既有装配约定的显式化。
+- **顺手修正一个盲区**：vitest include 缺 `packages/plugins/*/test/` 一层——echo 的包内单测此前从未被主线收集；已修，插件单测（echo 3 例 + B 3 例 + C 4 例）随主线门禁运行。
+- **留痕**：两份 `REVIEW.md`（02 稿 §5 五段）完成；禁面扫描 `native-plugin-scan: clean`（含新增 md 载体）。
+- **全量证据**：56 文件 420 测试全绿（401 → 420：两件 e2e 9 例 + 包内单测 7 例 + echo 单测补收 3 例）。
