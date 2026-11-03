@@ -16,9 +16,9 @@ import { cmdValidate } from "./cmd-validate.js";
 const USAGE = `keel — Phase 1 验收场景执行入口（命令面见 docs/design/phase-1/04-cli-benchmarks-fixtures.md §2）
 
 用法：
-  keel run --manifest <path> --plugin <path> [--tool ok] [--rounds 2] [--data-dir <dir>]
+  keel run --manifest <path> --plugin <path> [--tool ok] [--rounds 2] [--data-dir <dir>] [--snapshots <dir>]
           [--policy-manifest <path> --policy-module <path>]…（成对、可重复；策略舱见 ADR-0012）
-  keel recover --data-dir <dir> --run <runId> [--plugin <path>] [--manifest <path>] [--tool get-state]
+  keel recover --data-dir <dir> --run <runId> [--snapshots <dir>] [--plugin <path>] [--manifest <path>] [--tool get-state]
   keel replay --data-dir <dir> --run <runId>
   keel validate (--manifest <path> | --dir <dir>) [--expect accept|reject]
   keel observe --plugin <path> [--entry legacy|default] [--out <dir>] [--tool-timeout 5000] [--data-dir <dir>]
@@ -86,6 +86,7 @@ export async function main(argv: string[]): Promise<number> {
           tool: str(a.tool) || undefined,
           rounds: optNum(a.rounds),
           dataDir: str(a["data-dir"]) || undefined,
+          snapshotDir: str(a.snapshots) || undefined,
           policyManifests,
           policyModules,
         });
@@ -93,6 +94,7 @@ export async function main(argv: string[]): Promise<number> {
       case "recover":
         return await cmdRecover({
           dataDir: str(a["data-dir"]),
+          snapshotDir: str(a.snapshots) || undefined,
           run: str(a.run),
           plugin: str(a.plugin) || undefined,
           manifest: str(a.manifest) || undefined,

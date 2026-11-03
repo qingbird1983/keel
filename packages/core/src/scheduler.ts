@@ -21,12 +21,13 @@ import { HookBus } from "./hooks.js";
 import { ModelGateway } from "./gateway.js";
 import {
   type AssemblyRecordedPayload,
+  type DecisionPayload,
   type EventType,
   type LedgerEvent,
   type RunRef,
   type ToolSchemaChangedPayload,
 } from "./events.js";
-import { Ledger, type CheckpointInfo } from "./ledger.js";
+import { Ledger, type CheckpointInfo, type LedgerAppendOptions } from "./ledger.js";
 
 /** 工具执行通道（切片③绑定 Cell stdio；本切片注入桩/进程内实现）。 */
 export type ToolExecutor = (call: {
@@ -287,7 +288,7 @@ export class Scheduler {
     }
     const tools = this.ctx.discover(ref);
 
-    // 决策（不可插件化；basedOn = 决策前本 run 已写事件 seq）
+    // 决策（不可插件化；basedOn = 本决策显式引用的关键事件，依据上界由账本盖章 = ADR-0008）
     const decision = await h.manifest.driver.decide({
       run: ref,
       round: h.round,
@@ -295,11 +296,18 @@ export class Scheduler {
       history: h.history,
       events: [...h.events],
     });
-    await this.emit(h, "DECISION", {
-      round: h.round,
-      summary: decision.summary,
-      basedOn: [...h.events],
-    });
+    // throughSeq 由**账本在写入点**盖章（stampSeqBeforeAs）：这里 h.events 只有调度器自己写的 seq，
+    // 授权/预算/网关/效果/快照那几路直写事件不在其中——"决策看得见什么"的答案是上界，不是列举。
+    await this.emit(
+      h,
+      "DECISION",
+      {
+        round: h.round,
+        summary: decision.summary,
+        basedOn: [...h.events],
+      } satisfies DecisionPayload,
+      { stampSeqBeforeAs: "throughSeq" },
+    );
 
     // hook②（每轮决策后；采纳与否由 Core 裁决，MVP 采纳建议）
     let stopAdvised = false;
@@ -525,8 +533,13 @@ export class Scheduler {
     h.reasonCode = code;
   }
 
-  private async emit(h: RunHandle, type: EventType, payload: unknown): Promise<LedgerEvent> {
-    const ev = await this.ledger.append(h.ref, type, payload);
+  private async emit(
+    h: RunHandle,
+    type: EventType,
+    payload: unknown,
+    opts?: LedgerAppendOptions,
+  ): Promise<LedgerEvent> {
+    const ev = await this.ledger.append(h.ref, type, payload, opts);
     h.events.push(ev.seq);
     return ev;
   }

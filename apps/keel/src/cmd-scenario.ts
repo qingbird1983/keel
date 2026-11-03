@@ -14,6 +14,7 @@ import {
   fixturePath,
   readRun,
   repoRoot,
+  snapshotDirOf,
   until,
   wireRun,
   type Runtime,
@@ -54,6 +55,8 @@ async function withRuntime<T>(
   } finally {
     await closeRuntime(rt);
     await rm(dataDir, { recursive: true, force: true });
+    // 派生快照目录跟账本临时目录一起清（A3 会真写快照，切片⑤ §3.2）
+    await rm(snapshotDirOf(dataDir), { recursive: true, force: true });
   }
 }
 
@@ -151,7 +154,7 @@ async function scenarioA3(): Promise<ScenarioResult> {
         async () =>
           (await readRun(rt, "a3-run-1")).filter((e) => e.type === "EFFECT_DECLARED").length >= 2,
       );
-      await first.cell.drainAndReap(); // kill（受控 → killed 分类，ADR-0005）
+      await first.cell.kill(); // **硬中断**（受控 → killed 分类，ADR-0005）：a3 的前提是"在途被打断"
       const s1 = await first.done;
       const plan = await rt.recovery.plan(first.ref);
       lines.push(

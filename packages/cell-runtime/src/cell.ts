@@ -93,6 +93,34 @@ export interface CellClient {
   removeTool(name: string): Promise<boolean>;
   ledgerRead(filter: { types?: string[]; seqFrom?: number; seqTo?: number }): Promise<unknown>;
   declareEffect(decl: EffectDeclaration): Promise<{ effectId: string; seq: number }>;
+  /**
+   * 流式一页（ADR-0013 决策 1 的舱内视图；本包不依赖 @keel/core，故为结构化同形类型）。
+   * `done:true` = 会话已终局；`truncated:true` = 断流/取消（已产出部分照常结算）。
+   */
+  modelStreamStart(req: {
+    reqId: string;
+    model: string;
+    params: unknown;
+    estimate: number;
+  }): Promise<StreamPageView>;
+  /** 逐页取片：不 next 就不向上游取——背压由构造消解（ADR-0013 决策 2）。 */
+  modelStreamNext(streamId: string, limit?: number): Promise<StreamPageView>;
+  /** 主动收摊：已产出部分结算并标截断。 */
+  modelStreamCancel(
+    streamId: string,
+  ): Promise<{ settled: boolean; cost: number; truncated: boolean }>;
+}
+
+/** 舱内可见的流式应答形状（与 core 的 `StreamPage` 同形，跨包零依赖）。 */
+export interface StreamPageView {
+  streamId: string;
+  chunks: unknown[];
+  done: boolean;
+  produced: number;
+  usage?: unknown;
+  cost?: number;
+  truncated?: boolean;
+  replay?: boolean;
 }
 
 export interface CellOptions extends ConnStreams {
@@ -151,6 +179,10 @@ const TIMEOUT_MODEL = 120_000;
 // 契约 §4.6 切片①新增两行（含一次 Core 状态写 + 挂起变更日志追加）
 const TIMEOUT_TOOL_REGISTER = 200;
 const TIMEOUT_TOOL_REMOVE = 200;
+// 流式（切片⑤，ADR-0013 决策 7）：通道请求上限取契约 §7 的**流式总长 300s** 那一档，
+// 内核侧单次等待取**首字节 30s** 那一档——两个都是既有数字，不新增时限；
+// 内核一定会在自己的等待到期后先应答（截断页），于是通道超时这条只可能是真故障。
+const TIMEOUT_MODEL_STREAM = 300_000;
 
 export function startCell(opts: CellOptions): CellHandle {
   const conn = new FrameConn(opts);
@@ -174,6 +206,20 @@ export function startCell(opts: CellOptions): CellHandle {
       const effectId = crypto.randomUUID();
       return conn.request("effect.declare", { effectId, ...decl }, TIMEOUT_EFFECT);
     },
+    modelStreamStart: (req) =>
+      conn.request<StreamPageView>("model.stream.start", req, TIMEOUT_MODEL_STREAM),
+    modelStreamNext: (streamId, limit) =>
+      conn.request<StreamPageView>(
+        "model.stream.next",
+        limit === undefined ? { streamId } : { streamId, limit },
+        TIMEOUT_MODEL_STREAM,
+      ),
+    modelStreamCancel: (streamId) =>
+      conn.request<{ settled: boolean; cost: number; truncated: boolean }>(
+        "model.stream.cancel",
+        { streamId },
+        TIMEOUT_MODEL_STREAM,
+      ),
   };
 
   // 装载门（ADR-0011）：loadGate 开启时，请求处理挂在这个 promise 上直到 markReady()。

@@ -44,9 +44,52 @@ describe("Ledger", () => {
       seq: 1,
       type: "DECISION",
       agentId: "agent-1",
-      schemaVersion: 1,
+      // 类型级版本表（切片⑤ §7 第 1 项）：DECISION 载荷追加了 throughSeq → 该类型 = 2
+      schemaVersion: 2,
     });
     expect(page.events[1]?.seq).toBe(2);
+    // 没列进表里的类型仍是 1：一条载荷变了不等于全部变了
+    expect(page.events[1]?.schemaVersion).toBe(1);
+  });
+
+  it("throughSeq 由账本在写入点盖章：值 = 写入前该 run 已存在的最大 seq", async () => {
+    const ledger = newLedger();
+    await ledger.append(ref, "RUN_STARTED", {});
+    const d = await ledger.append(
+      ref,
+      "DECISION",
+      { round: 1, summary: "a", basedOn: [1] },
+      { stampSeqBeforeAs: "throughSeq" },
+    );
+    expect(d.payload).toMatchObject({ throughSeq: 1 });
+    // 稠密性哨兵：今天单写者 + lastSeq+1，所以上界恒等于 seq-1。
+    // 这条断言的作用是——哪天写入面不再稠密（分片/批量/多写者），这里立刻红，而不是让归因悄悄漂移。
+    expect((d.payload as { throughSeq?: number }).throughSeq).toBe(d.seq - 1);
+  });
+
+  it("盖章不看调用方读的时机：先入队的直写事件必须落在上界之内", async () => {
+    // 这是"为什么不由调度器自读当前最大 seq"的技术理由（07 稿 F3）：seq 在执行期分配，
+    // 读与写之间排进队列的直写事件（授权/预算/网关/效果/快照那几路）会被自读漏掉。
+    const ledger = newLedger();
+    await ledger.append(ref, "RUN_STARTED", {});
+    const direct = ledger.append(ref, "AUTH_DENIED", { subject: "s", action: "a" }); // 组件直写
+    const decision = ledger.append(
+      ref,
+      "DECISION",
+      { round: 1, summary: "a", basedOn: [] },
+      { stampSeqBeforeAs: "throughSeq" },
+    );
+    const [d1, d2] = await Promise.all([direct, decision]);
+    expect(d1.seq).toBe(2);
+    expect(d2.seq).toBe(3);
+    // 上界承载了那笔直写事件，尽管调度器没把它列进 basedOn
+    expect((d2.payload as { throughSeq?: number }).throughSeq).toBe(2);
+  });
+
+  it("盖章只在显式要求时发生：其余事件的载荷形状不变（旧账本可读的前提）", async () => {
+    const ledger = newLedger();
+    const ev = await ledger.append(ref, "DECISION", { round: 1, summary: "a", basedOn: [] });
+    expect("throughSeq" in (ev.payload as object)).toBe(false);
   });
 
   it("checkpoint 写入 CHECKPOINT 事件；lastCheckpoint 内存态与冷扫描一致", async () => {

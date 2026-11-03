@@ -34,7 +34,8 @@ import type { CompensationExecInput } from "@keel/cell-runtime";
 /** 补偿动作 Cell 最小面（生产 = 一次性新 Cell 进程连接；测试注入内存替身）。 */
 export interface CompensationActionCell {
   exec(input: CompensationExecInput): Promise<ToolResultLike>;
-  dispose(): Promise<void>;
+  /** 收束一次性补偿舱（真实实现 = drainAndReap 的确定收尾次序，切片⑤ §3.3；替身可返回 void）。 */
+  dispose(): Promise<unknown>;
 }
 
 export interface ToolResultLike {

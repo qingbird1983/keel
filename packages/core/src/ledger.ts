@@ -16,7 +16,13 @@ import { mkdir, open, readdir, readFile } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { KeelError } from "./errors.js";
-import { SCHEMA_VERSION, type EventType, type LedgerEvent, type RunRef } from "./events.js";
+import {
+  EVENT_SCHEMA_VERSION,
+  SCHEMA_VERSION,
+  type EventType,
+  type LedgerEvent,
+  type RunRef,
+} from "./events.js";
 
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const DEFAULT_SEG_MAX_BYTES = 8 * 1024 * 1024;
@@ -26,6 +32,16 @@ export interface LedgerOptions {
   /** 时间注入（standards/05 §3）：毫秒纪元。 */
   now?: () => number;
   segMaxBytes?: number;
+}
+
+/** 追加选项（切片⑤）。 */
+export interface LedgerAppendOptions {
+  /**
+   * **由账本盖章**的依据上界键名（ADR-0008 决策 2）：写队列执行期把"本事件之前该 run 已存在的
+   * 最大 seq"写进载荷的这个键。调用方自读不行——seq 在执行期分配，读与写之间若有组件直写一笔，
+   * 自读的上界就会漏掉它，而那正是这个字段要消灭的错误类型。账本只认键名，不认事件类型。
+   */
+  stampSeqBeforeAs?: string;
 }
 
 export interface LedgerReadFilter {
@@ -106,7 +122,12 @@ export class Ledger {
   }
 
   /** 追加一条事件（缓冲写；持久性由 checkpoint 保证）。 */
-  append(ref: RunRef, type: EventType, payload: unknown): Promise<LedgerEvent> {
+  append(
+    ref: RunRef,
+    type: EventType,
+    payload: unknown,
+    opts?: LedgerAppendOptions,
+  ): Promise<LedgerEvent> {
     let w: RunWriter;
     try {
       w = this.writer(ref);
@@ -116,11 +137,20 @@ export class Ledger {
     let ev!: LedgerEvent;
     return this.enqueue(w, async (handle) => {
       // seq 在执行期分配：调用序 = 队列序 = 文件内 seq 序（与 checkpoint 的执行期分配保持一致）
-      ev = this.makeEvent(ref, w, type, payload);
+      ev = this.makeEvent(ref, w, type, this.stamp(w, payload, opts));
       const line = `${JSON.stringify(ev)}\n`;
       await handle.write(line, null, "utf8");
       w.bytes += Buffer.byteLength(line, "utf8");
     }).then(() => ev);
+  }
+
+  /** 盖章见 `LedgerAppendOptions.stampSeqBeforeAs` 的注释；无键名 = 原样写入。 */
+  private stamp(w: RunWriter, payload: unknown, opts?: LedgerAppendOptions): unknown {
+    const key = opts?.stampSeqBeforeAs;
+    if (!key || payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+      return payload;
+    }
+    return { ...(payload as Record<string, unknown>), [key]: w.lastSeq };
   }
 
   /** 轮边界一致点：fsync 此前全部事件，写入 CHECKPOINT 事件并 fsync（ADR-0004）。 */
@@ -308,7 +338,8 @@ export class Ledger {
       sessionId: ref.sessionId,
       agentId: ref.agentId,
       type,
-      schemaVersion: SCHEMA_VERSION,
+      // 载荷格式版本按**类型**取（切片⑤ §7 第 1 项）：表里没列的类型仍是 SCHEMA_VERSION（1）。
+      schemaVersion: EVENT_SCHEMA_VERSION[type] ?? SCHEMA_VERSION,
       payload,
     };
     w.lastSeq = ev.seq;

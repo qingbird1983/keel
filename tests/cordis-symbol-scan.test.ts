@@ -185,6 +185,20 @@ describe("合成样本的「零改动 / 有损改写」机械判据（A/B/C 三�
     for (const face of CORDIS_SURFACE.guide) expect(dSymbols.has(face)).toBe(false);
   });
 
+  it("判据 5 增量（切片⑤）：流式护栏不新增旧符号归属（我们不替旧框架发明 API）", () => {
+    // §3.4 第 5 步给 `ctx.llm` 加了"未知成员也抛"的护栏。护栏是**交代**，不是边界表多一行：
+    // 没有证据说旧框架有 `chatStream`，把它写进 refused/guide 就是凭想象扩表。
+    expect(CORDIS_SURFACE.refused.filter((s) => s.startsWith("llm."))).toEqual(["llm.chat"]);
+    const surface = new Set<string>(ALL_SURFACE);
+    for (const invented of ["llm.chatStream", "llm.stream", "llm.completion"]) {
+      expect(surface.has(invented), `invented legacy face in surface: ${invented}`).toBe(false);
+    }
+    // 内核回填的流式通道也不进承接面清单：它是 Core 能力（ADR-0013），不是旧面的映射目标。
+    // 真实样本里 if 出现旧流式写法，处置顺序仍是"先补边界表再收口"（本文件头 §判据 2）。
+    expect(surface.has("model.stream")).toBe(false);
+    expect(surface.has("modelStreamStart")).toBe(false);
+  });
+
   it("承接面清单本身与边界表口径一致（映射三项 = #1；拒绝项覆盖 #2/#4/#5/#6/#8/#9/#14/#15）", () => {
     expect([...CORDIS_SURFACE.mapped]).toEqual(["tools.register", "tools.remove", "tools.list"]);
     expect(CORDIS_SURFACE.refused).toContain("hooks.register"); // #2 拆支 → #14 D 档

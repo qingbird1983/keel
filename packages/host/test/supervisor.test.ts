@@ -306,3 +306,92 @@ describe("Supervisor：per-spawn cellEntry 覆盖（切片① seam，ADR-0010 �
     expect(legacy.phase).toBe("ready"); // 换入口不改变隔离语义
   });
 });
+
+describe("Supervisor：收尾（drain）的确定次序（切片⑤ §3.3，B7③）", () => {
+  it("空舱收尾：拒新 → 无在途 → kill → reaped，产物逐项可核", async () => {
+    const { provider, cell } = rig();
+    const out = await cell.drainAndReap();
+    expect(out).toMatchObject({ inFlightAtStart: 0, settled: 0, timedOut: false, killed: true });
+    expect(out.refused).toBe(0); // 此刻还没有人来撞门
+    expect(cell.phase).toBe("reaped");
+    expect(provider.spawned[0].process.killed).toBe(true);
+  });
+
+  it("收尾窗口内的新动作被拒：落成 SCHED/BACKPRESSURE 的 error 结果（不是悄悄打到将死进程）", async () => {
+    const { provider, cell } = rig();
+    provider.spawned[0].handle!.registerTool({
+      name: "slow",
+      schema: {},
+      handler: async () => {
+        await new Promise((r) => setTimeout(r, 150));
+        return { done: true };
+      },
+    });
+    provider.spawned[0].handle!.registerTool({
+      name: "echo",
+      schema: {},
+      handler: (p) => ({ echoed: p }),
+    });
+    const inFlight = cell.executor({ tool: "slow", params: null });
+    await new Promise((r) => setTimeout(r, 20)); // 让请求真进舱（否则还没 halting）
+    const draining = cell.drainAndReap(); // 此刻 phase = halting，进程还活着，正在等在途
+    await new Promise((r) => setTimeout(r, 20));
+    const refused = await cell.executor({ tool: "echo", params: { a: 1 } });
+    expect(refused.status).toBe("error");
+    if (refused.status !== "ok")
+      expect((refused.error as { code?: string } | undefined)?.code).toBe("SCHED/BACKPRESSURE");
+    const out = await draining;
+    expect(out.refused).toBe(1); // 拒绝被计入收尾产物（审计看得见"有人在收尾期撞门"）
+    expect(out.settled).toBe(1); // 在途那条等到了收束
+    await expect(inFlight).resolves.toMatchObject({ status: "ok" });
+  });
+
+  it("舱已 reaped 之后的新动作 = 既有口径 TRANSPORT/BADFRAME（进程确实没了，不粉饰成准入拒绝）", async () => {
+    const { cell } = rig();
+    await cell.drainAndReap();
+    const r = await cell.executor({ tool: "echo", params: {} });
+    expect(r.status).toBe("error");
+    if (r.status !== "ok")
+      expect((r.error as { code?: string } | undefined)?.code).toBe("TRANSPORT/BADFRAME");
+    // 再收一次是幂等的：已 reaped 的舱不补刀
+    const again = await cell.drainAndReap();
+    expect(again.killed).toBe(false);
+  });
+
+  it("在途动作等到收束：收尾不打断它，结果照常回来（B7③ 的核心主张）", async () => {
+    const { provider, cell } = rig();
+    provider.spawned[0].handle!.registerTool({
+      name: "slow",
+      schema: {},
+      handler: async () => {
+        await new Promise((r) => setTimeout(r, 120));
+        return { done: true };
+      },
+    });
+    const pending = cell.executor({ tool: "slow", params: null });
+    // 让请求真的进到舱里（否则 inFlight 还是 0，测不到等待）
+    await new Promise((r) => setTimeout(r, 20));
+    const out = await cell.drainAndReap();
+    expect(out.inFlightAtStart).toBe(1);
+    expect(out.timedOut).toBe(false); // 宽限期没到就已经收束
+    expect(out.settled).toBe(1);
+    const r = await pending;
+    expect(r.status).toBe("ok"); // 没被打断
+    if (r.status === "ok") expect(r.result).toEqual({ done: true });
+  });
+
+  it("等不到就强杀：宽限期（toolKillGraceMs）到点即 kill，不无限等", async () => {
+    // wedged 入口 = 不挂真实 Cell，请求永不响应；grace 给 60ms 让这条测试跑得快
+    const { provider, cell } = rig(100, 60, "wedged:plug");
+    const never = cell.call("cell.snapshot", {}, 60_000).catch(() => undefined); // 永不落定
+    const t0 = Date.now();
+    const out = await cell.drainAndReap();
+    expect(out.inFlightAtStart).toBe(1);
+    expect(out.timedOut).toBe(true); // 硬界生效：是宽限到点，不是收束完成
+    expect(out.settled).toBe(0);
+    expect(out.killed).toBe(true);
+    expect(Date.now() - t0).toBeLessThan(1_000); // 远小于那个 60s 的请求超时
+    expect(provider.spawned[0].process.killed).toBe(true);
+    await never;
+  });
+});

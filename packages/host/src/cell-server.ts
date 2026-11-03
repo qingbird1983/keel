@@ -64,6 +64,24 @@ export function serveCellChannel(
           params: p.params,
           estimate: num(p, "estimate"),
         });
+      // 流式三 op（切片⑤，ADR-0013 决策 1）：start 走授权 + 预扣 + 首页；next/cancel 只认
+      // "本 run 本主体的活跃会话"——streamId 是标识符不是权限，越界与不存在同样回答（不留探测信道）。
+      case "model.stream.start":
+        return deps.gateway.streamStart(binding.ref, binding.subject, {
+          reqId: str(p, "reqId"),
+          model: str(p, "model"),
+          params: p.params,
+          estimate: num(p, "estimate"),
+        });
+      case "model.stream.next":
+        return deps.gateway.streamNext(
+          binding.ref,
+          binding.subject,
+          str(p, "streamId"),
+          typeof p.limit === "number" ? p.limit : undefined,
+        );
+      case "model.stream.cancel":
+        return deps.gateway.streamCancel(binding.ref, binding.subject, str(p, "streamId"));
       case "tool.discover":
         return deps.ctx.discover(binding.ref);
       case "tool.register":

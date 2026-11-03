@@ -98,7 +98,7 @@ export class RecoveryManager {
     // ② 快照挂载状态（账本有 ref 而存储缺失 → SNAPSHOT-MISSING；无快照 → null）
     let mountState: unknown = null;
     if (plan.snapshot) {
-      const entry = this.snapshots.get(plan.snapshot.ref);
+      const entry = await this.snapshots.get(plan.snapshot.ref);
       if (!entry) {
         throw new KeelError("RECOVER/SNAPSHOT-MISSING", "snapshot ref recorded but entry missing", {
           runId: oldRef.runId,

@@ -53,6 +53,22 @@ export const EVENT_TYPES = [
 
 export type EventType = (typeof EVENT_TYPES)[number];
 
+/**
+ * **按事件类型**的载荷格式版本（切片⑤ §7 第 1 项，所有者确认）。
+ *
+ * 为什么不全局递增：全局那枚 `SCHEMA_VERSION` 等于宣告"所有事件类型都改过格式"，而实际改的
+ * 只有个别类型的载荷（追加字段）。表里没列的类型 = `SCHEMA_VERSION`（1）。
+ * 读方一律按**字段缺省**容错，不按版本号分支——版本号是给审计员看的，不是行为开关。
+ */
+export const EVENT_SCHEMA_VERSION: Partial<Record<EventType, number>> = {
+  /** v2 = 追加依据上界 `throughSeq`（[ADR-0008](../../../docs/adr/ADR-0008-decision-attribution-upper-bound.md) 决策 2）。 */
+  DECISION: 2,
+  /** v2 = 流式会话追加 `streamId`（[ADR-0013](../../../docs/adr/ADR-0013-model-stream-pull-chunking.md) 决策 3/8）。 */
+  MODEL_INVOKED: 2,
+  /** v2 = 追加 `truncated`（断流时"已产出部分结算"的可见标记，ADR-0013 决策 4）。 */
+  MODEL_USAGE: 2,
+};
+
 /** 账本事件信封（契约 §5 公共信封）。 */
 export interface LedgerEvent {
   seq: number;
@@ -102,11 +118,22 @@ export interface RoundPayload {
   round: number;
 }
 
-/** V6 归因锚点：决策摘要 + 依据事件 seq 引用。 */
+/**
+ * V6 归因锚点（ADR-0008 决策 1/2 的落地形状）：
+ * - `basedOn` = **本决策显式引用的关键事件** seq（授权拒绝、策略裁决、失败结果等），
+ *   不是"决策前全部事件"——账本并非单一写入者（`AUTH_DENIED`/`BUDGET_*`/`MODEL_*`/`EFFECT_*`/
+ *   `STATE_SNAPSHOT_REF` 按设计由组件直写），全量枚举既做不到也不带来新信息。
+ * - `throughSeq` = 本决策写入前该 run 账本里已存在的**最大事件编号**（依据上界，ADR-0008 决策 2）：
+ *   任何直写事件都在上界之内，不再出现"这条确实发生过却不在任何依据列表里"。
+ *   由**账本在写队列执行期盖章**（`Ledger.append` 的 `stampSeqBeforeAs`）——seq 在执行期分配，
+ *   调用方自读会漏掉"读之后、写之前"落账的那笔，恰是本字段要修的错误类型。
+ * - **追加字段：缺省不写**，Phase 1 的旧账本样例仍可读（读方按"无显式上界"处理，决策 4）。
+ */
 export interface DecisionPayload {
   round: number;
   summary: unknown;
   basedOn: number[];
+  throughSeq?: number;
 }
 
 export interface ToolInvokePayload {
@@ -163,16 +190,27 @@ export interface BudgetSettledPayload {
   sessionRemaining: number | null;
 }
 
+/**
+ * 模型调用留痕（ADR-0003 时序：一次调用一条）。
+ * **追加字段** `streamId`（ADR-0013 决策 3）：流式调用的会话标识；非流式为缺省（不写）。
+ * 每片**不写事件**——否则账本体积变成流长度的函数。
+ */
 export interface ModelInvokedPayload {
   model: string;
   reqId: string;
   requestDigest: unknown;
+  streamId?: string;
 }
 
+/**
+ * 用量与权威计量（流式在**流终了**写这一条，ADR-0013 决策 3/4）。
+ * **追加字段** `truncated`：true = 会话未自然结束（断流/取消/超总长），已产出部分照常结算。
+ */
 export interface ModelUsagePayload {
   reqId: string;
   usage: unknown;
   cost: number;
+  truncated?: boolean;
 }
 
 /** 补偿分级（状态机 §7，manifest 必填枚举）。 */

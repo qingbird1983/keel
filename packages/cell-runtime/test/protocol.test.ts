@@ -122,4 +122,24 @@ describe("toFrameError", () => {
     expect(toFrameError({ code: "CUSTOM", message: "z" }).code).toBe("CUSTOM");
     expect(toFrameError("plain").code).toBe("CELL/INTERNAL");
   });
+
+  it("Core 侧错误（非本包的 ChannelError）的 detail 也照常穿通道", () => {
+    // 复现钉（切片⑤ B7④ 真进程测试踩到）：KeelError 结构上是 {name, code, message, detail}，
+    // 本包不依赖 @keel/core 所以认不出它的类。旧写法只对 ChannelError 保 detail，
+    // 于是舱内收到的是"只剩一个码"——断流的第几片、结了多少钱全丢了。
+    const keelShaped = Object.assign(
+      new Error("[GATEWAY/UPSTREAM-ERROR] model stream upstream failed"),
+      {
+        code: "GATEWAY/UPSTREAM-ERROR",
+        detail: { reason: "STREAM_UPSTREAM_THROW", produced: 2, cost: 2 },
+      },
+    );
+    expect(toFrameError(keelShaped)).toEqual({
+      code: "GATEWAY/UPSTREAM-ERROR",
+      message: "[GATEWAY/UPSTREAM-ERROR] model stream upstream failed",
+      detail: { reason: "STREAM_UPSTREAM_THROW", produced: 2, cost: 2 },
+    });
+    // 没有 detail 的错误不写这个键（帧形不新增噪声字段）
+    expect("detail" in toFrameError(new Error("bare"))).toBe(false);
+  });
 });

@@ -17,7 +17,9 @@ import type { LoadedManifest } from "./assembler.js";
 /** 词表项 → 对应运行期 action（无对应 op 的项一律不列，见口径 1）。 */
 const CAP_ACTIONS: Record<string, readonly string[]> = {
   "tool.provide": ["tool.register", "tool.remove"],
-  "model.adapter": ["model.invoke"],
+  // 切片⑤（ADR-0013 决策 6）：`model.adapter` 是**一项权威的两个入口**——能调模型就能流式调，
+  // 所以编译出两条规则；不新开 cap（词表扩展须 ADR，且报关单字段零变更）。
+  "model.adapter": ["model.invoke", "model.stream"],
   "net.fetch": ["net.fetch"],
   "fs.read": ["fs.read"],
   "fs.write": ["fs.write"],

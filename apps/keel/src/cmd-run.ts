@@ -15,6 +15,7 @@ import {
   closeRuntime,
   readRun,
   runPolicy,
+  snapshotDirOf,
   wireRun,
 } from "./runtime.js";
 
@@ -28,6 +29,11 @@ export interface RunOptions {
   /** 轮数（缺省 2：轮 1 调工具，轮 2 收束）。 */
   rounds?: number;
   dataDir?: string;
+  /**
+   * 快照根目录（切片⑤ §3.2）：缺省由 `--data-dir` 派生同级 `<name>-snapshots`。
+   * 只给 `--snapshots` 而不给 `--data-dir` 也行——两者都在临时目录里，随本次运行一起清掉。
+   */
+  snapshotDir?: string;
   /**
    * 策略插件绑定（切片④ 回填项 ①）：`--policy-manifest` 与 `--policy-module` **按顺序成对**，
    * 可各给多次。两份策略申领同一个插话点 → 装配期整份拒绝（ADR-0012 决策 5）。
@@ -52,9 +58,11 @@ export async function cmdRun(opts: RunOptions): Promise<number> {
     };
   });
   const dataDir = opts.dataDir ?? (await mkdtemp(path.join(tmpdir(), "keel-run-")));
+  const snapshotDir = snapshotDirOf(dataDir, opts.snapshotDir);
   const rt = await buildRuntime(dataDir, {
     policy: runPolicy(manifest, "keel-cli"),
     policies: policySpecs,
+    snapshotDir,
   });
   try {
     const tool = opts.tool ?? "ok";
@@ -84,9 +92,24 @@ export async function cmdRun(opts: RunOptions): Promise<number> {
         `hooks:  ${rt.policies.map((b) => `${b.summary.name}@${b.summary.version}→${b.summary.hooks.join("|")}`).join(" ")}`,
       );
     }
-    return status.state === "halted" ? 0 : 1;
+    // 快照落盘失败 = "宿主重启后可恢复"这条主张对本次运行不成立：报在明面上，退出码非 0
+    // （切片⑤ §3.2 第 4 步。内核的 checkpoint 缝按 Phase 1 的 D3 定案继续"尽力而为"，
+    // 可见性的责任在交付入口——不静默跳过，也不为此新增错误码。）
+    for (const f of rt.snapshotFailures) {
+      console.error(`snapshot-persist: FAILED round=${String(f.round)} (${f.runId}): ${f.message}`);
+    }
+    if (status.state === "halted" && rt.snapshotFailures.length > 0) {
+      console.error(
+        "run: halted, but snapshots did not persist — a host restart will not have state to mount",
+      );
+    }
+    return status.state === "halted" && rt.snapshotFailures.length === 0 ? 0 : 1;
   } finally {
     await closeRuntime(rt);
-    if (!opts.dataDir) await rm(dataDir, { recursive: true, force: true });
+    if (!opts.dataDir) {
+      await rm(dataDir, { recursive: true, force: true });
+      // 派生的快照目录跟着账本临时目录一起清（不留一堆没人读的内容在临时区）
+      if (!opts.snapshotDir) await rm(snapshotDir, { recursive: true, force: true });
+    }
   }
 }

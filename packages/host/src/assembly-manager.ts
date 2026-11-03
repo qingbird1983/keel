@@ -17,8 +17,11 @@ import type { Assembler, LoadedManifest } from "./assembler.js";
 export interface ManagedCell {
   /** A5 迁移钩：新 Cell 内、快照挂载后首轮前执行；失败即回退。 */
   migrate(oldState: unknown): Promise<unknown>;
-  /** 丢弃/收束（kill + reaped）。 */
-  dispose(): Promise<void>;
+  /**
+   * 丢弃/收束。真实实现 = `Supervisor.drainAndReap()`（拒新 → 等在途 → 宽限强杀 → reaped，
+   * 切片⑤ §3.3）；返回值是 `DrainOutcome`，编排层不消费，故这里只声明 unknown（测试替身可返回 void）。
+   */
+  dispose(): Promise<unknown>;
 }
 
 export interface CellFactory {
@@ -84,8 +87,12 @@ export class AssemblyManager {
 
   /**
    * 热装配升级：五步校验 → 新 Cell → 迁移钩（如有）→ 原子换绑。
-   * 失败 = 新 Cell 丢弃、旧绑定原样（回退，V5）；旧 Cell 的收束由调用方在
-   * 其 run 结束后 dispose（drain 语义随切片④恢复链路接入）。
+   * 失败 = 新 Cell 丢弃、旧绑定原样（回退，V5）。
+   *
+   * **旧 Cell 的收束时机是规则不是注释（切片⑤ §3.3 第 5 步）**：`RunManifest.executor` 在
+   * `scheduler.start` 时逐 run 捕获（换绑不改已在途 run 的调用目标），所以本编排层**绝不**在
+   * 换绑时 drain 旧舱——那会打断仍在使用它的 run。旧舱由调用方在其 run 终态后 dispose；
+   * 若有人在在途 run 期间抢先 drain，后果是可见拒绝（新调用落成 `SCHED/BACKPRESSURE`）而不是悄悄打死。
    */
   async hotSwap(scope: Scope, req: HotSwapRequest): Promise<{ record: AssemblyRecordedPayload }> {
     const key = scopeKey(scope);

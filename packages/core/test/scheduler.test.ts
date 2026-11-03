@@ -131,6 +131,9 @@ describe("Scheduler（契约 §4.1 轮循环）", () => {
       payload: DecisionPayload;
     };
     expect(d1.payload.basedOn).toEqual(evs.slice(0, 3).map((e) => e.seq));
+    // 依据上界（ADR-0008 决策 2，切片⑤ B7⑤）：由账本在写入点盖章，关键引用必须全在上界之内
+    expect(d1.payload.throughSeq).toBe(d1.seq - 1);
+    expect(d1.payload.basedOn.every((s) => s <= (d1.payload.throughSeq ?? -1))).toBe(true);
     // 每个 ROUND_ENDED 前必见 CHECKPOINT（同轮）
     for (let i = 0; i < evs.length; i++) {
       if (evs[i].type === "ROUND_ENDED") expect(evs[i - 1].type).toBe("CHECKPOINT");

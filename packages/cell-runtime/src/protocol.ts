@@ -70,19 +70,16 @@ interface Pending {
 
 /** 帧错误 → 可跨通道序列化的普通对象（serve 侧异常统一出口）。 */
 export function toFrameError(err: unknown): FrameError {
-  if (err instanceof ChannelError) {
-    return {
-      code: err.code,
-      message: err.message,
-      ...(err.detail !== undefined ? { detail: err.detail } : {}),
-    };
-  }
+  // 本包不依赖 @keel/core，于是 Core 侧的 KeelError 在这里是"带 code/detail 的结构化对象"。
+  // detail 必须照样穿过去：调用方看到的不能只是"失败了"，还要有"失败于哪一种/第几片/结了多少钱"
+  // （切片⑤ B7④ 的真进程测试就是在这一行了断过一次——detail 被丢，舱内只剩一个码）。
   const code =
     typeof (err as { code?: unknown })?.code === "string"
       ? (err as { code: string }).code
       : "CELL/INTERNAL";
+  const detail = (err as { detail?: unknown })?.detail;
   const message = err instanceof Error ? err.message : String(err);
-  return { code, message };
+  return { code, message, ...(detail !== undefined ? { detail } : {}) };
 }
 
 /**

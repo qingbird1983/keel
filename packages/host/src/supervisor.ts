@@ -4,12 +4,16 @@
  * - 退出三分类：clean（exit 0）/ crash（非零退出或致命信号）/ killed（Supervisor 强杀）；
  *   经 onCellExit 通知宿主 → scheduler.abort 落 RUN_FAILED（契约 §4.1 注记④）。
  * - toolCallTimeoutMs 硬强制的后盾（C-D3）：工具调用超时 + 宽限仍无响应 → kill（killed）。
+ * - **收尾（drain）次序（切片⑤ §3.3，B7③）**：进入 halting 即拒绝新动作（`SCHED/BACKPRESSURE`，
+ *   既有准入码，不新开）→ 等在途通道调用收束（每个调用自带超时与强杀计时，不引入第三个时限数）
+ *   → 宽限 `toolKillGraceMs` 到点仍未收束则 kill → reaped。产物是 `DrainOutcome`（返回值，
+ *   不是账本事件——§5 事件类型是封闭集合，收尾是宿主侧生命周期动作）。
  * - executor 通道绑定：通道死 → error-result 回落（终态统一由 abort 缝落，保证原因码确定）；
  *   切片④：返回前经效果追踪器结算 EFFECT_SETTLED（落点序 EFFECT_SETTLED → TOOL_RESULT）。
  * - 快照（D3，切片④）：pullSnapshot 于轮边界索取（onCheckpoint 缝）；无快照面 = 无状态。
  */
 
-import { type RunRef, type ToolExecutor } from "@keel/core";
+import { KeelError, type RunRef, type ToolExecutor } from "@keel/core";
 import {
   ChannelError,
   FrameConn,
@@ -37,6 +41,25 @@ export interface CellExit {
   exitClass: CellExitClass;
   reasonCode: string;
   message: string;
+}
+
+/**
+ * 收尾产物（切片⑤ §3.3）：**返回值不是账本事件**——事件类型是封闭集合（契约 §5），
+ * 而"在途动作因收尾而结果未知"这件事已由既有路径留痕（settleEffects 写 `EFFECT_SETTLED{unknown}`）。
+ */
+export interface DrainOutcome {
+  /** 进入 halting 时还在途的通道调用数。 */
+  inFlightAtStart: number;
+  /** 收尾期间被拒绝的新调用数（`SCHED/BACKPRESSURE`）。 */
+  refused: number;
+  /** 在宽限期内自己收束掉的在途调用数。 */
+  settled: number;
+  /** true = 宽限期到点仍有人在途（因此强杀）；false = 全部自然收束。 */
+  timedOut: boolean;
+  /** 本次收尾是否走到 kill（已自然退出的舱不再补刀）。 */
+  killed: boolean;
+  /** 收尾耗时（ms，仅供观测与测试下界断言）。 */
+  waitedMs: number;
 }
 
 export interface SupervisorOptions {
@@ -121,6 +144,10 @@ export class SupervisedCell implements ManagedCell {
   private exitResult: CellExit | null = null;
   private notified = false;
   private readonly exitWaiters: Array<(e: CellExit) => void> = [];
+  /** 在途通道调用（drain 的等待对象，切片⑤ §3.3 第 2 步）。 */
+  private readonly inFlight = new Set<Promise<unknown>>();
+  /** 收尾期间被拒的新调用计数（进 `DrainOutcome.refused`）。 */
+  private drainRefused = 0;
 
   constructor(params: {
     supervisor: CellSupervisor;
@@ -186,12 +213,42 @@ export class SupervisedCell implements ManagedCell {
     this.supervisor.exitSink?.(exit);
   }
 
+  /**
+   * 带在途登记的通道调用（切片⑤ §3.3）：executor / 快照索取 / 迁移钩 / 补偿动作 / 策略插话
+   * 都走这里，drain 等的就是这个集合。
+   * 收尾中的舱**拒绝新调用**（`SCHED/BACKPRESSURE`，契约 §6 既有准入码——"退避后是"），
+   * 不新开 `CELL/DRAINING`：语义是准入拒绝，不是通道坏了。
+   */
+  call<T = unknown>(op: string, params: unknown, timeoutMs: number): Promise<T> {
+    if (this.phase === "halting" || this.phase === "exited" || this.phase === "reaped") {
+      this.drainRefused += 1;
+      return Promise.reject(
+        new KeelError("SCHED/BACKPRESSURE", `cell draining: ${op} not accepted`, { op }),
+      );
+    }
+    // 显式标注是必要的：常量自引用（闭包里删自己）没有标注就成了循环推断（TS7022）
+    const tracked: Promise<T> = this.conn.request<T>(op, params, timeoutMs).finally(() => {
+      this.inFlight.delete(tracked);
+    });
+    this.inFlight.add(tracked);
+    return tracked;
+  }
+
   /** 工具执行通道（调度器 RunManifest.executor 绑定）。 */
-  readonly executor: ToolExecutor = async (call) => {
+  readonly executor: ToolExecutor = async (invocation) => {
     if (this.exitResult) {
       return {
         status: "error",
         error: { code: "TRANSPORT/BADFRAME", message: "cell already exited" },
+      };
+    }
+    // 收尾中（切片⑤ §3.3 第 1 步）：**落成 error 结果而不是抛错**——抛出去会被调度器当成
+    // 未预期内部错误而 fail-stop，而"舱在收尾、这笔先别打"是一次正常的准入拒绝。
+    if (this.phase === "halting" || this.phase === "reaped") {
+      this.drainRefused += 1;
+      return {
+        status: "error",
+        error: { code: "SCHED/BACKPRESSURE", message: "cell draining: no new tool.exec accepted" },
       };
     }
     // 失控强杀计时（C-D3 + ADR-0005 killed）：超时 + 宽限仍无响应 → kill
@@ -201,9 +258,9 @@ export class SupervisedCell implements ManagedCell {
     );
     try {
       // 请求超时 ≥ 强杀计时：正常路径 cell 侧先回 timeout 结果；强杀路径由通道关闭收尾
-      const r = await this.conn.request<ToolExecResult>(
+      const r = await this.call<ToolExecResult>(
         "tool.exec",
-        call,
+        invocation,
         (this.manifest.resources.toolCallTimeoutMs ?? 0) + this.supervisor.graceMs + 1_000,
       );
       await this.settleEffects(r.status, r.status === "ok" ? undefined : r.error);
@@ -245,26 +302,52 @@ export class SupervisedCell implements ManagedCell {
     if (this.phase === "ready") this.phase = "running";
   }
 
-  /** run 收束后由宿主调用（halting → reaped）。 */
-  async drainAndReap(): Promise<void> {
+  /**
+   * 收尾（B7③ 的确定次序，切片⑤ §3.3）：halting（拒新）→ 等在途收束 → 必要时 kill → reaped。
+   * 等待有硬界 `toolKillGraceMs`（既有那个"宽限后强杀"的量，**不新增时限数**）：同步忙等的插件
+   * 会连这个计时器都进不了事件循环，那时只剩 OS 级强杀——已登记为 07 稿 §9 第 3 条限制。
+   */
+  async drainAndReap(): Promise<DrainOutcome> {
+    const startedAt = Date.now();
     if (this.phase !== "exited") this.phase = "halting";
+    const inFlightAtStart = this.inFlight.size;
+    const timedOut = inFlightAtStart > 0 && !(await this.awaitInFlight(this.supervisor.graceMs));
+    const settled = inFlightAtStart - this.inFlight.size;
+    // 进程已自然退出（exitResult 已立）就不算"本次收尾杀掉了它"——killed 要说的是这件事
+    const needsKill = !this.exitResult;
     await this.kill();
     this.phase = "reaped";
+    return {
+      inFlightAtStart,
+      refused: this.drainRefused,
+      settled,
+      timedOut,
+      killed: needsKill,
+      waitedMs: Date.now() - startedAt,
+    };
   }
 
-  /** ManagedCell：装配编排的丢弃语义（kill + reaped）。 */
-  dispose(): Promise<void> {
+  /** 在途集合全部落定 = true；宽限期先到 = false（调用方据此强杀）。 */
+  private awaitInFlight(budgetMs: number): Promise<boolean> {
+    if (this.inFlight.size === 0) return Promise.resolve(true);
+    const settledAll = Promise.allSettled([...this.inFlight]).then(() => true);
+    const grace = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), budgetMs));
+    return Promise.race([settledAll, grace]);
+  }
+
+  /** ManagedCell：装配编排的丢弃语义（收尾 + reaped）。 */
+  dispose(): Promise<DrainOutcome> {
     return this.drainAndReap();
   }
 
   /** A5 迁移钩：新 Cell 内、快照挂载后首轮前（失败由 AssemblyManager 回退）。 */
   migrate(oldState: unknown): Promise<unknown> {
-    return this.conn.request("cell.migrate", { oldState }, MIGRATE_TIMEOUT_MS);
+    return this.call("cell.migrate", { oldState }, MIGRATE_TIMEOUT_MS);
   }
 
-  /** 快照索取（D3，切片④）：宿主于轮边界（onCheckpoint 缝）调用；无快照面 → null。 */
+  /** 快照索取（D3）：宿主于轮边界（onCheckpoint 缝）调用；无快照面 → null。 */
   async pullSnapshot(): Promise<unknown> {
-    const r = await this.conn.request<{ state: unknown }>("cell.snapshot", {}, MIGRATE_TIMEOUT_MS);
+    const r = await this.call<{ state: unknown }>("cell.snapshot", {}, MIGRATE_TIMEOUT_MS);
     return r.state;
   }
 
@@ -274,7 +357,12 @@ export class SupervisedCell implements ManagedCell {
     return new Promise((resolve) => this.exitWaiters.push(resolve));
   }
 
-  private async kill(): Promise<void> {
+  /**
+   * **硬中断**（OS 级 kill，不等在途）：失控看门狗走的同一条路，测试与场景复演也用它表达
+   * "在途动作被打断"这个前提（A3/V3：未决效果清单必须由这条路径产生，drain 会把它收成"完成"）。
+   * 日常收束请用 `drainAndReap()`——那是 B7③ 定义的确定次序，不是这里。
+   */
+  async kill(): Promise<void> {
     if (this.exitResult) return;
     this.killRequested = true;
     if (this.phase === "running" || this.phase === "ready") this.phase = "halting";

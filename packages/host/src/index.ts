@@ -44,6 +44,7 @@ export {
   type CellExit,
   type CellExitClass,
   type CellPhase,
+  type DrainOutcome,
   type SupervisorOptions,
 } from "./supervisor.js";
 export { serveCellChannel, type CellChannelBinding, type CellServerDeps } from "./cell-server.js";
