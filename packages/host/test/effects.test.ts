@@ -88,16 +88,16 @@ describe("EffectTracker：dependsOn 声明期校验（成环/未知引用即拒�
   });
 });
 
-describe("SnapshotStore（D3 内存持有）", () => {
-  it("版本单调、ref 可取回；null 状态不写", () => {
-    const s = new SnapshotStore();
-    expect(s.save(scope, 1, { a: 1 })).toEqual({
+describe("SnapshotStore（D3 落盘；细项见 snapshot-store.test.ts）", () => {
+  it("版本单调、ref 形状未变、可从盘上取回；null 状态不写", async () => {
+    const s = new SnapshotStore({ rootDir: path.join(dir, "snap") });
+    expect(await s.save(scope, 1, { a: 1 })).toEqual({
       ref: "agent-1|sess-1/snap-1",
       version: 1,
     });
-    expect(s.save(scope, 2, { a: 2 })).toMatchObject({ version: 2 });
-    expect(s.get("agent-1|sess-1/snap-2")).toEqual({ state: { a: 2 }, version: 2, round: 2 });
-    expect(s.get("agent-1|sess-1/snap-99")).toBeUndefined();
-    expect(s.save(scope, 3, null)).toBeNull(); // 无状态 Cell 不写
+    expect(await s.save(scope, 2, { a: 2 })).toMatchObject({ version: 2 });
+    expect(await s.get("agent-1|sess-1/snap-2")).toEqual({ state: { a: 2 }, version: 2, round: 2 });
+    expect(await s.get("agent-1|sess-1/snap-99")).toBeUndefined();
+    expect(await s.save(scope, 3, null)).toBeNull(); // 无状态 Cell 不写
   });
 });

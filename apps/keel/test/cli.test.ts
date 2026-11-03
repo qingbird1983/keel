@@ -1,7 +1,7 @@
 // keel CLI 命令层冒烟（04 稿 §5 定案 5）：经构建后的 bin 全链验证——
 // 内核行为主张不在此重复（归 tests/ 三份集成与各包单测）。
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -151,6 +151,57 @@ describe("keel CLI（bin 冒烟）", () => {
       ).toContain("UNOBSERVABLE_NATIVE_IO"); // 观察不到的面写在明面上（03 稿 §12 限制 1）
     } finally {
       await rm(out, { recursive: true, force: true });
+    }
+  }, 180_000);
+
+  it("run --snapshots：显式目录生效、缺省由账本根派生同级（§3.2 第 5 步）", async () => {
+    const tmp = await mkdtemp(path.join(tmpdir(), "keel-cli-snap-"));
+    try {
+      const args = (dataDir: string, extra: string[] = []): string[] => [
+        "run",
+        "--manifest",
+        "docs/design/phase-1/schema/examples/capability-webfetch.json",
+        "--plugin",
+        "tests/fixtures/recover-plugin.mjs",
+        "--tool",
+        "get-state",
+        "--rounds",
+        "3",
+        "--data-dir",
+        dataDir,
+        ...extra,
+      ];
+      // ① 显式给目录：快照落在那里，且**账本根的含义不变**（根下一层只有 agentId）
+      const dataDir = path.join(tmp, "ledger");
+      const snaps = path.join(tmp, "snaps");
+      const r1 = run(args(dataDir, ["--snapshots", snaps]));
+      expect(r1.status).toBe(0);
+      expect(r1.stdout).toContain("status: halted");
+      expect(existsSync(path.join(snaps, "keel-cli"))).toBe(true);
+      expect(readdirSync(dataDir)).toEqual(["keel-cli"]);
+      // ② 不给 --snapshots：派生同级 `<账本名>-snapshots`，不新增第三个路径概念
+      const dataDir2 = path.join(tmp, "ledger2");
+      const r2 = run(args(dataDir2));
+      expect(r2.status).toBe(0);
+      expect(existsSync(path.join(tmp, "ledger2-snapshots", "keel-cli"))).toBe(true);
+      // 派生不等于塞回账本根（那会污染两处"根下即 agentId"的扫描：Ledger.scopeOf / cmd-recover.findRunRef）
+      expect(readdirSync(dataDir2)).toEqual(["keel-cli"]);
+      // 内容确实在盘上（跨宿主恢复的前提；行为主张归 tests/snapshot-cross-host.test.ts）
+      const scoped = readdirSync(path.join(snaps, "keel-cli"));
+      expect(scoped.length).toBe(1); // 一个 run 一个会话目录
+      const files = readdirSync(path.join(snaps, "keel-cli", scoped[0]!)).sort();
+      expect(files.every((f) => /^snap-\d+\.json$/.test(f))).toBe(true);
+      // 三轮 run（两轮动作 + 一轮收束）留下多份快照：版本号按轮递增，不是每轮覆盖同一份
+      expect(files.length).toBeGreaterThanOrEqual(2);
+      const file = files[0]!;
+      expect(file).toBe("snap-1.json");
+      const body = JSON.parse(
+        readFileSync(path.join(snaps, "keel-cli", scoped[0]!, file), "utf-8"),
+      ) as Record<string, unknown>;
+      // 文件形状 = {state, version, round}：版本号与轮次随行，恢复时能核对挂的是哪一份
+      expect(body).toEqual({ state: { ticks: 0 }, version: 1, round: 1 });
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
     }
   }, 180_000);
 });

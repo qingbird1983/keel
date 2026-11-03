@@ -287,3 +287,64 @@ describe("B6②：声明迁移的旧插件——首个迁移调用即回退，�
     }
   }, 180_000);
 });
+
+/**
+ * B7③（07 稿 §3.3 第 5 步）：**旧舱的收尾时机是规则，不是巧合**。
+ *
+ * 时序假设：`RunManifest.executor` 在 `scheduler.start` 时逐 run 捕获，所以原子换绑不会改变
+ * 已在途 run 的调用目标——编排层因此**绝不允许**在换绑时 drain 旧舱（那会打断正在用它的 run）。
+ * 本条把这句话跑成真进程证据：换绑完成后旧舱仍在，旧舱上的 run 跑的还是旧实现；
+ * 收尾由调用方在其 run 终态后做，产物逐项可核；收尾之后再打是可见失败，且不牵连新舱。
+ */
+describe("B7③：换绑不打断在途 run，旧舱由调用方收尾", () => {
+  it("旧舱在换绑后仍服务自己的 run；drain 的产物可核；收尾不牵连新舱", async () => {
+    const v1 = assembleManifest(legacyRaw("1.0.0", ["flip"], false));
+    const v2 = assembleManifest(legacyRaw("1.1.0", ["flip", "extra"], false));
+    const rt = await buildRuntime(path.join(dir, "b73"), { policy: runPolicy(v2, AGENT, "p-b73") });
+    const { factory, made } = wiringFactory(rt, ["b73-v1", "b73-v2"]);
+    const manager = new AssemblyManager({
+      assembler: new Assembler({ schema: loadSchema() }),
+      factory,
+    });
+    try {
+      manager.bind(scope, {
+        manifest: v1,
+        pluginPath: fixtureFile("tierB-04-v1.cjs"),
+        cellEntry: cordisCellEntryPath,
+      });
+      await awaitVisible(rt, ["flip"]);
+
+      await manager.hotSwap(scope, {
+        rawManifest: legacyRaw("1.1.0", ["flip", "extra"], false),
+        pluginPath: fixtureFile("tierB-04-v2.cjs"),
+        cellEntry: cordisCellEntryPath,
+      });
+      // 绑定表已指向新舱，而旧舱还活着——"谁都没在换绑时拔它"
+      expect(manager.current(scope)?.manifest.meta.version).toBe("1.1.0");
+      const oldCell = (await made[0].wired).cell;
+      expect(oldCell.phase).not.toBe("reaped");
+
+      // 在途 run 用的仍是旧舱的旧实现（executor 逐 run 捕获，F9 的正面主张）
+      const stillOld = await runOn(rt, made[0], v1, ["flip"]);
+      expect(stillOld.status.state).toBe("halted");
+      expect(digestOf(stillOld.events, "flip")).toEqual({ v: 1, from: "legacy-v1" });
+
+      // 收尾由**调用方**在 run 终态后做：产物逐项可核（inFlightAtStart=0 = 没有半截动作被丢）
+      const out = await oldCell.drainAndReap();
+      expect(out).toMatchObject({ inFlightAtStart: 0, settled: 0, timedOut: false, killed: true });
+      expect(oldCell.phase).toBe("reaped");
+
+      // 收尾之后再打 = 可见失败（error 结果），不是无痕
+      const refused = await oldCell.executor({ tool: "flip", params: {} });
+      expect(refused.status).toBe("error");
+
+      // 收掉旧舱不牵连新舱：同一 scope 的下一次 run 照跑，跑的是新实现
+      const newRun = await runOn(rt, made[1], v2, ["flip", "extra"]);
+      expect(newRun.status.state).toBe("halted");
+      expect(digestOf(newRun.events, "flip")).toEqual({ v: 2, from: "legacy-v2" });
+    } finally {
+      await Promise.allSettled(made.map((h) => h.dispose()));
+      await closeRuntime(rt);
+    }
+  }, 240_000);
+});

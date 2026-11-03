@@ -59,7 +59,7 @@ describe("permission-rules：封闭词表接进运行期裁决", () => {
     ]);
   });
 
-  it("model.adapter → model.invoke；net/fs 三项按各自 action 产出", () => {
+  it("model.adapter → model.invoke + model.stream（一项权威两个入口）；net/fs 三项按各自 action 产出", () => {
     const rules = manifestAuthRules(
       load(
         capability({
@@ -84,7 +84,9 @@ describe("permission-rules：封闭词表接进运行期裁决", () => {
       "cell-9",
     );
     expect(rules.map((r) => `${r.action}|${r.resource}`)).toEqual([
+      // 切片⑤（ADR-0013 决策 6）：一条 cap 编译出两条动作，报关单字段与词表都零扩展
       "model.invoke|*",
+      "model.stream|*",
       "net.fetch|api.example.com",
       "fs.read|fs:/data/**/*.csv",
       "fs.write|fs:/tmp/**",

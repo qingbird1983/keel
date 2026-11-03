@@ -29,9 +29,16 @@ export function formatEvent(e: LedgerEvent): string {
     case "CHECKPOINT":
       detail = `round=${String(p.round)}`;
       break;
-    case "DECISION":
-      detail = `round=${String(p.round)} summary=${j(p.summary)} basedOn=${j(p.basedOn)}`;
+    case "DECISION": {
+      // 依据上界（ADR-0008）：新账本写 throughSeq；旧账本没有这个字段，要说清楚是"旧账本"
+      // 而不是"内核没算出来"——审计员读的是同一行，两种来源不能长得一样。
+      const bound =
+        typeof p.throughSeq === "number"
+          ? String(p.throughSeq)
+          : "(no explicit bound: pre-v2 ledger)";
+      detail = `round=${String(p.round)} summary=${j(p.summary)} basedOn=${j(p.basedOn)} throughSeq=${bound}`;
       break;
+    }
     case "AUTH_DENIED":
       detail = `subject=${String(p.subject)} ${String(p.action)} ${String(p.resource)} reason=${j(p.reason)}`;
       break;

@@ -25,7 +25,7 @@ const ref: RunRef = { ...scope, runId: "run-1" };
 function rig() {
   const ledger = new Ledger({ rootDir: dir, now: () => 0 });
   ledgers.push(ledger);
-  const snapshots = new SnapshotStore();
+  const snapshots = new SnapshotStore({ rootDir: path.join(dir, "snap") });
   const compensator = new CompensationExecutor({ ledger, factory: null });
   const recovery = new RecoveryManager({ ledger, compensator, snapshots });
   return { ledger, snapshots, compensator, recovery };
@@ -58,7 +58,7 @@ describe("RecoveryManager：plan（A3 恢复计划）", () => {
     await ledger.append(ref, "RUN_STARTED", {});
     const cp = await ledger.checkpoint(ref, 1); // 一致点 seq 2
     await declare(ledger, "e-open"); // 一致点后声明、未结算 → 未决
-    const snap = snapshots.save(scope, 1, { counter: 7 });
+    const snap = await snapshots.save(scope, 1, { counter: 7 });
     await ledger.append(ref, "STATE_SNAPSHOT_REF", {
       ref: snap?.ref,
       version: snap?.version,
@@ -88,7 +88,7 @@ describe("RecoveryManager：execute（ADR-0004 §4.4 顺序硬约束）", () => 
       dependsOn: [],
       retention: null,
     });
-    const snap = snapshots.save(scope, 1, { counter: 7 });
+    const snap = await snapshots.save(scope, 1, { counter: 7 });
     await ledger.append(ref, "STATE_SNAPSHOT_REF", {
       ref: snap?.ref,
       version: snap?.version,
@@ -129,18 +129,19 @@ describe("RecoveryManager：execute（ADR-0004 §4.4 顺序硬约束）", () => 
     const { ledger, snapshots } = rig();
     await ledger.append(ref, "RUN_STARTED", {});
     await ledger.checkpoint(ref, 1);
-    const snap = snapshots.save(scope, 1, { x: 1 });
+    const snap = await snapshots.save(scope, 1, { x: 1 });
     await ledger.append(ref, "STATE_SNAPSHOT_REF", {
       ref: snap?.ref,
       version: snap?.version,
       round: 1,
     });
     await ledger.append(ref, "RUN_FAILED", { reasonCode: "CELL/CRASH" });
-    // 模拟宿主重启丢失：新 store 无条目
+    // 落盘之后"丢了"只剩一种可能：内容目录不是当初那一个（外部删除/给错目录）。
+    // 同目录的新实例读得回旧内容——那正是 B7② 的主张，由 snapshot-store.test.ts 钉住。
     const fresh = new RecoveryManager({
       ledger,
       compensator: new CompensationExecutor({ ledger, factory: null }),
-      snapshots: new SnapshotStore(),
+      snapshots: new SnapshotStore({ rootDir: path.join(dir, "snap-gone") }),
     });
     void snapshots;
     await expect(

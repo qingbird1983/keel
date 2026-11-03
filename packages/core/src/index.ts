@@ -9,6 +9,7 @@
 export { ERROR_CODES, KeelError, type ErrorCode } from "./errors.js";
 export {
   CONTRACT_VERSION,
+  EVENT_SCHEMA_VERSION,
   EVENT_TYPES,
   SCHEMA_VERSION,
   scopeKey,
@@ -44,6 +45,7 @@ export { globMatch } from "./glob.js";
 export {
   Ledger,
   type CheckpointInfo,
+  type LedgerAppendOptions,
   type LedgerOptions,
   type LedgerPage,
   type LedgerReadFilter,
@@ -79,7 +81,17 @@ export {
   type ModelInvokeRequest,
   type ModelInvokeResult,
   type ModelUpstream,
+  type StreamPage,
 } from "./gateway.js";
+export {
+  STREAM_DEADLINE_MS,
+  STREAM_DEFAULT_LIMIT,
+  STREAM_MAX_BUFFERED,
+  STREAM_WAIT_MS,
+  StreamRegistry,
+  type StreamPart,
+  type StreamSession,
+} from "./stream.js";
 export {
   Scheduler,
   type ActionOutcome,

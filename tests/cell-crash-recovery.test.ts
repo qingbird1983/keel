@@ -4,8 +4,10 @@
  * → recover.execute（顺序硬约束：先补偿后延续，ADR-0004 §4.4）→ 以新 runId 延续，
  * RUN_RECOVERED 可追溯，快照状态已挂载（新 Cell 读到旧状态）。
  *
- * 快照链路（D3）：宿主 onCheckpoint 缝轮边界索取（cell.snapshot op）→ SnapshotStore 内存
- * 持有 + STATE_SNAPSHOT_REF 元数据入账本；挂载复用 cell.migrate 通道（契约 §4.5 切片④注记）。
+ * 快照链路（D3）：宿主 onCheckpoint 缝轮边界索取（cell.snapshot op）→ SnapshotStore **落盘**
+ * （切片⑤；曾是宿主内存持有）+ STATE_SNAPSHOT_REF 元数据入账本；挂载复用 cell.migrate 通道
+ * （契约 §4.5 切片④注记）。本文件 = **同一宿主进程**内的 kill→plan→execute；跨宿主进程的
+ * 恢复主张在 tests/snapshot-cross-host.test.ts（B7②）。
  * 阶段验收时由 apps/keel CLI 复演。
  */
 
@@ -72,7 +74,7 @@ beforeAll(async () => {
   const auth = new Authorizer(policy, ledger);
   const budget = new Budgeter(ledger);
   ctxMgr = new ContextManager();
-  snapshots = new SnapshotStore();
+  snapshots = new SnapshotStore({ rootDir: path.join(dir, "snapshots") });
   const recordCompensator = new CompensationExecutor({ ledger, factory: null }); // record-only 免通道
   recovery = new RecoveryManager({ ledger, compensator: recordCompensator, snapshots });
   scheduler = new Scheduler(
@@ -95,7 +97,7 @@ beforeAll(async () => {
         const b = bindings.get(r.runId);
         if (!b) return;
         const state = await b.cell.pullSnapshot();
-        const meta = snapshots.save(
+        const meta = await snapshots.save(
           { agentId: r.agentId, sessionId: r.sessionId },
           info.round,
           state,
@@ -207,7 +209,7 @@ describe("A3（V3）：kill Cell 中途 → recover.plan/execute 以新 runId �
       async () =>
         (await readRun("a3-run-1")).filter((e) => e.type === "EFFECT_DECLARED").length >= 2,
     );
-    await first.cell.drainAndReap(); // kill（受控 → killed 分类，ADR-0005）
+    await first.cell.kill(); // **硬中断**（受控 → killed 分类，ADR-0005）：在途动作必须真被打断
     const status1 = await first.done;
     expect(status1).toMatchObject({ state: "failed", reasonCode: "CELL/KILLED" });
 

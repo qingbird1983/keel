@@ -170,6 +170,21 @@ describe("有损边界（显式报错，不静默降级）", () => {
     expect(() => scope.runId).toThrowError(/ADAPTER\/UNSUPPORTED/);
   });
 
+  it("llm 命名空间的未知成员也有去处（切片⑤ §3.4 第 5 步：裸 TypeError 就是一种「没交代」）", () => {
+    const { a } = rig();
+    const llm = a.llm as unknown as Record<string, unknown>;
+    // 旧写法 `ctx.llm.chatStream(...)` 读成员那一刻就得是一条有码有去处的拒绝
+    expect(() => llm.chatStream).toThrowError(/ADAPTER\/UNSUPPORTED/);
+    expect(() => llm.chatStream).toThrowError(/llm\.chatStream/); // 名字进消息：归因指得到是哪个成员
+    expect(() => llm.chatStream).toThrowError(/ctx\.model\.invoke|gateway/);
+    // 已知成员的形状不变：护栏不是把整个面变成黑洞（#6 的拒面仍然可调用、仍然拒）
+    expect(typeof a.llm.chat).toBe("function");
+    expect(() => a.llm.chat({ q: 1 })).toThrowError(/ADAPTER\/UNSUPPORTED/);
+    // 语言协议成员透传：兜住符号 = 让调试打印与序列化路径自己抛错
+    expect(() => String(a.llm)).not.toThrow();
+    expect(Object.keys(a.llm)).toEqual(["chat"]);
+  });
+
   it("作用域未分配：Core 的 CTX/SCOPE-UNKNOWN 原样浮出（承接层不擅自 alloc）", async () => {
     const ctx = new ContextManager();
     const orphan = createCordisCtx({ ctx, ref: refA });

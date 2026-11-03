@@ -69,6 +69,7 @@ docs/
 | adr/ADR-0010-runtime-tool-registration-channel    | 定稿 | 运行期工具注册通道：新增 `tool.register`/`tool.remove` 两个 Cell→Core op，`tool.provide` 语义扩到运行期（能力词表不增项）                                     |
 | adr/ADR-0011-cell-load-gate                       | 定稿 | Cell 装载门与就绪凭据：插件装载完成前不受理调用，宿主以一次 `cell.snapshot` 应答确认就绪（超时口径入契约 §7）                                                 |
 | adr/ADR-0012-policy-plugin-process-and-hook-op    | 定稿 | 策略插件的执行位置与插话通道：策略代码跑在自己的进程、新增 Host→Cell op `policy.hook`、失败一律既有 fallback、插话点冲突装配期整份拒、装配审计追加 `policies` |
+| adr/ADR-0013-model-stream-pull-chunking           | 定稿 | `model.stream` 的通道形状：拉式分片三 op（start/next/cancel）、记账四条不变式与断流部分结算、权限随 `model.adapter` 编译两动作、时限全取契约既有三档          |
 | design/phase-0/report                             | 定稿 | Phase 0 阶段进度报告：验收 A1~A7 通过、体量与规范复查                                                                                                         |
 
 > research/ 暂无文档；design/phase-1/ 另两份（补偿状态机、插件 manifest）为 Phase 0 后续交付物（见 phase-0 §4），产出即登记本表。

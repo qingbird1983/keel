@@ -188,6 +188,34 @@ function refused(what: string, wayOut: string): never {
 }
 
 /**
+ * 旧 `ctx.llm` 面（切片⑤ §3.4 第 5 步补的护栏）：`chat` 一直是显式拒（边界 #6，C 档），
+ * 但**读未知成员**（如 `ctx.llm.chatStream`）今天拿到 `undefined`，随后是一次裸
+ * `TypeError: ... is not a function`——没有改法去处，属"没交代"的一种形状。
+ * 这里把该命名空间的**字符串成员**兜住：已知的 `chat` 照常拒，未知的也拒并指向网关改法；
+ * 符号成员（inspect / `Symbol.toStringTag` 这类语言协议）透传——兜住它们等于让调试打印自己抛。
+ *
+ * 注意这**不是**"旧框架有 chatStream"的断言（我们不替旧框架发明 API）：本文件是护栏，
+ * 真样本暴露出具体旧符号时按 B5 义务补边界表行。内核侧的流式通道（ADR-0013）也不在这里映射——
+ * 它是 Core 能力回填，不是旧面的等价物。
+ */
+function llmSurface(): { chat(prompt: unknown, opts?: unknown): unknown } {
+  const known = {
+    chat(): unknown {
+      return refused("llm.chat", WAY_OUT.llm);
+    },
+  };
+  return new Proxy(known, {
+    get(target, prop: string | symbol): unknown {
+      // 符号成员透传（`Symbol.toStringTag`、Node 的自定义 inspect 等）：兜住它们等于让
+      // 调试打印与序列化路径自己抛错——被拒的是**旧 API 名字**，不是语言协议。
+      if (typeof prop !== "string") return Reflect.get(target, prop);
+      if (prop in target) return (target as unknown as Record<string, unknown>)[prop];
+      return refused(`llm.${prop}`, WAY_OUT.llm);
+    },
+  }) as typeof known;
+}
+
+/**
  * 旧 ctx 的完整可见面清单——**B5 符号闭环的对照表**：
  * 合成样本里出现的每个 `ctx.*` 符号都必须命中这里某一项，否则即"未归类符号"（tests/cordis-symbol-scan.test.ts 机械核对）。
  * 四桶互不重叠（index.test 机械核对）；**改法地面单列一桶、不进 `mapped`**——
@@ -371,11 +399,7 @@ export function buildCordisCtx(ports: CordisPorts): CordisCtx {
         return refused(`net fetch (${url})`, WAY_OUT.net);
       },
     },
-    llm: {
-      chat(): unknown {
-        return refused("llm.chat", WAY_OUT.llm);
-      },
-    },
+    llm: llmSurface(),
     // 读取任何字段都抛：让"想自报作用域"的旧写法在舱内就断掉
     scope: new Proxy({} as Record<string, unknown>, {
       get(_t, prop: string): never {

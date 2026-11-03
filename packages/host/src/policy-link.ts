@@ -139,8 +139,10 @@ export async function wirePolicies(p: WirePoliciesParams): Promise<PolicyBinding
       for (const hook of b.summary.hooks) {
         p.bus.register(hook as HookName, (input: unknown) =>
           // 帧载荷 = {hook, input}；轮号由内核 HOOK_CALLED 记账，宿主在 handler 边界拿不到，
-          // 也不为它改内核签名（ADR-0012 实施注记）
-          b.cell.conn.request("policy.hook", { hook, input }, hookTimeoutMs),
+          // 也不为它改内核签名（ADR-0012 实施注记）。
+          // 走 cell.call（带在途登记）：策略舱收尾时不该有插话正在半途被强杀（切片⑤ §3.3 第 2 步）；
+          // 舱已在收尾 → 拒绝 → 内核按既有 fallback 口径处理（不新增错误码）。
+          b.cell.call("policy.hook", { hook, input }, hookTimeoutMs),
         );
       }
     }

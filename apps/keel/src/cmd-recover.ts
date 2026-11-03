@@ -17,6 +17,11 @@ import {
 
 export interface RecoverOptions {
   dataDir: string;
+  /**
+   * 快照根目录（切片⑤ §3.2）：必须与当初 `keel run` 用的是同一个（缺省同理由 `--data-dir`
+   * 派生同级 `<name>-snapshots`）。目录里没有对应内容 = `RECOVER/SNAPSHOT-MISSING`，不静默降级。
+   */
+  snapshotDir?: string;
   run: string;
   /** 延续 Cell 的插件路径（缺省 tests/fixtures/recover-plugin.mjs）。 */
   plugin?: string;
@@ -52,7 +57,7 @@ export async function cmdRecover(opts: RecoverOptions): Promise<number> {
   const manifest = opts.manifest
     ? assembleManifest(JSON.parse(readFileSync(opts.manifest, "utf-8")))
     : assembleManifest(recoverManifestRaw());
-  const rt = await buildRuntime(opts.dataDir);
+  const rt = await buildRuntime(opts.dataDir, { snapshotDir: opts.snapshotDir });
   try {
     const plan = await rt.recovery.plan(oldRef);
     console.info(`plan: oldRunId=${plan.oldRunId}`);
