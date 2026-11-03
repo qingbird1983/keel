@@ -2,6 +2,11 @@
   "name": "@keel/cordis-adapter",
   "version": "0.1.0",
   "private": true,
+  "description": "[ARCHIVED 2026-11-03 per ADR-0014] Cordis compatibility layer, frozen. Kept only as the real-process evidence chain for kernel channel ops (registration, load gate, policy hook, model.stream, snapshots, drain).",
+  "keywords": [
+    "archived",
+    "experimental"
+  ],
   "type": "module",
   "exports": {
     ".": {
