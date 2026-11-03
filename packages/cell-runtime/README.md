@@ -14,7 +14,7 @@ Cell 执行单元的进程体：一次 Agent Run 独占一个 OS 进程（"水�
 
 ## 当前状态
 
-✅ **切片③④已落地**：stdio JSON 行帧协议（契约 §3.1，`FrameConn`）/ Cell 进程体（`startCell`：私有工具表 + `toolCallTimeoutMs` 硬强制）/ CellClient（§3.3 可见面客户端）/ EFFECT\_DECLARED 发起端（`effect.declare`）/ 迁移钩入口（A5，兼恢复挂载通道）/ 补偿动作分发（`compensation.exec`，宿主补偿执行器经一次性新 Cell 调用）/ 快照索取面（`cell.snapshot`，无导出 = 无状态 Cell）。验收 A2/A3/A4 的真实进程集成测试见 [tests/](../../tests/)。施工顺序见 [docs/roadmap/phase-1-mvp.md](../../docs/roadmap/phase-1-mvp.md)。
+✅ **切片③④ + R3/R4 已落地**：stdio JSON 行帧协议（契约 §3.1，`FrameConn`）/ Cell 进程体（`startCell`：私有工具表 + `toolCallTimeoutMs` 硬强制）/ CellClient（§3.3 可见面客户端）/ EFFECT\_DECLARED 发起端（`effect.declare`）/ 迁移钩入口（A5，兼恢复挂载通道）/ 补偿动作分发（`compensation.exec`，宿主补偿执行器经一次性新 Cell 调用）/ 快照索取面（`cell.snapshot`）/ **受治理写入句柄 `ctx.workspace.create/overwrite`（`workspace.write`，收据由宿主签发）/ AOP 拦截器链 / `setup(ctx)` + `ctx.effect` + `cell.dispose` 生命周期 / `toolCallId` 去重**。验收 A2/A3/A4 与 R3/R4 的真实进程集成测试见 [tests/](../../tests/)。
 
 ## 目录与开发
 

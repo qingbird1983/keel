@@ -27,16 +27,55 @@ export interface SpawnSpec {
   entryPath: string;
   /** bootstrap JSON（cell-runtime main.ts 契约）。 */
   bootstrap: string;
+  /** 最小环境变量白名单（ADR-0019；缺省不继承宿主全量环境）。 */
+  env?: NodeJS.ProcessEnv;
+  /** 工作目录（通常 = 本 Run 工作区根；ADR-0019）。 */
+  cwd?: string;
+  /** 可选 Node 权限模型参数（纵深防御；不是沙箱）。 */
+  nodePermissionArgs?: string[];
 }
 
 export interface IsolationProvider {
   spawn(spec: SpawnSpec): CellProcess;
 }
 
+/**
+ * spawn 环境白名单（ADR-0019）：只保留运行必需的变量。
+ * 显式排除 `NODE_OPTIONS`（可注入代码）、各类 `*_TOKEN/KEY/SECRET` 与业务变量。
+ */
+export function sanitizedEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const allow = new Set([
+    "PATH",
+    "Path",
+    "PATHEXT",
+    "SystemRoot",
+    "SYSTEMROOT",
+    "windir",
+    "WINDIR",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "HOME",
+    "USERPROFILE",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TZ",
+  ]);
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(source)) {
+    if (v !== undefined && allow.has(k)) out[k] = v;
+  }
+  return out;
+}
+
 export class ProcessIsolationProvider implements IsolationProvider {
   spawn(spec: SpawnSpec): CellProcess {
-    const child: ChildProcess = spawn(process.execPath, [spec.entryPath, spec.bootstrap], {
+    const args = [...(spec.nodePermissionArgs ?? []), spec.entryPath, spec.bootstrap];
+    const child: ChildProcess = spawn(process.execPath, args, {
       stdio: ["pipe", "pipe", "pipe"],
+      ...(spec.env ? { env: spec.env } : {}),
+      ...(spec.cwd ? { cwd: spec.cwd } : {}),
     });
     let killRequested = false;
     const exitCbs: Array<(info: { code: number | null; signal: string | null }) => void> = [];

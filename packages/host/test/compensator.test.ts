@@ -1,14 +1,17 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { access, lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Ledger, type EffectDeclaredPayload, type LedgerEvent, type RunRef } from "@keel/core";
+import type { EffectReceipt } from "@keel/runtime-context";
 import {
   CompensationExecutor,
   type ActionCellFactory,
   type CompensationActionCell,
   type ToolResultLike,
 } from "../src/compensator.js";
+import type { BuiltinAction } from "../src/builtins.js";
 import type { CompensationExecInput } from "@keel/cell-runtime";
 
 let dir: string;
@@ -48,12 +51,22 @@ function fakeCell(handler?: (input: CompensationExecInput) => ToolResultLike | u
 
 function rig(
   cell?: ReturnType<typeof fakeCell>,
-  opts?: { parallel?: number; onAlert?: (i: unknown) => Promise<void> },
+  opts?: {
+    parallel?: number;
+    onAlert?: (i: unknown) => Promise<void>;
+    builtins?: ReadonlyMap<string, BuiltinAction>;
+  },
 ) {
   const ledger = new Ledger({ rootDir: dir, now: () => 0 });
   ledgers.push(ledger);
   const delays: number[] = [];
-  const factory: ActionCellFactory | null = cell ? async () => cell.cell : null;
+  let factoryCalls = 0;
+  const factory: ActionCellFactory | null = cell
+    ? async () => {
+        factoryCalls += 1;
+        return cell.cell;
+      }
+    : null;
   const executor = new CompensationExecutor(
     { ledger, factory },
     {
@@ -61,9 +74,10 @@ function rig(
       now: () => 0,
       parallel: opts?.parallel,
       onAlert: opts?.onAlert,
+      builtins: opts?.builtins,
     },
   );
-  return { ledger, executor, delays };
+  return { ledger, executor, delays, factoryCalls: () => factoryCalls };
 }
 
 async function declare(
@@ -324,5 +338,179 @@ describe("CompensationExecutor：补偿编排（T01~T14）", () => {
       effectId: "e-1",
       resultDigest: { mitigated: true },
     });
+  });
+});
+
+describe("CompensationExecutor：内置补偿（ADR-0016）", () => {
+  async function allowFsWrite(ledger: Ledger, pattern: string): Promise<void> {
+    await ledger.append(ref, "ASSEMBLY_RECORDED", {
+      manifest: { name: "file-writer", version: "0.1.0", kind: "capability" },
+      permissions: [{ cap: "fs.write", allow: [pattern] }],
+      compensation: [{ kind: "fs.write.done", compensationClass: "reversible" }],
+    });
+  }
+
+  function builtinEffect(effectId: string, target: string): Partial<EffectDeclaredPayload> {
+    return {
+      effectId,
+      kind: "fs.write.done",
+      targetSummary: { path: target },
+      compensationClass: "reversible",
+      compensation: {
+        actionRef: "fs.remove",
+        actionType: "builtin",
+        paramsDigest: null,
+        idempotency: "natural",
+      },
+    };
+  }
+
+  /** 测试用收据：从真实文件读取身份（与 Workspace 写入后签发的形状一致）。 */
+  async function receiptFor(
+    effectId: string,
+    target: string,
+    mode: "create" | "overwrite" = "create",
+  ): Promise<EffectReceipt> {
+    const portable = target.replace(/\\/g, "/");
+    const st = await lstat(portable);
+    const buf = await readFile(portable);
+    return {
+      opId: effectId,
+      kind: "fs.write.done",
+      mode,
+      target: portable,
+      workspaceRoot: dir.replace(/\\/g, "/"),
+      existed: mode === "overwrite",
+      created: mode === "create",
+      overwritten: mode === "overwrite",
+      identity: {
+        dev: String(st.dev),
+        ino: String(st.ino),
+        size: st.size,
+        mtimeMs: st.mtimeMs,
+        sha256: createHash("sha256").update(buf).digest("hex"),
+      },
+      timestamp: 0,
+    };
+  }
+
+  it("fs.remove 成功：宿主直删文件，不 spawn 补偿 Cell，EXECUTED 落账", async () => {
+    const { ledger, executor, factoryCalls } = rig();
+    const target = path.join(dir, "created.txt").replace(/\\/g, "/");
+    await writeFile(target, "x");
+    await allowFsWrite(ledger, `fs:${dir.replace(/\\/g, "/")}/**`);
+    await declare(ledger, builtinEffect("e-1", target));
+    await ledger.append(ref, "EFFECT_SETTLED", {
+      effectId: "e-1",
+      outcome: "done",
+      receipt: await receiptFor("e-1", target),
+    });
+
+    expect(await executor.compensate(ref, { mode: "run" })).toBe(true);
+    await expect(access(target)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(factoryCalls()).toBe(0); // 纯 builtin 不创建补偿进程
+    const evs = (await ledger.read({ runId: ref.runId })).events;
+    expect(evs.at(-1)?.payload).toMatchObject({
+      effectId: "e-1",
+      attempt: 1,
+      resultDigest: { removed: target },
+    });
+  });
+
+  it("fs.remove 路径不在装配 allow 内 → AUTH/DENIED，3 次后升级且文件保留", async () => {
+    const { ledger, executor, delays, factoryCalls } = rig();
+    const target = path.join(dir, "protected.txt").replace(/\\/g, "/");
+    await writeFile(target, "keep");
+    await allowFsWrite(ledger, "fs:/somewhere/else/**");
+    await declare(ledger, builtinEffect("e-1", target));
+    await ledger.append(ref, "EFFECT_SETTLED", {
+      effectId: "e-1",
+      outcome: "done",
+      receipt: await receiptFor("e-1", target),
+    });
+
+    expect(await executor.compensate(ref, { mode: "run" })).toBe(false);
+    expect(delays).toEqual([1_000, 2_000]);
+    expect(factoryCalls()).toBe(0);
+    await expect(access(target)).resolves.toBeUndefined();
+    const evs = (await ledger.read({ runId: ref.runId })).events;
+    expect(evs.at(-1)?.payload).toMatchObject({
+      effectId: "e-1",
+      attempts: 3,
+      blockedResume: true,
+      lastError: { code: "AUTH/DENIED" },
+    });
+  });
+
+  it("无 ASSEMBLY_RECORDED 权限基线 → fail-closed 拒绝（不猜宿主权限）", async () => {
+    const { ledger, executor } = rig();
+    const target = path.join(dir, "orphan.txt").replace(/\\/g, "/");
+    await writeFile(target, "keep");
+    await declare(ledger, builtinEffect("e-1", target));
+    await ledger.append(ref, "EFFECT_SETTLED", {
+      effectId: "e-1",
+      outcome: "done",
+      receipt: await receiptFor("e-1", target),
+    });
+
+    expect(await executor.compensate(ref, { mode: "run" })).toBe(false);
+    await expect(access(target)).resolves.toBeUndefined();
+    const evs = (await ledger.read({ runId: ref.runId })).events;
+    expect(evs.at(-1)?.payload).toMatchObject({
+      effectId: "e-1",
+      lastError: { code: "AUTH/DENIED" },
+    });
+  });
+
+  it("无收据 → 不进入补偿；伪造相对路径收据 → 拒绝而非误删宿主文件", async () => {
+    const { ledger, executor } = rig();
+    await allowFsWrite(ledger, "fs:**");
+    await declare(ledger, builtinEffect("no-receipt", `${dir}/no-receipt.txt`));
+    await declare(ledger, builtinEffect("rel", "relative.txt"));
+    await ledger.append(ref, "EFFECT_SETTLED", { effectId: "no-receipt", outcome: "done" });
+    await ledger.append(ref, "EFFECT_SETTLED", {
+      effectId: "rel",
+      outcome: "done",
+      receipt: {
+        opId: "rel",
+        kind: "fs.write.done",
+        mode: "create",
+        target: "relative.txt",
+        workspaceRoot: null,
+        existed: false,
+        created: true,
+        overwritten: false,
+        timestamp: 0,
+      },
+    });
+
+    expect(await executor.compensate(ref, { mode: "run" })).toBe(false);
+    const escalated = (await ledger.read({ runId: ref.runId })).events
+      .filter((e) => e.type === "COMPENSATION_ESCALATED")
+      .map((e) => e.payload as { effectId: string; lastError: { code: string } });
+    expect(escalated).toHaveLength(1);
+    expect(escalated[0]?.effectId).toBe("rel");
+    expect(escalated[0]?.lastError.code).toBe("COMPENSATION/UNKNOWN");
+  });
+
+  it("builtin + plugin 混合候选：只开一次补偿 Cell，builtin 不经过它", async () => {
+    const cell = fakeCell(() => ({ undone: true }));
+    const { ledger, executor, factoryCalls } = rig(cell);
+    const target = path.join(dir, "mix.txt").replace(/\\/g, "/");
+    await writeFile(target, "x");
+    await allowFsWrite(ledger, `fs:${dir.replace(/\\/g, "/")}/**`);
+    await declare(ledger, builtinEffect("b-1", target));
+    await declare(ledger, { effectId: "p-1" });
+    await ledger.append(ref, "EFFECT_SETTLED", {
+      effectId: "b-1",
+      outcome: "done",
+      receipt: await receiptFor("b-1", target),
+    });
+    await ledger.append(ref, "EFFECT_SETTLED", { effectId: "p-1", outcome: "done" });
+
+    expect(await executor.compensate(ref, { mode: "run" })).toBe(true);
+    expect(factoryCalls()).toBe(1);
+    expect(cell.calls.map((c) => c.effectId)).toEqual(["p-1"]); // builtin 不进补偿进程
+    await expect(access(target)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

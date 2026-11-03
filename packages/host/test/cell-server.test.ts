@@ -42,7 +42,9 @@ const policy: AuthPolicyInput = {
   ],
 };
 
-function rig(policyInput: AuthPolicyInput = policy, useTracker = false) {
+type TemplateMap = CellChannelBinding["templates"];
+
+function rig(policyInput: AuthPolicyInput = policy, useTracker = false, templates?: TemplateMap) {
   const ledger = new Ledger({ rootDir: dir, now: () => 0 });
   ledgers.push(ledger);
   const tracker = useTracker ? new EffectTracker({ ledger }) : undefined;
@@ -65,17 +67,19 @@ function rig(policyInput: AuthPolicyInput = policy, useTracker = false) {
     scope,
     ref,
     subject: "cell-1",
-    templates: new Map([
-      [
-        "webfetch.request-sent",
-        {
-          kind: "webfetch.request-sent",
-          compensationClass: "mitigable",
-          action: { type: "plugin", ref: "compensations/cancel" },
-          idempotency: "keyed",
-        },
-      ],
-    ]),
+    templates:
+      templates ??
+      new Map([
+        [
+          "webfetch.request-sent",
+          {
+            kind: "webfetch.request-sent",
+            compensationClass: "mitigable",
+            action: { type: "plugin", ref: "compensations/cancel" },
+            idempotency: "keyed",
+          },
+        ],
+      ]),
   };
   // 通道对：core 侧挂 serveCellChannel，测试扮演 Cell
   const coreIn = new PassThrough();
@@ -195,7 +199,40 @@ describe("cell-server：effect.declare（C-M1 焊点）", () => {
       effectId: "e-1",
       kind: "webfetch.request-sent",
       compensationClass: "mitigable",
-      compensation: { actionRef: "compensations/cancel", idempotency: "keyed" },
+      compensation: {
+        actionRef: "compensations/cancel",
+        actionType: "plugin",
+        idempotency: "keyed",
+      },
+    });
+  });
+
+  it("builtin 模板 → EFFECT_DECLARED 携带 actionType=builtin（ADR-0016）", async () => {
+    const templates: TemplateMap = new Map([
+      [
+        "fs.write.done",
+        {
+          kind: "fs.write.done",
+          compensationClass: "reversible",
+          action: { type: "builtin", ref: "fs.remove" },
+          idempotency: "natural",
+        },
+      ],
+    ]);
+    const { cellConn, readAll } = rig(policy, false, templates);
+    await cellConn.request(
+      "effect.declare",
+      {
+        effectId: "e-b",
+        effectKind: "fs.write.done",
+        targetSummary: { path: "E:/tmp/x.txt" },
+      },
+      500,
+    );
+    const ev = (await readAll()).find((e) => e.type === "EFFECT_DECLARED");
+    expect(ev?.payload).toMatchObject({
+      effectId: "e-b",
+      compensation: { actionRef: "fs.remove", actionType: "builtin" },
     });
   });
 

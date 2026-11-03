@@ -11,6 +11,7 @@
 
 export {
   ProcessIsolationProvider,
+  sanitizedEnv,
   type CellProcess,
   type IsolationProvider,
   type SpawnSpec,
@@ -24,11 +25,15 @@ export {
   rangeContains,
   type AssemblerOptions,
   type CompensationTemplateDecl,
+  type GovernanceEffectDecl,
+  type GovernanceGuardDecl,
+  type GovernanceToolDecl,
   type LoadedManifest,
   type ManifestKind,
   type MigrationDecl,
   type PermissionDecl,
 } from "./assembler.js";
+export { compileGovernancePlan } from "./governance.js";
 export {
   AssemblyManager,
   type BindRequest,
@@ -81,6 +86,24 @@ export {
   type EffectState,
   type ToolResultLike,
 } from "./compensator.js";
-export { EffectTracker } from "./effects.js";
+export {
+  BUILTIN_REFS,
+  DEFAULT_BUILTINS,
+  FS_REMOVE,
+  RECORD_ONLY_REF,
+  type BuiltinAction,
+  type BuiltinActionContext,
+  type RunPermissionView,
+} from "./builtins.js";
+export { EffectTracker, type DeclaredEffectMeta } from "./effects.js";
+export {
+  Workspace,
+  deriveWorkspaceRoot,
+  identityMatches,
+  matchPath,
+  resourceOf,
+  type WorkspaceWriteInput,
+  type WorkspaceWriteResult,
+} from "./workspace.js";
 export { SnapshotStore, type SnapshotEntry } from "./snapshot.js";
 export { RecoveryManager, type RecoveredContinuation, type RecoveryPlan } from "./recovery.js";

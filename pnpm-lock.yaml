@@ -181,6 +181,9 @@ importers:
       '@keel/host':
         specifier: workspace:*
         version: link:packages/host
+      '@keel/runtime-context':
+        specifier: workspace:*
+        version: link:packages/runtime-context
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
@@ -212,7 +215,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/host
 
-  packages/cell-runtime: {}
+  packages/cell-runtime:
+    dependencies:
+      '@keel/runtime-context':
+        specifier: workspace:*
+        version: link:../runtime-context
 
   packages/cordis-adapter:
     dependencies:
@@ -223,7 +230,11 @@ importers:
         specifier: workspace:*
         version: link:../core
 
-  packages/core: {}
+  packages/core:
+    dependencies:
+      '@keel/runtime-context':
+        specifier: workspace:*
+        version: link:../runtime-context
 
   packages/host:
     dependencies:
@@ -233,6 +244,13 @@ importers:
       '@keel/core':
         specifier: workspace:*
         version: link:../core
+      '@keel/runtime-context':
+        specifier: workspace:*
+        version: link:../runtime-context
+
+  packages/plugins/echo: {}
+
+  packages/runtime-context: {}
 
 packages:
 

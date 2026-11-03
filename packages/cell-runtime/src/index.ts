@@ -30,7 +30,27 @@ export {
   type CompensationHandler,
   type EffectDeclaration,
   type PolicyHookHandler,
+  type PluginSetupContext,
   type RegisteredToolView,
   type ToolExecResult,
+  type ToolExecutionContext,
 } from "./cell.js";
+export {
+  createWorkspaceCapability,
+  type WorkspaceCapability,
+  type WorkspaceChannelClient,
+  type WorkspaceWriteInput,
+  type WorkspaceWriteResult,
+} from "./workspace.js";
+export {
+  EMPTY_EFFECTS,
+  canonicalDigest,
+  guardResource,
+  pickFields,
+  type CellGovernancePlan,
+  type DeclaredEffectView,
+  type GovernanceEffectPlan,
+  type GovernanceGuardPlan,
+  type GovernedToolPlan,
+} from "./governance.js";
 export { normalizePolicyHooks, PolicyLoadRefused } from "./policy-hooks.js";

@@ -75,6 +75,47 @@ describe("装配器：正路径", () => {
     const loaded = assemble(capability(), undefined, "1.1.0");
     expect(loaded.record.replacesVersion).toBe("1.1.0");
   });
+
+  it("record-only 极简模板（省略 action/idempotency）→ 归一为 builtin/record-only + natural", () => {
+    const loaded = assemble(
+      capability({
+        permissions: [{ cap: "fs.write", allow: ["/tmp/**"] }],
+        compensation: { templates: [{ kind: "fs.write.done", class: "record-only" }] },
+      }),
+    );
+    expect(loaded.templates).toEqual([
+      {
+        kind: "fs.write.done",
+        compensationClass: "record-only",
+        action: { type: "builtin", ref: "record-only" },
+        idempotency: "natural",
+      },
+    ]);
+    expect(loaded.record.compensation).toEqual([
+      { kind: "fs.write.done", compensationClass: "record-only", idempotency: "natural" },
+    ]);
+  });
+
+  it("builtin fs.remove 模板 → 保留 type/ref（宿主内建派发，ADR-0016）", () => {
+    const loaded = assemble(
+      capability({
+        permissions: [{ cap: "fs.write", allow: ["/tmp/**"] }],
+        compensation: {
+          templates: [
+            {
+              kind: "fs.write.done",
+              class: "reversible",
+              action: { type: "builtin", ref: "fs.remove" },
+              idempotency: "natural",
+            },
+          ],
+        },
+      }),
+    );
+    expect(loaded.templates[0]).toMatchObject({
+      action: { type: "builtin", ref: "fs.remove" },
+    });
+  });
 });
 
 describe("装配器：负路径（fail-closed）", () => {
@@ -134,6 +175,48 @@ describe("装配器：负路径（fail-closed）", () => {
     });
     expect(codeOf(() => assemble(raw, "1.0.0", "1.2.0"))).toBe("SCHED/MANIFEST-INVALID");
     expect(codeOf(() => assemble(raw, "1.0.0", "2.1.0"))).toBe("no-error");
+  });
+
+  it("第 1 步：reversible 省略 action/idempotency → Schema 拒绝（只有 record-only 可省）", () => {
+    const raw = capability({
+      permissions: [{ cap: "fs.write", allow: ["/tmp/**"] }],
+      compensation: { templates: [{ kind: "fs.write.done", class: "reversible" }] },
+    });
+    expect(codeOf(() => assemble(raw))).toBe("SCHED/MANIFEST-INVALID");
+  });
+
+  it("第 2 步：未知 builtin ref → 拒绝（内建闭集，ADR-0016）", () => {
+    const raw = capability({
+      permissions: [{ cap: "fs.write", allow: ["/tmp/**"] }],
+      compensation: {
+        templates: [
+          {
+            kind: "fs.write.done",
+            class: "reversible",
+            action: { type: "builtin", ref: "fs.nuke" },
+            idempotency: "natural",
+          },
+        ],
+      },
+    });
+    expect(codeOf(() => assemble(raw))).toBe("SCHED/MANIFEST-INVALID");
+  });
+
+  it("第 2 步：builtin record-only 配 reversible → 拒绝（内建引用与分级一致）", () => {
+    const raw = capability({
+      permissions: [{ cap: "fs.write", allow: ["/tmp/**"] }],
+      compensation: {
+        templates: [
+          {
+            kind: "fs.write.done",
+            class: "reversible",
+            action: { type: "builtin", ref: "record-only" },
+            idempotency: "natural",
+          },
+        ],
+      },
+    });
+    expect(codeOf(() => assemble(raw))).toBe("SCHED/MANIFEST-INVALID");
   });
 });
 
@@ -203,6 +286,95 @@ describe("manifest 负路径 fixtures 组（A5 语义，manifest 稿 §8）", ()
   });
 });
 
+describe("装配器：治理切面（ADR-0015）", () => {
+  function governed(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return capability({
+      permissions: [{ cap: "fs.write", allow: ["/tmp/**"] }],
+      compensation: {
+        templates: [
+          {
+            kind: "fs.write.done",
+            class: "reversible",
+            action: { type: "builtin", ref: "fs.remove" },
+            idempotency: "natural",
+          },
+        ],
+      },
+      governance: {
+        tools: [
+          {
+            name: "write_file",
+            guard: { cap: "fs.write", from: "path", prefix: "fs:" },
+            effects: [
+              { kind: "fs.write.done", targetFields: ["path"], digestFields: ["path", "content"] },
+            ],
+          },
+        ],
+      },
+      ...overrides,
+    });
+  }
+
+  it("合法 governance → LoadedManifest 保留声明（不进 ASSEMBLY_RECORDED）", () => {
+    const loaded = assemble(governed());
+    expect(loaded.governance).toEqual([
+      {
+        name: "write_file",
+        guard: { cap: "fs.write", from: "path", prefix: "fs:" },
+        effects: [
+          { kind: "fs.write.done", targetFields: ["path"], digestFields: ["path", "content"] },
+        ],
+      },
+    ]);
+    expect(loaded.record).not.toHaveProperty("governance");
+  });
+
+  it("policy 带 governance → Schema 拒绝", () => {
+    const raw = capability({
+      kind: "policy",
+      permissions: [],
+      resources: {},
+      hooks: ["stopAdvice"],
+      governance: { tools: [{ name: "x" }] },
+    });
+    expect(codeOf(() => assemble(raw))).toBe("SCHED/MANIFEST-INVALID");
+  });
+
+  it("effect kind 未命中补偿模板 → 拒绝", () => {
+    const raw = governed();
+    const gov = raw.governance as { tools: { effects: { kind: string }[] }[] };
+    gov.tools[0].effects[0].kind = "fs.write.ghost";
+    expect(codeOf(() => assemble(raw))).toBe("SCHED/MANIFEST-INVALID");
+  });
+
+  it("guard.cap 未在 permissions 声明（或没有 allow）→ 拒绝", () => {
+    const noDecl = governed({
+      permissions: [{ cap: "tool.provide" }],
+      compensation: { templates: [] },
+    });
+    expect(codeOf(() => assemble(noDecl))).toBe("SCHED/MANIFEST-INVALID");
+    const noAllow = governed({ permissions: [{ cap: "fs.write" }] });
+    expect(codeOf(() => assemble(noAllow))).toBe("SCHED/MANIFEST-INVALID");
+  });
+
+  it("重复工具名 / 空切面 / 重复字段 → 拒绝", () => {
+    const dupName = governed();
+    const dupGov = dupName.governance as { tools: unknown[] };
+    dupGov.tools.push({ ...(dupGov.tools[0] as object) });
+    expect(codeOf(() => assemble(dupName))).toBe("SCHED/MANIFEST-INVALID");
+
+    const empty = governed({ governance: { tools: [{ name: "noop" }] } });
+    expect(codeOf(() => assemble(empty))).toBe("SCHED/MANIFEST-INVALID");
+
+    const dupField = governed();
+    const fieldGov = dupField.governance as {
+      tools: { effects: { targetFields: string[] }[] }[];
+    };
+    fieldGov.tools[0].effects[0].targetFields = ["path", "path"];
+    expect(codeOf(() => assemble(dupField))).toBe("SCHED/MANIFEST-INVALID");
+  });
+});
+
 describe("rangeContains（compat.keelContract 协商）", () => {
   it.each([
     ["^1.0", "1.0.0", true],
@@ -217,5 +389,27 @@ describe("rangeContains（compat.keelContract 协商）", () => {
     ["^1.0", "bogus", false],
   ])("%s ∋ %s → %s", (range, version, want) => {
     expect(rangeContains(range, version)).toBe(want);
+  });
+});
+
+describe("装配器：信任申请（ADR-0019）", () => {
+  it("默认不授予：manifest 申请 rawIo → 装配拒绝", () => {
+    expect(codeOf(() => assemble(capability({ trust: { rawIo: true } })))).toBe(
+      "SCHED/MANIFEST-INVALID",
+    );
+  });
+
+  it("宿主显式授予：trust=raw，并写入 ASSEMBLY_RECORDED.trust", () => {
+    const loaded = new Assembler({ schema, allowRawIo: true }).assemble(
+      capability({ trust: { rawIo: true } }),
+    );
+    expect(loaded.trust).toBe("raw");
+    expect(loaded.record.trust).toBe("raw");
+  });
+
+  it("未申请 = mediated；旧载荷形状不变（record.trust 缺省）", () => {
+    const loaded = assemble(capability());
+    expect(loaded.trust).toBe("mediated");
+    expect(loaded.record.trust).toBeUndefined();
   });
 });

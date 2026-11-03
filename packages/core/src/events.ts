@@ -3,21 +3,13 @@
  * 信封：{seq( Run 内单调), ts, runId, sessionId, agentId, type, schemaVersion, payload}。
  */
 
-/** 作用域 = (agentId, sessionId)（契约 §3.2）；不存在无作用域的全局接口。 */
-export interface Scope {
-  agentId: string;
-  sessionId: string;
-}
+import { scopeKey, type EffectReceipt, type RunRef, type Scope } from "@keel/runtime-context";
 
-/** Run 引用 = 作用域 + runId；Cell ↔ Run 一一对应。 */
-export interface RunRef extends Scope {
-  runId: string;
-}
-
-/** 作用域内部寻址键（budget / context 等按 scope 分区的组件共用）。 */
-export function scopeKey(s: Scope): string {
-  return `${s.agentId}|${s.sessionId}`;
-}
+/**
+ * 作用域/ Run 引用从 @keel/runtime-context 共享（ADR-0017）；此处 re-export 保持
+ * `@keel/core` 对外 API 不变。
+ */
+export { scopeKey, type RunRef, type Scope };
 
 export const SCHEMA_VERSION = 1;
 
@@ -106,6 +98,11 @@ export interface AssemblyRecordedPayload {
   compensation: { kind: string; compensationClass: string; idempotency: string }[];
   /** 热装配升级时被替换的旧版本（V5：被切换的是作用域绑定，无全局突变）。 */
   replacesVersion?: string;
+  /**
+   * 本 run 的信任授予（ADR-0019，2026-11-03 追加）：raw = 宿主显式授予 raw IO；
+   * 缺省 = mediated（旧账本按 mediated 读）。
+   */
+  trust?: "raw" | "mediated";
   /**
    * 本 run 绑定的策略插件与各自申领的插话点（切片④ 回填项 ①，ADR-0012 决策 6）。
    * **追加字段**：缺省不写（没绑策略的运行与 Phase 1 的旧账本样例形状不变、仍可读）。
@@ -222,10 +219,17 @@ export type IdempotencyStrategy = "natural" | "keyed" | "probe-guarded";
 export interface EffectDeclaredPayload {
   effectId: string;
   kind: string;
+  /** 发起声明的工具调用标识（R4 重试去重；旧账本缺省）。 */
+  toolCallId?: string;
   targetSummary: unknown;
   compensationClass: CompensationClass;
   compensation: {
     actionRef: string;
+    /**
+     * 补偿动作类型（2026-11-03 切片③追加；旧账本缺失 = 按 plugin 读）：
+     * plugin = 插件补偿 Cell 的 compensations 表；builtin = 宿主内建注册表。
+     */
+    actionType?: "plugin" | "builtin";
     paramsDigest: unknown;
     idempotency: IdempotencyStrategy;
   };
@@ -239,6 +243,11 @@ export interface EffectSettledPayload {
   outcome: "done" | "failed-clean" | "unknown";
   error?: unknown;
   usageDigest?: unknown;
+  /**
+   * 效果收据（ADR-0018，2026-11-03 追加）：由实际受治理操作（workspace.write）在完成时写入。
+   * 旧账本缺省；内置补偿只认带 `created:true` 收据的效果。
+   */
+  receipt?: EffectReceipt;
 }
 
 export interface CompensationExecutedPayload {

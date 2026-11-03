@@ -20,6 +20,9 @@ Keel 宿主层（Host Layer）：跑在用户态的"船坞"——负责执行单
 - `EffectTracker`：EFFECT_SETTLED 宿主结算（工具结果映射 ok→done、error/timeout→unknown 保守）+ dependsOn 声明期成环校验
 - `SnapshotStore`：D3 快照宿主内存持有（账本仅 `STATE_SNAPSHOT_REF` 元数据）；快照挂载复用 `cell.migrate` 通道
 - 切片③主体保留：`ProcessIsolationProvider` / `CellSupervisor`（退出三分类 + 失控强杀 + `pullSnapshot` 轮边界索取）/ `Assembler` 五步校验 / `AssemblyManager` 热装配 / `serveCellChannel`（C-M1 焊点）
+- **R3（ADR-0018）**：`Workspace`——`create`(`wx`) / `overwrite`、resolve + realpath 双重路径校验、identity 收据；`workspace.write` 服务端；`fs.remove` 只认收据
+- **R4**：`cell.dispose` 正常收尾（模块 dispose → 资源 effect LIFO）；`EffectTracker` 按 `toolCallId` 去重与单 effect 结算
+- **R5（ADR-0019）**：spawn 环境白名单、唯一写根 cwd、manifest `trust` 申请/宿主授予（`ASSEMBLY_RECORDED.trust`）
 
 验收 A2/A3/A4 的真实进程集成测试见 [tests/](../../tests/)（崩溃隔离 / kill 恢复延续 / 工具失败回滚补偿三路径）。施工顺序见 [docs/roadmap/phase-1-mvp.md](../../docs/roadmap/phase-1-mvp.md)。
 

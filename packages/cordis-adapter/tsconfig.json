@@ -4,7 +4,8 @@
     "noEmit": true,
     "paths": {
       "@keel/core": ["../../packages/core/src/index.ts"],
-      "@keel/cell-runtime": ["../../packages/cell-runtime/src/index.ts"]
+      "@keel/cell-runtime": ["../../packages/cell-runtime/src/index.ts"],
+      "@keel/runtime-context": ["../../packages/runtime-context/src/index.ts"]
     }
   },
   "include": ["src", "test"]

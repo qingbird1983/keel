@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
   Authorizer,
   Budgeter,
-  ContextManager,
+  ToolCatalog,
   HookBus,
   Ledger,
   ModelGateway,
@@ -180,7 +180,7 @@ export interface Runtime {
   ledger: Ledger;
   auth: Authorizer;
   budget: Budgeter;
-  ctx: ContextManager;
+  ctx: ToolCatalog;
   gateway: ModelGateway;
   scheduler: Scheduler;
   snapshots: SnapshotStore;
@@ -248,7 +248,7 @@ export async function buildRuntime(
     ledger,
   );
   const budget = new Budgeter(ledger);
-  const ctx = new ContextManager();
+  const ctx = new ToolCatalog();
   const snapshots = new SnapshotStore({ rootDir: snapshotDirOf(dataDir, opts.snapshotDir) });
   const gateway = new ModelGateway({
     ledger,

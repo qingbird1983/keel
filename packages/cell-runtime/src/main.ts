@@ -13,15 +13,27 @@
  */
 
 import { pathToFileURL } from "node:url";
-import { startCell, type CellTool, type CompensationHandler } from "./cell.js";
+import {
+  startCell,
+  type CellTool,
+  type CompensationHandler,
+  type PluginSetupContext,
+} from "./cell.js";
+import type { CellGovernancePlan } from "./governance.js";
 
 interface Bootstrap {
   pluginPath: string;
   toolCallTimeoutMs: number;
+  /** 宿主编译的治理计划（ADR-0015）；缺省 = 无切面。 */
+  governance?: CellGovernancePlan;
 }
 
 interface PluginModule {
   tools?: CellTool[];
+  /** R4：资源清理与运行期工具登记（在静态工具发布前执行）。 */
+  setup?: (ctx: PluginSetupContext) => Promise<unknown> | unknown;
+  /** R4：模块级清理（先于资源 effect；可选）。 */
+  dispose?: () => Promise<unknown> | unknown;
   migrate?: (oldState: unknown) => Promise<unknown> | unknown;
   compensations?: Record<string, CompensationHandler>;
   snapshot?: () => Promise<unknown> | unknown;
@@ -56,11 +68,14 @@ void (async () => {
     // 装载门（ADR-0011）：静态工具登记完成之前不受理宿主请求——显式开闸而不是依赖
     // "startCell 本来就在 import 之后"的巧合，这样漏调 markReady 会表现为就绪超时（可见失败）。
     loadGate: true,
+    governance: boot.governance,
   });
   // 装载义务（ADR-0011 注记 2026-11-03；03 稿 §4.1）= 本地执行表登记 **和** 宿主侧分区发布，
   // 两者完成才开闸。发布走既有 op tool.register（ADR-0010 通道，两步式与承接层 cell-port 同形）：
   // 宿主侧完成 AUTH 裁决 + scope 分区写 + 挂起 TOOL_SCHEMA_CHANGED（run 首轮入账）——
   // 没有发布，决策输入（c.tools / tool.discover）对静态工具全盲（03 稿 F4）。
+  // R4：setup 先登记资源与动态工具，再发布静态工具；任一步失败 = crash（可见失败）。
+  if (mod.setup) await mod.setup(cell.setupContext());
   for (const tool of mod.tools ?? []) cell.registerTool(tool);
   for (const tool of mod.tools ?? []) {
     try {
@@ -80,5 +95,6 @@ void (async () => {
   if (mod.migrate) cell.setMigration(mod.migrate);
   if (mod.compensations) cell.setCompensations(mod.compensations);
   if (mod.snapshot) cell.setSnapshotProvider(mod.snapshot);
+  if (mod.dispose) cell.setDisposeHook(mod.dispose);
   cell.markReady();
 })().catch((err) => crash(err));

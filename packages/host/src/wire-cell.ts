@@ -58,6 +58,7 @@ export async function wireCell(p: WireCellParams): Promise<WiredCell> {
       ref: p.ref,
       subject: p.subject,
       templates: new Map(p.manifest.templates.map((t) => [t.kind, t])),
+      permissions: p.manifest.permissions,
     },
     { ...p.deps, tracker },
   );
@@ -80,5 +81,6 @@ export async function wireCell(p: WireCellParams): Promise<WiredCell> {
       cause: err instanceof Error ? err.message : String(err),
     });
   }
+  cell.markHostReady();
   return { cell, tracker };
 }
