@@ -1,3 +1,5 @@
+// [ARCHIVED 2026-11-03 per ADR-0014 实施注记 3] Cordis 兼容层测试已剥离主线门禁（vitest.config.ts exclude）。
+// 文件与断言保留在仓库，可单独复跑（npx vitest run <本文件>）； Phase 3 原生插件测试接管等强度覆盖前，此处不再被 CI 保护。
 /**
  * 承接层宿主端口与承接面单测 —— 口径见 docs/design/phase-2/02 §3、§6（原型口径 05 稿已被其取代）。
  *

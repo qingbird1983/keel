@@ -1,3 +1,5 @@
+// [ARCHIVED 2026-11-03 per ADR-0014 实施注记 3] Cordis 兼容层测试已剥离主线门禁（vitest.config.ts exclude）。
+// 文件与断言保留在仓库，可单独复跑（npx vitest run <本文件>）； Phase 3 原生插件测试接管等强度覆盖前，此处不再被 CI 保护。
 /**
  * 集成测试（真实子进程）—— Phase 2 验收 B1（一票否决）的合成组这一半。
  *
