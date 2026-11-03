@@ -4,7 +4,17 @@ import eslint from "@eslint/js";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["**/dist/**", "**/coverage/**"] },
+  {
+    ignores: [
+      "**/dist/**",
+      "**/coverage/**",
+      // 真样本第三方源码树（B5 义务材料）：他方代码不入库（见该目录 SOURCES.md §3），
+      // 在本地工作区里也不跟我们的门禁——`pnpm lint` 实测在三枚上报 82 个 error（`no-undef` 缺 Node 全局、
+      // `_error` 未用…）。要过只能改他方代码，违反 02 稿 §7 判据 1/2（存量样本只读），故长期排除。
+      // 注意：eslint 不读 .gitignore，所以这条 ignore 与 .gitignore 里那三条**必须同时存在**。
+      "tests/fixtures/cordis-plugins/real-samples/**",
+    ],
+  },
   eslint.configs.recommended,
   tseslint.configs.recommended,
   {

@@ -1,0 +1,19 @@
+{
+  "kind": "capability",
+  "meta": {
+    "name": "legacy-index",
+    "version": "0.0.0",
+    "title": "legacy-index",
+    "description": "synthesized from observation: observe-index-1, observe-index-2"
+  },
+  "permissions": [],
+  "resources": {
+    "toolCallTimeoutMs": 30000
+  },
+  "compensation": {
+    "templates": []
+  },
+  "compat": {
+    "keelContract": "^1.0"
+  }
+}
