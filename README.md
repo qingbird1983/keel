@@ -34,14 +34,6 @@ Project documentation is maintained in **Chinese** under [`docs/`](docs/README.m
 | [`docs/design/`](docs/design/)             | Per-phase detailed designs and progress reports                      |
 | [`docs/glossary.md`](docs/glossary.md)     | Glossary (for non-technical readers)                                 |
 
-## Pending decisions (matters requiring the project owner)
-
-> Owner decisions are collected in this table (mirrored in both READMEs) and flagged in CHANGELOG entries; once decided, write an ADR and remove the row.
-
-| Item                                       | Raised | Status |
-| ------------------------------------------ | ------ | ------ |
-| (none — register items here as they arise) | —      | —      |
-
 ## License
 
 [MIT](LICENSE) © 2026 qingbird1983 (attribution decided in ADR-0007)
