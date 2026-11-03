@@ -17,13 +17,13 @@
 
 ## 3. 决策记录（所有者确认，2026-11-03）
 
-| #  | 决策                                                                                                                                                                      |
-| -- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1 | 缺口修复 = 默认入口 `main.ts` 补"本地占位 + `client.registerTool` 发布"，与承接层 cell-port 同形（备选"插件自带 cell-entry"——每插件重复装配逻辑；"宿主侧拉清单写分区"——绕开 AUTH 裁决 = 发明旁路；均否决） |
-| D2 | 不新增 ADR：既有通道补齐 + ADR-0011 追加带日期实施注记（§4.3）                                                                                                              |
-| D3 | 集成测试落点 = 根 `tests/native-echo-e2e.test.ts`（真进程集中根 tests/ 约定）+ 包内轻量单测                                                                                  |
-| D4 | 基准复采（插件自身开销，只测量不设阈值）= 切片④三件套齐后统一采，本稿只登记（§8）                                                                                            |
-| D5 | `REVIEW.md` 切片②收尾即写（插件 A 随切片②转正）                                                                                                                            |
+| #   | 决策                                                                                                                                                                                                       |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | 缺口修复 = 默认入口 `main.ts` 补"本地占位 + `client.registerTool` 发布"，与承接层 cell-port 同形（备选"插件自带 cell-entry"——每插件重复装配逻辑；"宿主侧拉清单写分区"——绕开 AUTH 裁决 = 发明旁路；均否决） |
+| D2  | 不新增 ADR：既有通道补齐 + ADR-0011 追加带日期实施注记（§4.3）                                                                                                                                             |
+| D3  | 集成测试落点 = 根 `tests/native-echo-e2e.test.ts`（真进程集中根 tests/ 约定）+ 包内轻量单测                                                                                                                |
+| D4  | 基准复采（插件自身开销，只测量不设阈值）= 切片④三件套齐后统一采，本稿只登记（§8）                                                                                                                          |
+| D5  | `REVIEW.md` 切片②收尾即写（插件 A 随切片②转正）                                                                                                                                                            |
 
 ## 4. 内核补齐：默认入口的静态工具发布（先于插件实现）
 
@@ -51,6 +51,16 @@
 
 e2e 测试先于 `main.ts` 修改存在：发现面断言（echo 出现在决策输入工具表）在补丁前必红（现状 = 空表）、补丁后转绿——红测先行与切片①同规。
 
+### 4.5 实现期注记（2026-11-03，施工实测的集成面）
+
+发布一通，"宿主必须编译报关单规则"从约定变成**硬前提**——凡装配默认入口舱的路径都在爆半径内，本切片一并落地：
+
+- **CLI（apps/keel）**：`runPolicy` 拆出多舱合并版 `runPolicyFor`；`scenario` a2/a3/a4（withRuntime 增 policy 位）、`hotswap`（bind 前 v1 编译进 buildRuntime）、`recover`（runPolicy(manifest, oldRef.agentId)）、`bench` B3（改走 `wireCell`——裸 `spawnCell` 没人应答发布请求，且收敛点本就含就绪凭据）五处调用点补编译。
+- **装配次序硬约束提前**：`spawnCell` 之后、**任何 await 之前**必须挂好 `serveCellChannel` + `ctx.alloc`（装载期发布是 Cell→宿主请求；晚一拍 = `no serve handler` → 舱装载即死）。踩实的一处：恢复路径里 `await cell.migrate()` 曾插在 spawn 与 serve 之间（旧行为装载期零 Cell→宿主请求，无害）——已改为 serve/alloc 先行、migrate 排门后。
+- **两个被本改动炸出来的 rig 潜伏缺陷**（根 tests/ 不进类型检查的既有缺口所掩盖）：`serveCellChannel` 漏传第三参 deps（cell-crash）、deps 残缺只传 `{ledger, tracker}`（cell-crash-recovery / tool-failure-compensation 主舱与动作舱）——发布请求走到 `deps.auth` 即 TypeError。均已补全量 deps。
+- **测试期望适配**：凡有 tools 导出 fixture 的 rig，策略补 register/remove 规则（与无 allow 报关单编译面等价）；concurrent（A1 一票否决承载）boot 状态多了静态发布一笔——boot 注册前**等待发布落进本 scope 分区**（消除发布/boot 竞态，P-006），指纹与 `TOOL_SCHEMA_CHANGED` 计数按新 boot 状态重算（静态 3 / 动态 6，ok 版本 v2 起）。
+- **扫描器载体收窄**见 [02 稿 §7 注记](02-review-mechanization.md)（test/ 排除，非符号豁免）。
+
 ## 5. 插件 A 形状定案
 
 ### 5.1 目录与构建
@@ -65,7 +75,7 @@ packages/plugins/echo/
 └── REVIEW.md                        # 留痕（D5：切片②收尾写）
 ```
 
-`dist/` 不入库（.gitignore 既有）；`pnpm-workspace.yaml` 的 `packages/*` 通配自动纳管 → root `pnpm build` / 各包 typecheck 零根配置改动。集成测试经 `pluginPath` 指向 `dist/index.js`，不 import 本包。
+`dist/` 不入库（.gitignore 既有）；workspace 纳管需在 `pnpm-workspace.yaml` 增一行 `packages/plugins/*`（实现注记，2026-11-03：§5.1 初稿称"零根配置改动"有误——既有通配 `packages/*` 是单层，盖不住嵌套的 `plugins/<name>`；除此一行外 root 配置零改动）。集成测试经 `pluginPath` 指向 `dist/index.js`，不 import 本包。
 
 ### 5.2 manifest（`keel-plugin.json`）
 
@@ -78,9 +88,7 @@ packages/plugins/echo/
     "title": "Echo",
     "description": "只读工具：原样返回输入文本（Phase 3 三件套插件 A）"
   },
-  "permissions": [
-    { "cap": "tool.provide", "reason": "提供单个只读工具 echo，验证授权与工具发现" }
-  ],
+  "permissions": [{ "cap": "tool.provide", "reason": "提供单个只读工具 echo，验证授权与工具发现" }],
   "resources": { "toolCallTimeoutMs": 10000 },
   "compensation": { "templates": [] },
   "compat": { "keelContract": "^1.0" }
@@ -113,14 +121,14 @@ export const tools = [
 
 > 装配一律 `Assembler` 五步 + `wireCell()`（就绪凭据 = 探测应答，零豁免）；run 一律真实子进程；断言锚账本。
 
-| 用例    | 场景与断言                                                                                                                                                                                                                                                                         | 锚          |
-| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| 用例          | 场景与断言                                                                                                                                                                                                                                                                                                                                                                 | 锚          |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
 | E1 装配与发现 | A/B 两 scope：A 装 echo，B = 对照舱（无 `tool.provide` 的 fixture，表恒空）。A 的 `TOOL_SCHEMA_CHANGED` 恰 1 条、`affectedScope` = A scope、run 首轮入账；A 决策输入工具表 = `[echo@1]` 恰一条；B 表恒空且 echo 零出现。同名舱下"互不可见"的机械表达 = 各自表恰好等于自身清单 + 变更事件归属纯净；全部事件 `runId`/`sessionId` 归属纯净，`ASSEMBLY_RECORDED` 为 run 首事件 | C1（I1/I5） |
-| E2 主场景 run | A run 的 driver 决策调 `echo` → `TOOL_INVOKE`/`TOOL_RESULT` 落账本，`resultDigest.echoed` 与输入一致；run 收束 `halted`                                                                                                                                                              | C1          |
-| E3 越权调用   | 无 `tool.invoke` 规则的主体发起调用 → 调度器当场拒：`AUTH_DENIED` 落账本（Authorizer 拒绝必写）+ `TOOL_RESULT{status:"error"}` 统一落点                                                                                                                                             | C1（I1）    |
-| E4 装载期拒绝 | manifest 副本 allow 收窄 `["other-*"]` → echo 发布被拒 → 舱 crash → `wireCell` 可见失败（BADFRAME/TIMEOUT）；被拒路径无部分生效                                                                                                                                                    | C1（§4.2）  |
-| E5 崩溃半径   | 两 scope 各起 echo run；A 舱 `kill()`（在途打断唯一原语，P-010）→ A run 经既有 abort 路径落终态；B run 继续收束 `halted`、账本归属纯净无 A 污染                                                                                                                                    | C5（I2）    |
-| E6 决策重放   | A run 决策序列从账本重放（throughSeq 语义：每轮决策依据 = `DECISION.basedOn`，上界 = `throughSeq` 之前一切），逐轮输入/动作与 driver 剧本一致——形状对齐既有 `audit-attribution-replay.test.ts` / `decision-through-seq.test.ts`                                                       | C6（I1/V6） |
+| E2 主场景 run | A run 的 driver 决策调 `echo` → `TOOL_INVOKE`/`TOOL_RESULT` 落账本，`resultDigest.echoed` 与输入一致；run 收束 `halted`                                                                                                                                                                                                                                                    | C1          |
+| E3 越权调用   | 无 `tool.invoke` 规则的主体发起调用 → 调度器当场拒：`AUTH_DENIED` 落账本（Authorizer 拒绝必写）+ `TOOL_RESULT{status:"error"}` 统一落点                                                                                                                                                                                                                                    | C1（I1）    |
+| E4 装载期拒绝 | manifest 副本 allow 收窄 `["other-*"]` → echo 发布被拒 → 舱 crash → `wireCell` 可见失败（BADFRAME/TIMEOUT）；被拒路径无部分生效                                                                                                                                                                                                                                            | C1（§4.2）  |
+| E5 崩溃半径   | 两 scope 各起 echo run；A 舱 `kill()`（在途打断唯一原语，P-010）→ A run 经既有 abort 路径落终态；B run 继续收束 `halted`、账本归属纯净无 A 污染                                                                                                                                                                                                                            | C5（I2）    |
+| E6 决策重放   | A run 决策序列从账本重放（throughSeq 语义：每轮决策依据 = `DECISION.basedOn`，上界 = `throughSeq` 之前一切），逐轮输入/动作与 driver 剧本一致——形状对齐既有 `audit-attribution-replay.test.ts` / `decision-through-seq.test.ts`                                                                                                                                            | C6（I1/V6） |
 
 **C6 切片②口径**：C6 全文含"含策略介入的归因"——策略介入是切片③ C4 的素材；切片②交付 echo run（无策略介入）的重放主干，切片③在 C4 用例中补策略归因复演。
 

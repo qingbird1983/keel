@@ -75,3 +75,7 @@
 - 负样本组与扫描器按 §3 先红后绿：测试先行（import 缺失 = 红），`scripts/scan-native-plugins.mjs` 实现后转绿；负样本逐判据命中对应 01 行号（防假绿）。
 - `packages/plugins/README.md` 占位（空目录不入库；切片② 落插件 A）。
 - 主线门禁同轮剥离 cordis 测试（vitest exclude + 文件头归档横幅），内核命名测试保留——见 [ADR-0014 实施注记 3](../../adr/ADR-0014-drop-legacy-ecosystem-compat.md)。
+
+## 7. 施工记录（2026-11-03 切片② 实战检验注记）
+
+- **扫描载体排除 test/**：实扫首次落实体目录即命中——插件单测必须 `import "vitest"`（开发侧门禁自身依赖；单测只在 vitest 下运行、永不进入 Cell 进程，插件运行面 = `src` → `dist`）。载体收窄：跳过 `test/` 目录与 `*.test.*` 文件。**这不是符号豁免通道**——被扫文件内的禁面符号仍零豁免，01 清单各行语义不变；对应扫描器与实扫组断言同轮修订。

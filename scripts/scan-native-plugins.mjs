@@ -238,7 +238,16 @@ async function listFiles(dir) {
   const out = [];
   const walk = async (cur) => {
     for (const entry of await readdir(cur, { withFileTypes: true })) {
-      if (entry.name === "node_modules" || entry.name === "dist" || entry.name.startsWith("."))
+      // test/ 载体排除（02 稿实施注记 2026-11-03，切片②实战检验）：单测只在 vitest 下运行、
+      // 永不进入 Cell 进程（运行面 = src → dist），import vitest 属开发侧门禁自身依赖。
+      // 这是载体收窄不是符号豁免：被扫文件内禁面符号仍零豁免。
+      if (
+        entry.name === "node_modules" ||
+        entry.name === "dist" ||
+        entry.name === "test" ||
+        entry.name.startsWith(".") ||
+        /\.test\.[cm]?[jt]sx?$/.test(entry.name)
+      )
         continue;
       const full = path.join(cur, entry.name);
       if (entry.isDirectory()) await walk(full);

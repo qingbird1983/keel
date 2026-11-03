@@ -142,10 +142,18 @@ export function runPolicy(
   subject: string,
   version = "p-manifest",
 ): PolicyInput {
+  return runPolicyFor([{ manifest, subject }], version);
+}
+
+/** 多舱合并版 runPolicy（03 稿 §4 集成面：默认入口发布静态工具经 tool.register 裁决，规则必须来自报关单）。 */
+export function runPolicyFor(
+  entries: { manifest: LoadedManifest; subject: string }[],
+  version = "p-manifest",
+): PolicyInput {
   return {
     version,
     rules: [
-      ...manifestAuthRules(manifest, subject),
+      ...entries.flatMap((e) => manifestAuthRules(e.manifest, e.subject)),
       { subject: "*", action: "tool.invoke", resource: "*" },
       { subject: "*", action: "model.invoke", resource: "*" },
       // 流式与调用模型是同一项权威的两个入口（ADR-0013 决策 6）：宿主放行面同步给到 model.stream，

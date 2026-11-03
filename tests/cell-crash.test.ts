@@ -41,11 +41,19 @@ const manifestSchema: object = JSON.parse(
 
 const policy: AuthPolicyInput = {
   version: "p1",
-  allow: [{ subject: "*", action: "tool.invoke", resource: "*" }],
+  allow: [
+    { subject: "*", action: "tool.invoke", resource: "*" },
+    // 装载期静态发布经 tool.register 裁决（03 稿 §4）：规则必须来自报关单编译面（此处与无 allow 报关单等价）
+    { subject: "*", action: "tool.register", resource: "*" },
+    { subject: "*", action: "tool.remove", resource: "*" },
+  ],
 };
 
 let dir: string;
 let ledger: Ledger;
+let auth: Authorizer;
+let budget: Budgeter;
+let gateway: ModelGateway;
 let ctxMgr: ContextManager;
 let scheduler: Scheduler;
 let supervisor: CellSupervisor;
@@ -55,9 +63,9 @@ beforeAll(async () => {
   dir = await mkdtemp(path.join(tmpdir(), "keel-a2-"));
   ledger = new Ledger({ rootDir: dir });
   ledgers.push(ledger);
-  const auth = new Authorizer(policy, ledger);
-  const budget = new Budgeter(ledger);
-  const gateway = new ModelGateway({
+  auth = new Authorizer(policy, ledger);
+  budget = new Budgeter(ledger);
+  gateway = new ModelGateway({
     ledger,
     auth,
     budget,
@@ -112,12 +120,18 @@ function wireScope(params: {
     compat: { keelContract: "^1.0" },
   });
   const cell = supervisor.spawnCell({ manifest, pluginPath: params.pluginPath });
-  serveCellChannel(cell.conn, {
-    scope,
-    ref,
-    subject: params.agentId,
-    templates: new Map(manifest.templates.map((t) => [t.kind, t])),
-  });
+  // 第三参 deps 此前漏传（根 tests/ 不进类型检查的既有缺口掩盖了它）——装载期静态发布
+  // （03 稿 §4）让 Cell→宿主请求在装载期必然发生一次，缺 deps 即 BADFRAME、舱装载即死。
+  serveCellChannel(
+    cell.conn,
+    {
+      scope,
+      ref,
+      subject: params.agentId,
+      templates: new Map(manifest.templates.map((t) => [t.kind, t])),
+    },
+    { ledger, auth, budget, ctx: ctxMgr, gateway },
+  );
   ctxMgr.alloc(scope);
   const { done } = scheduler.start({
     ref,

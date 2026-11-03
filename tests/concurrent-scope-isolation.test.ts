@@ -60,7 +60,16 @@ const ROUNDS = 5;
 /** 每 5 个会话留 1 个静止对照会话：全程不增删工具，看它是否被邻居的变更波及。 */
 const isStatic = (i: number): boolean => i % 5 === 0;
 
-const policy = { version: "p1", allow: [{ subject: "*", action: "tool.invoke", resource: "*" }] };
+// 装载期静态发布经 tool.register 裁决（03 稿 §4，2026-11-03 切片②）：fixture 的 tools 导出
+// 在舱装载时发布进本 scope 分区——规则必须来自报关单编译面（此处与无 allow 报关单等价）。
+const policy = {
+  version: "p1",
+  allow: [
+    { subject: "*", action: "tool.invoke", resource: "*" },
+    { subject: "*", action: "tool.register", resource: "*" },
+    { subject: "*", action: "tool.remove", resource: "*" },
+  ],
+};
 
 const manifest: LoadedManifest = new Assembler({ schema: manifestSchema }).assemble({
   kind: "capability",
@@ -148,20 +157,24 @@ afterAll(async () => {
  * 静止对照会话全程不动（boot 两笔亦不动，其指纹五轮恒定）。
  */
 
-/** 每轮应有的可见表指纹（与剧本严格对应；ok 版本 2 = 本会话自己重复注册过）。 */
+/**
+ * 每轮应有的可见表指纹（与剧本严格对应；03 稿 §4 后 boot 状态含静态发布）：
+ * fixture 的静态 "ok" 在装载期发布 = v1，boot 重注册把它顶到 v2（静态/动态会话都有 boot）；
+ * 动态会话剧本轮 3 再顶到 v3（轮 4 起可见）。静止对照会话剧本不动，boot 后恒定。
+ */
 function expectedFingerprint(i: number, round: number): string[] {
   const n = toolNames(i);
   const staticSet = isStatic(i);
-  const okVersion = !staticSet && round >= 4 ? 2 : 1;
+  const okVersion = staticSet ? 2 : round >= 4 ? 3 : 2;
   const out = [`ok@${okVersion}`, `${n.base}@1`];
   if (!staticSet && round >= 2) out.push(`${n.alpha}@1`);
   if (!staticSet && round >= 3) out.splice(1, 1); // base 已下线
   return out.sort();
 }
 
-/** 本会话自身增删次数 = TOOL_SCHEMA_CHANGED 应有条数（boot 两笔 + 剧本三笔）。 */
+/** TOOL_SCHEMA_CHANGED 应有条数 = 静态发布 1 笔 + boot 两笔 + 动态会话剧本三笔。 */
 function expectedChangeCount(i: number): number {
-  return isStatic(i) ? 2 : 5;
+  return isStatic(i) ? 3 : 6;
 }
 
 function makeDriver(i: number, probe: Probe): RunDriver {
@@ -217,6 +230,15 @@ async function startSession(i: number): Promise<{ probe: Probe; done: Promise<Ru
   const cordis = createCordisCtx({ ctx: ctxMgr, ref });
   const probe: Probe = { scope, runId, cordis, seen: [], violations: [] };
   const n = toolNames(i);
+  // 静态发布是跨进程的异步帧（03 稿 §4，切片②起装载期发生）：boot 注册前等它落进本 scope
+  // 分区，boot 状态才确定——否则"发布先到还是 boot 先到"是竞态，ok 的版本号不定（P-006）。
+  {
+    const t0 = Date.now();
+    while (!ctxMgr.discover(ref).some((t) => t.name === "ok")) {
+      if (Date.now() - t0 > 15_000) throw new Error("static publish did not land in partition");
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  }
   // 开跑前两笔注册（与原口径一致：先有自身注册集，再进第一轮决策）
   await Promise.all([
     cordis.tools.register({ name: n.base, schema: { session: i } }),
