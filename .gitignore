@@ -77,5 +77,12 @@ coverage/
 # 所有者本地输入区（参考/建议/简报）——整目录永不推送（规则见 briefs/README.md）
 briefs/
 
+# 真样本的第三方源码树：不入库（他方源码进我们的历史就要跟我们的门禁一辈子，
+# pnpm lint 实测在这三枚上报 82 个 error）。入库的是登记与观察产物，
+# 复现靠 SOURCES.md 里登记的仓库 + commit 哈希。理由与取回命令见该目录 SOURCES.md §3。
+tests/fixtures/cordis-plugins/real-samples/dsh-plugin-local-life/
+tests/fixtures/cordis-plugins/real-samples/dsh-scrape-webpage/
+tests/fixtures/cordis-plugins/real-samples/dsh-turn-notify/
+
 # 大文件二进制资产须先写 ADR 方可入库（standards/08）
 # 构建产物目录一律不入库（名称按项目布局回填，如 target/、dist/、out/）

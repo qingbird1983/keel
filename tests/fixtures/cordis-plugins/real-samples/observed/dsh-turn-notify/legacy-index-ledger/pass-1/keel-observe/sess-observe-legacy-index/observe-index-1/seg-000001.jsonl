@@ -1,0 +1,9 @@
+{"seq":1,"ts":1793696461948,"runId":"observe-index-1","sessionId":"sess-observe-legacy-index","agentId":"keel-observe","type":"ASSEMBLY_RECORDED","schemaVersion":1,"payload":{"manifest":{"name":"legacy-index","version":"0.0.0","kind":"capability"},"permissions":[],"compensation":[]}}
+{"seq":2,"ts":1793696461948,"runId":"observe-index-1","sessionId":"sess-observe-legacy-index","agentId":"keel-observe","type":"RUN_STARTED","schemaVersion":1,"payload":{}}
+{"seq":3,"ts":1793696461949,"runId":"observe-index-1","sessionId":"sess-observe-legacy-index","agentId":"keel-observe","type":"ROUND_STARTED","schemaVersion":1,"payload":{"round":1}}
+{"seq":4,"ts":1793696461987,"runId":"observe-index-1","sessionId":"sess-observe-legacy-index","agentId":"keel-observe","type":"DECISION","schemaVersion":2,"payload":{"round":1,"summary":"observe-index-1 await-activation","basedOn":[1,2,3],"throughSeq":3}}
+{"seq":5,"ts":1793696462020,"runId":"observe-index-1","sessionId":"sess-observe-legacy-index","agentId":"keel-observe","type":"CHECKPOINT","schemaVersion":1,"payload":{"round":1}}
+{"seq":6,"ts":1793696462051,"runId":"observe-index-1","sessionId":"sess-observe-legacy-index","agentId":"keel-observe","type":"ROUND_ENDED","schemaVersion":1,"payload":{"round":1}}
+{"seq":7,"ts":1793696462075,"runId":"observe-index-1","sessionId":"sess-observe-legacy-index","agentId":"keel-observe","type":"CHECKPOINT","schemaVersion":1,"payload":{"round":1}}
+{"seq":8,"ts":1793696462106,"runId":"observe-index-1","sessionId":"sess-observe-legacy-index","agentId":"keel-observe","type":"ROUND_ENDED","schemaVersion":1,"payload":{"round":1}}
+{"seq":9,"ts":1793696462106,"runId":"observe-index-1","sessionId":"sess-observe-legacy-index","agentId":"keel-observe","type":"RUN_FAILED","schemaVersion":1,"payload":{"reasonCode":"CELL/CRASH","reason":"cell channel closed (crash per killRequested; exit event pending)"}}

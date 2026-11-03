@@ -1,0 +1,7 @@
+observe: index.js → 2 趟观察
+  pass 1: observe-index-1 state=failed events=9 names=[]
+  pass 2: observe-index-2 state=failed events=9 names=[]
+  candidate: dsh-turn-notify\legacy-index.candidate.json
+  gaps: dsh-turn-notify\legacy-index.gaps.md（2 项，待人工审核）
+  validate: ACCEPT（legacy-index@0.0.0，cap=）
+  note: 候选不自转正——补齐 gaps 并经人工审核后，才作为正式报关单进装配（03 稿 §10）
