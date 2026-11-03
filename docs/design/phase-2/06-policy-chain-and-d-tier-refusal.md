@@ -37,7 +37,7 @@
 ### 3.1 B7①：策略插件 → HookBus 装配链（六步）
 
 1. **装载面**：`packages/cell-runtime/src/policy-main.ts`（新进程入口）装载策略模块，只认一种导出：`export const hooks = { toolApproval: fn, stopAdvice: fn, … }`。不喂 `CellClient`、不喂任何主动接口（§3.3"无主动接口"）；装载门复用 ADR-0011（未登记完不应答，漏调 `markReady` 表现为就绪超时 = 可见失败）。
-2. **新 op**：`policy.hook`（宿主→策略舱），载荷 `{ hook, round, input }`，应答 = verdict 原样。**校验仍留在 HookBus**（禁区校验是内核职责，挪进舱内等于让被审者自审）。
+2. **新 op**：`policy.hook`（宿主→策略舱），载荷 `{ hook, round, input }`，应答 = verdict 原样。**校验仍留在 HookBus**（禁区校验是内核职责，挪进舱内等于让被审者自审）。〔实施收敛：帧里只有 `{ hook, input }`，理由与归因链的替代位置见 §10 第 1 条与 [ADR-0012 实施注记 1](../../adr/ADR-0012-policy-plugin-process-and-hook-op.md)〕
 3. **接线**：`packages/host/src/policy-link.ts`：按报关单 `hooks` 白名单逐个 `bus.register(name, (input) => cell.conn.request("policy.hook", { hook: name, round, input }, timeoutMs))`；未声明的 hook **不注册**（无介入即无事件，`hooks.ts` 第 8 行既有口径）。**两份策略抢同一 hook → 装配期整份拒绝**（ADR-0012 决策 5）：`HookBus.register` 的"同名覆盖"从此只允许装配器在**已查重**的策略集合上调用——覆盖 = 后一份悄悄吃掉前一份的否决权，账本只看得到"有人说话"看不出说的是谁。
 4. **时限与失败**：策略侧时限 = HookBus 的 200ms（契约 §7，F11）；超时/异常/舱退都走既有 fallback 路径并落 `HOOK_VERDICT{fallback:true}`——**不新增错误码**（与 ADR-0011 同一姿态）。
 5. **交付入口**：`keel run --policy-manifest <path> --policy-module <path>`（可重复），`BuildRuntimeOptions.policies?: {manifest, modulePath}[]`。代码路径由宿主配置给出——**manifest 里没有代码路径字段**（报关单不指定实现，既定设计）。
@@ -104,15 +104,26 @@
 
 ## 8. 定稿后的落地清单（按序）
 
-- [x] ADR-0012（策略舱执行位置与生命周期、`policy.hook` 载荷、失败语义、冲突整份拒、审计字段口径）
-- [ ] `cell-runtime`：`policy.hook` 路由 + `policy-main` 入口 + 装载面单测（先红）
-- [ ] `host`：`policy-link.ts`（白名单 → 注册集合 + 抢同一 hook 整份拒）+ 策略舱与 supervisor 的退出不级联证据
-- [ ] `apps/keel`：`BuildRuntimeOptions.policies` + `keel run --policy-*`
-- [ ] `ASSEMBLY_RECORDED.policies` + 契约 §5 注记
-- [ ] 策略样本 + D 档尝试样本 + 畸形 manifest 2 份
-- [ ] `tests/policy-chain-attribution.test.ts`（B7①）与 `tests/cordis-d-tier.test.ts`（B4）**先写红色断言**（铁律 7）
-- [ ] 符号扫描判据扩展；01 稿 #7/#14 实现期注记；05 手册 §8 证据行
-- [ ] B4 + B7① 验收；B8 复跑；体量核对 + 六道门禁（`pnpm clean` 起）；CHANGELOG / docs/README / CONTEXT / handoff 收尾四件事
+- [x] ADR-0012（策略舱执行位置与生命周期、`policy.hook` 载荷、失败语义、冲突整份拒、审计字段口径）＋施工后追加的**实施注记四条**（只补事实，不改决策）
+- [x] `cell-runtime`：`policy.hook` 路由 + `policy-main` 入口 + 装载面单测（先红）
+- [x] `host`：`policy-link.ts`（白名单 → 注册集合 + 抢同一 hook 整份拒）+ 策略舱与 supervisor 的退出不级联证据
+- [x] `apps/keel`：`BuildRuntimeOptions.policies` + `keel run --policy-*`（CLI 冒烟两条：接通与冲突整份拒）
+- [x] `ASSEMBLY_RECORDED.policies` + 契约 §5 注记
+- [x] 策略样本 + D 档尝试样本 + 畸形 manifest 2 份（实际枚数见 §10 第 3 条）
+- [x] `tests/policy-chain-attribution.test.ts`（B7①）与 `tests/cordis-d-tier.test.ts`（B4）**先红后绿**——**如实记录**：本篇的施工顺序偏离了清单（生产代码先写完，两份验收测试是收尾时补的），首轮跑红的 7 条全部是**断言形状**问题而非功能缺失（轮号不是稳定量 ×2、帧载荷与装载拒绝的错误码集合 ×2、`hooks` 置空与 minItems 互斥 ×1、注释里含 `CellClient` 字样 ×2）。这里的教训不是"测试写早了"，而是**红测的价值在于它先于实现存在**：这次红只能告诉我"我的主张写错了形状"，证不了"实现满足主张"。已作为流程教训进 pitfalls。
+- [x] 符号扫描判据扩展（D 档样本进目录清单 + 新增一条"尝试样本不引出任何新面"的判据）；01 稿 #7/#14 实现期注记；05 手册 §8 证据行
+- [x] B4 + B7① 验收；B8 复跑；体量核对 + 六道门禁（`pnpm clean` 起）；CHANGELOG / docs/README / CONTEXT / handoff 收尾四件事——**2026-11-03 收口**：B4、B7① 达成，B8 全库复跑 388 项 / 48 文件全绿，六道门禁从 `pnpm clean` 起逐条取真实退出码全过；rig 超线处置见 H-023 第 8 条
+
+## 10. 施工期记录（定稿没写死、实现里才成立的事）
+
+1. **`policy.hook` 的帧载荷是 `{hook, input}`，没有 `round`**。内核 `HookBus` 递给 handler 的只有入参本体（`hooks.ts` 的 `handler(input)`），轮号由同一次调用写进 `HOOK_CALLED{hook, round}`。为塞轮号得改内核 handler 签名——那不是本片的授权范围，于是归因链换个位置照样完整：**轮号在账本里，不在策略进程的输入里**（更贴合 §3.3"除 hook 入参外的一切"）。口径已作为实施注记追加进 ADR-0012（决策 2 不改）。
+2. **注册挪到装配的最后一步**。定稿的"整份拒绝"原本只管"两份策略抢同一插话点"；实现里发现还有一条同类风险：先起舱边注册、后起的那份失败时，总线上会留下指向已 reaped 舱的 handler（`HookBus` 没有也不该有 `unregister`）。现在的次序是**全部探就绪 → 整批注册**，任何失败都不挂一条 handler；失败清理也从"逐个 dispose"改成"整批 drain 后原样重抛"。测试：`policy-link.test.ts` 的"第二份策略起不来"。
+3. **样本比估的多**：策略样本 6 枚（四 hook 各一枚 + 违规响应一枚 + 装载期负样本一枚）+ CLI 交付入口用的 1 枚（与 Phase 1 正样例报关单 `policy-budget-guard.json` 逐名配对）+ 旧形状 D 档尝试 3 枚 + B7① 工具集 1 枚；畸形 manifest 按估给 2 枚（`capability-with-hooks` / `policy-with-timeout`，进 `fixtures/manifest-negative/` 那组的第 7、8 枚）。估 2 枚是因为当时把"四 hook"想成一枚样本能跑完，实际每个 hook 的触发条件都要不同的 run 形状（耗尽要预算、重试要失败工具、停止要摘要标记）。
+4. **装载期拒绝在真进程下会命中封闭集合里的两个码之一**：策略模块导出集合 ≠ 声明集合 → 进程直接退出，宿主的一次探测可能先看到 `TRANSPORT/BADFRAME`（通道先断）也可能先看到 `TRANSPORT/TIMEOUT`（探测先到期）。测试按**集合**断言而不是挑一个，归因位是 `detail.reason="CELL_NOT_READY"`。
+5. **轮号不是稳定量，B7① 的断言形状因此改了**。装载屏障（真实子进程起飞要时间）会吃掉若干空转轮，那些轮也写 `DECISION`：于是"第 N 轮的介入落在第 N+1 轮的 basedOn 里"这种断言必然飘。改成两句更准确的话：**存在一条更晚的 `DECISION`，其 `basedOn` 含这两个 seq**（`attributed()` helper）；hook② 的停止条件从"第 2 轮"改为"决策摘要里带 `policy-stop` 标记"（rig 因此加了 `RoundPlan.label`）。
+6. **`new Scheduler(deps, opts)` 是两个参数位**：把 `SchedulerOptions` 写进第一个对象会被**静默忽略**（踩过一次——30s×3 的真实退避直接把测试拖到超时，而且没有任何报错）。rig 现在把 `delay` 注入到第二个参数位并记录 `retryDelays`，"重试次数 ≤3、退避 ≤30s 由内核钳住"因此可断言而不必真等。
+7. **机械核对 (b)(c) 落成可跑的两条**：(b) = 注入面四文件（承接层 `core.ts`/`cell-entry.ts` + 策略 `policy-main.ts`/`policy-hooks.ts`）里 `scheduler.` / `new Scheduler` / `ledger.append` / `budget.configure` / `run.start` / `run.abort` 零命中，且 `policy-main.ts` 的依赖闭包只有 `node:url` 与本包两模块（内核包**不在图里**，比"没用到"更强）；(c) = 负例组 8 枚逐份装配 → 全部 `SCHED/MANIFEST-INVALID` 且**零产物**，另加一条"越界项删掉就能过"的对照，证明被拒的是那一处越界而非整份格式。
+8. **测试体量**：新增逐份可数——策略舱装载面 `policy-cell.test.ts` 10、`policy-link.test.ts` 13、B7① 9、B4 13、符号扫描判据 1、负例组批量校验 +2（组内多两枚）、CLI 冒烟 2。总数与文件数以收口那次 `pnpm clean` 起的全量门禁为准（写在 CHANGELOG 对应条目里，不在这里报第二份数）。
 
 ## 9. 本片的限制（先登记，别等报告）
 
