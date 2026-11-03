@@ -45,7 +45,7 @@ core/ 或 libs/    核心库（零 UI、零入口依赖）
 apps/             各入口（CLI / 桌面 / Web，只做薄壳）
 ```
 
-本项目选定：**预设 B —— 单仓多模块**：`packages/`（`@keel/*` 各包：core、host、cell-runtime、cordis-adapter 等）+ `apps/`（入口薄壳）；目录随 Phase 1 首批代码建立（空目录不入库）
+本项目选定：**预设 B —— 单仓多模块**：`packages/`（`@keel/*` 各包：core、host、cell-runtime 等；cordis-adapter 已按 [ADR-0014](../adr/ADR-0014-drop-legacy-ecosystem-compat.md) 归档留痕）+ `apps/`（入口薄壳）；目录随 Phase 1 首批代码建立（空目录不入库）
 
 ## 3. 命名约定
 
