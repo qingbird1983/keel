@@ -1,6 +1,6 @@
 # Phase 2 切片⑤：契约修订与三项回填
 
-- 状态：**草案**（2026-11-03 起草；§7 四项待所有者确认后转定稿——定稿前不写实现代码，铁律 1）
+- 状态：**定稿**（2026-11-03 所有者确认 §7 四项，全部按建议落地：`schemaVersion` 按事件类型分别递增 / 快照落盘走 `--snapshots` 且缺省由账本根派生 / 流式取拉式分片（为此立 ADR-0013，§8 第 2 步）/ drain 复用 `SCHED/BACKPRESSURE` 与既有宽限硬界；定稿后开始写本片实现代码——铁律 1）
 - 日期：2026-11-03
 - 关联：[phase-2 合同](../../roadmap/phase-2-cordis-compat.md) §7 切片⑤（锚 **B7②③④⑤ + B8**）、§2「做」的回填项 ②③④ 与「契约修订随 ADR-0008 落地」、§6 风险 5；[ADR-0008](../../adr/ADR-0008-decision-attribution-upper-bound.md)（决策 1~5，落点就是本片）；[契约](../phase-1/01-core-api-contract.md) §4.1 / §4.5 / §4.7 / §5 / §6 / §7 / §12；[ADR-0003](../../adr/ADR-0003-model-gateway.md)、[ADR-0004](../../adr/ADR-0004-ledger-consistency-point.md)、[ADR-0005](../../adr/ADR-0005-cell-isolation.md)；[Phase 1 报告](../phase-1/report.md) §3 限制 2 与限制 4；[06 稿](06-policy-chain-and-d-tier-refusal.md) §9（两条限制由本片接手）；[05 手册](05-migration-handbook.md)
 
@@ -67,7 +67,7 @@
 
 ### 3.4 B7④：`model.stream` 的通道形状与记账时序
 
-形状取**拉式分片**（§7 第 3 项交所有者确认；选它的理由是 F11——不动"一请求一响应"这条被 supervisor 超时与 fail-stop 依赖的不变式）：
+形状取**拉式分片**（§7 第 3 项已确认；选它的理由是 F11——不动"一请求一响应"这条被 supervisor 超时与 fail-stop 依赖的不变式）：
 
 1. **两个新 Cell→Host op + 一个可选收尾 op**：`model.stream.start {reqId, model, params, estimate}` → `{streamId, chunks, done, usage?, cost?}`；`model.stream.next {streamId, limit?}` → `{chunks, done, usage?, cost?}`；`model.stream.cancel {streamId}`。**权限动作**随 `model.adapter` 编译（F12：不新开 cap，一个能力两项动作 `model.invoke` + `model.stream`），报关单字段与 schema **零扩展**。
 2. **网关侧新增会话表**（放 `packages/core/src/stream.ts`，避免 `gateway.ts` 从 128 行胀成触线文件）：`reserve` 一次（estimate）→ 上游产出分片入缓冲 → `next` 按消费方节奏出片。背压问题在此**由构造消解**（消费方不取就不产不攒），§12 那条待决的"背压"就此关闭。
@@ -108,22 +108,22 @@
 - 文档：本稿 + ADR-0013 + ADR-0008 实施注记 + 契约 §4.1/§4.7/§5/§12 注记 + Phase 1 报告 §3 限制 2/4 的关闭注记（正文保留，与限制 3 同样的追加式处置）+ 01 稿一行 + 05 手册一节 + docs/README 登记。docs 总篇数 41 → 42（软上限 150，无压力）。
 - **B8 的另一半是基准**：`keel bench` 加一行流式口径（首片延迟 / 分片数 / 单 run 总延迟），与承接层开销一起复采；数据写进 `report.md`，**只测量不设阈值**（合同 §2「不做」第 6 条）。§7 的四个"不新增"合起来就是风险 5（新增事件写入源冲击归因）的正面回答：本片新增 **0 个事件类型、0 个写入者**。
 
-## 7. 待所有者确认的四项（各附建议）
+## 7. 所有者确认结果（2026-11-03，四项均按建议）
 
 1. **信封 `schemaVersion` 的递增位置**（F14；ADR-0008 决策 4 说"递增"，但今天是一枚全局常量且无人读它）
-   - **建议：改类型级版本表**（`EVENT_SCHEMA_VERSION: Record<EventType, number>`，`DECISION`/`MODEL_INVOKED`/`MODEL_USAGE` 因载荷追加升到 2，其余保持 1；写点在 `ledger.ts` 一处）。真实表达"只有这几类变了"，并给切片④那次 `policies` 追加补上可对齐的口径。ADR-0008 决策 4 不动，"递增"落在类型级作为**实施注记**补正。
+   - **选定：改类型级版本表**（`EVENT_SCHEMA_VERSION: Record<EventType, number>`，`DECISION`/`MODEL_INVOKED`/`MODEL_USAGE` 因载荷追加升到 2，其余保持 1；写点在 `ledger.ts` 一处）。真实表达"只有这几类变了"，并给切片④那次 `policies` 追加补上可对齐的口径。ADR-0008 决策 4 不动，"递增"落在类型级作为**实施注记**补正。
    - 被否 A：**全局 1→2**——字面照做，代价是宣告所有事件类型都改过格式（不真实），审计侧会去找根本不存在的迁移需求。
    - 被否 B：**不递增**，只靠"缺字段即无显式上界"的容忍——最省，但读方永远分不出"旧账本没这字段"与"新内核漏写这字段"，而 B7⑤ 的主张恰好在乎这个区分。
 2. **快照落盘的目录与默认**（§3.2 第 5 步）
-   - **建议：`--snapshots <dir>`，缺省由 `--data <dir>` 派生同级 `<name>-snapshots`**；不改变 `dataDir` 含义、不加第三个路径概念。
+   - **选定：`--snapshots <dir>`，缺省由 `--data <dir>` 派生同级 `<name>-snapshots`**；不改变 `dataDir` 含义、不加第三个路径概念。
    - 被否 A：**塞进 `dataDir` 的保留子目录**——少一个参数，但污染 `Ledger.scopeOf` 与 `cmd-recover.findRunRef` 两处"根下即 agentId"的扫描，除非两处都加排除逻辑（改动面更大且埋着误匹配）。
    - 被否 B：**只在显式给目录时落盘，否则维持内存**——默认行为零变化，但同一能力两种后端 = 两条代码路径都要测，且"主张默认不成立"（B7② 的表述要打折）。
 3. **`model.stream` 的通道形状**（F11，§3.4）
-   - **建议：拉式分片（`start`/`next`/`cancel`），并立 ADR-0013**。不动"一请求一响应"，背压与断流由构造消解，超时全部沿用 §7 既有三档；代价 = 分片经多次往返（本地 stdio，数量级亚毫秒），且"流式透传"是**形状上的重新解释**（契约 §4.7 要写修订注记，不是照字面实现）。
+   - **选定：拉式分片（`start`/`next`/`cancel`），并立 ADR-0013**。不动"一请求一响应"，背压与断流由构造消解，超时全部沿用 §7 既有三档；代价 = 分片经多次往返（本地 stdio，数量级亚毫秒），且"流式透传"是**形状上的重新解释**（契约 §4.7 要写修订注记，不是照字面实现）。
    - 被否 A：**推式事件帧**（分片走 `EventFrame` + 末帧响应）——最贴合"透传"字面，但要新开事件帧发送面、分片-请求关联、迟到帧处理，并作废 supervisor 三处超时依赖的不变式；改动半径大到不像一个回填片。
    - 被否 B：**推给 Phase 3**——合同 §2「做」第 4 条是所有者已确认的回填项，推后属范围变更，需要显式签字并改合同与看板表述。
 4. **drain 的拒绝码与等待界**（§3.3）
-   - **建议：接新用既有 `SCHED/BACKPRESSURE`，等待界 = 在途调用自带超时 + `toolKillGraceMs` 硬界；不新增码、不新增时限数、不新增事件类型**（收尾产物走返回值）。
+   - **选定：接新用既有 `SCHED/BACKPRESSURE`，等待界 = 在途调用自带超时 + `toolKillGraceMs` 硬界；不新增码、不新增时限数、不新增事件类型**（收尾产物走返回值）。
    - 被否 A：**新增 `CELL/DRAINING`**——语义更醒目，但契约 §6 是封闭表，加码要走 ADR/注记，收益不值一次契约变更。
    - 被否 B：**不记在途集合，维持今天"直接 kill"**——最小改动，但 B7③ 的要求就是"有确定行为"，kill 打断在途动作后只剩 `EFFECT_*` 的 unknown 猜测，等于把主张降级为现象描述。
 
@@ -131,7 +131,7 @@
 
 - [ ] **第 1 步 = 复现测试先行**（铁律 7）：`tests/snapshot-cross-host.test.ts` 真子进程跑出今天必然命中的 `RECOVER/SNAPSHOT-MISSING`，并留红证据（这条红先于实现存在，才证得了实现满足主张）
 - [ ] ADR-0013（流式通道形状、会话与记账时序不变式、断流口径；被否方案留在文内）
-- [ ] `core`：类型级版本表（或按 §7 第 1 项所选）+ `Ledger` 盖章选项 + `DECISION.throughSeq` + `stream.ts` 会话表 + `model.stream` 三 op 的服务端处理
+- [ ] `core`：类型级版本表（§7 第 1 项已定）+ `Ledger` 盖章选项 + `DECISION.throughSeq` + `stream.ts` 会话表 + `model.stream` 三 op 的服务端处理
 - [ ] `host`：`snapshot.ts` 落盘 + `supervisor.ts` drain 次序与 `DrainOutcome` + `cell-server.ts` 流式 op 接线 + `assembly-manager.ts` 注释升级为规则（配套 `assembly-manager.test.ts` 断言随之改写理由）
 - [ ] `cordis-adapter`：`ctx.llm` 未知成员护栏（+ 符号扫描一条判据）
 - [ ] `apps/keel`：`--snapshots` 参数与默认派生、`keel replay` 的 `throughSeq` 显示、`keel bench` 流式一行
