@@ -96,14 +96,14 @@
 
 ## 9. 定稿后的落地清单（按序）
 
-- [ ] 01 稿六行补"实现期细化"注记（#6/#8/#9/#11/#12/#15，追加式，不改档位）
-- [ ] `cordis-adapter`：`CORDIS_SURFACE.guide` + 三面实现（core/cell-port/host-port）+ `WAY_OUT` 文案纠正（F9）
-- [ ] `cell-entry`：`module.exports.compensations` / `snapshot` 的登记接线（F5）
-- [ ] `apps/keel/runtime.ts`：`actionSpec.cellEntry` 透传（§3.3 末尾的缺口）
-- [ ] rig：可注入上游 + 调用计数（F8）
-- [ ] 三对 C 档样本 + `cordis-c-surface.test.ts`（**先写红色断言**，铁律 7）
-- [ ] 两份单测（guide-faces、legacy-compensations）+ 符号扫描判据扩展
-- [ ] `05-migration-handbook.md` 首版
+- [x] 01 稿六行补"实现期细化"注记（#6/#8/#9/#11/#12/#15，追加式，不改档位）
+- [x] `cordis-adapter`：`CORDIS_SURFACE.guide` + 三面实现（core/cell-port/host-port）+ `WAY_OUT` 文案纠正（F9）
+- [x] `cell-entry`：`module.exports.compensations` / `snapshot` 的登记接线（F5）
+- [x] `apps/keel/runtime.ts`：`actionSpec.cellEntry` 透传（§3.3 末尾的缺口）
+- [x] rig：可注入上游 + 调用计数（F8）
+- [x] 三对 C 档样本 + `cordis-c-surface.test.ts`（**先写红色断言**，铁律 7）
+- [x] 两份单测（guide-faces、legacy-compensations）+ 符号扫描判据扩展
+- [x] `05-migration-handbook.md` 首版
 - [ ] B3 验收 + B8 复跑；体量核对 + 六道门禁（`pnpm clean` 起）；CHANGELOG / docs/README / CONTEXT / handoff 收尾四件事
 
 ## 10. 本片的限制（先登记，别等报告）
@@ -114,3 +114,13 @@
 4. **补偿动作形状仍要插件方自己给**：`module.exports.compensations` 只是"旧模块多导出一张表"，承接层不代造动作、也不把 `effects.reclaim` 翻译成补偿（那是把静默降级换了个名字）。
 5. **快照面（`module.exports.snapshot`）本片只登记不持久化**：物理持久化在切片⑤（回填项 ②）；本片只保证"旧插件也能把私有状态暴露给宿主"这条通道存在。
 6. **手册的 before 片段是"我们设想的写法"**：与 01 稿 §5 的材料性质同源——真样本到位后按同一义务回填，不得表述为"真实存量插件已验证"。
+7. **#11 的档位有字面出入，本片不自改判**（施工期核实现发现）：`ledger.read` 在契约 §3.3 可见面矩阵内、**不需任何能力声明**，manifest 也没有对应字段——所以 01 稿 #11 写的"补一张报关单"对它没有可补的东西，而插件方实际要改"自印日志 → 读账本"这一行代码（更接近 C 档）。本片按既有口径把 `ctx.ledger.read` 做成改法地面，**B/C 判定留待所有者复核**（01 稿 #11 注记与本条同时登记，不做静默改判）。
+
+## 11. 施工期记录（与 §3/§7 的偏差，逐条写明）
+
+1. **`ctx.effects.declare` 的入参比 §3.1 那行更窄**：定稿载荷写的是 `{ effectId, effectKind, … }`，实际**不接受 `effectId`**——它由 Cell 侧 runtime 指派（`cell.ts` 里 `crypto.randomUUID()`），插件传了反而制造"我能定号"的错觉；同理 `compensation.actionRef` / `idempotency` / `probeRef` 出现即拒（那两个量归报关单，C-M1）。所以改法面的真实形状是 `{ effectKind, targetSummary?, paramsDigest?, dependsOn?, retention? }` → 返回 `{effectId, seq}`。
+2. **一处类型层收敛（不是契约变更）**：`EffectDeclaration.compensation` 的 `actionRef` / `idempotency` 改为**可选**——服务端从来只读报关单里的 `template.action.ref` 与 `template.idempotency`（`cell-server.ts` 的 `declareEffect`），这两个字段在客户端类型里是必填就是在暗示插件"你可以决定补偿动作"。帧载荷与裁决未变（省略即不发送），既有调用方与 Phase 1 测试不受影响。
+3. **两个承接层本地错误码**：`ADAPTER/ARGS-REQUIRED`（改法面缺必填参数、或试图指定内核拥有的量）与 `ADAPTER/SHAPE-INVALID`（旧模块的补偿表/快照面形状不可用，装载期即拒）。两者都在 `ADAPTER/*` 家族内、**不入 Core 契约 §6 词表、不落账本、不过通道**（映射期与装载期错误，与 `ADAPTER/UNSUPPORTED` 同一姿态）。
+4. **rig 的改动比 §7 预估大**（F8 只说"可注入上游"）：B3 的 #9 链要求 rig 也能接补偿执行器与报关模板，所以另加了 `templates` / `compensate` / `RoundPlan.abort` / `probe.compensate` 四个位，以及**一条新的静默失败收口**：run 在装载屏障仍未满足时失败 → 记一条违规（原先这种 run 会让 `violations` 保持空表，测试到后面的断言才莫名失败；施工时就踩过一次主体不匹配导致的这种死亡）。
+5. **样本数量比 §3.3 的表多一枚**：#8 的 after 需要产生方与消费方两份插件（表里只列了 `tierC-08-carry.cjs`），实际交付 `tierC-08-carry.cjs` + `tierC-08-peer.cjs`，符号扫描的样本清单因此是 7 枚 C 档（`tierC-06-*` 2 + `tierC-08-*` 3 + `tierC-09-*` 2）。
+6. **跨域用 scope（`sessionId`）而不是换 `agentId`**：换 `agentId` 等于换授权主体，rig 的策略是按单一主体编译的，会拒掉注册——手册 §4 与测试注释都写明了这一位，避免下一个写样本的人再踩。

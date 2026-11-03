@@ -58,6 +58,7 @@ docs/
 | design/phase-2/02-adapter-skeleton             | 定稿 | Phase 2 切片①口径：旧 ctx 承接面清单、Cell 内构造 seam、运行期注册的通道与门禁、A 档合成样本组（含最坏写法探针）                |
 | design/phase-2/03-manifest-synthesis           | 定稿 | Phase 2 切片②口径：两遍观察 → 合成候选 → 人工审核 → 五步校验的权限收敛路径，装配编排与升级接缝、就绪时机（锚 B2、B6）           |
 | design/phase-2/04-c-surface-rewrite            | 定稿 | Phase 2 切片③口径：C 档三条改法的地面（三个 Keel 形状新面映射既有 op）+ before/after 真进程样本 + 迁移手册形态（锚 B3）         |
+| design/phase-2/05-migration-handbook           | 首版 | 面向存量插件方的迁移手册：全部 7 条 C 档行的 before/after 片段 + 病灶理由 + 证据位置 + 行为差异（D 档单列，零例外）             |
 | adr/ADR-0005-cell-isolation                    | 定稿 | Cell 隔离选型：MVP 进程级，演进期 IsolationProvider 抽象 + 容器后端                                                             |
 | adr/ADR-0006-mit-license                       | 定稿 | 许可证选用 MIT（版权主体留占位，落实见 ADR-0007）                                                                               |
 | adr/ADR-0007-copyright-attribution             | 定稿 | 版权署名落实为 GitHub 用户名 qingbird1983（LICENSE + 两份 README 同步）                                                         |
