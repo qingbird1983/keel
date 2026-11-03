@@ -98,6 +98,12 @@ export interface HookCallResult<K extends HookName> {
   seqs: number[];
 }
 
+/**
+ * 契约 §7 的插话时限（唯一来源）。切片④ ADR-0012 决策 3：宿主→策略舱的请求超时
+ * **复用同一个数**，不再造第二套时限——两处都失败时走的都是本文件的 fallback 口径。
+ */
+export const HOOK_TIMEOUT_MS = 200;
+
 export interface HookBusOptions {
   /** hook 超时（契约默认 200ms）；测试可调小。 */
   timeoutMs?: number;
@@ -112,7 +118,7 @@ export class HookBus {
 
   constructor(ledger: Ledger, opts: HookBusOptions = {}) {
     this.ledger = ledger;
-    this.timeoutMs = opts.timeoutMs ?? 200;
+    this.timeoutMs = opts.timeoutMs ?? HOOK_TIMEOUT_MS;
     this.now = opts.now ?? (() => Date.now());
   }
 

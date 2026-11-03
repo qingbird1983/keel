@@ -7,9 +7,12 @@
  *
  * driver 是**断言式**的（02 稿 §7）：它每轮只从内核送进来的可见表里选工具，预期工具缺席即记违规——
  * 这样"可见性一半有没有真被填上"无从作假（Phase 1 的脚本 driver 直接点名工具，看不见这一半）。
+ *
+ * 切片④加的两件事：`policies`（策略舱经 `wirePolicies` 真接进 HookBus，装配审计随之带上 `policies`
+ * 字段——B7① 要的就是"真实 run + 插件来源的插话"）与 `RoundPlan.model` / `budgetLimits`
+ * （hook④ 的触发条件是预算耗尽，只能由内核侧的模型动作发起）。
  */
 
-import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -31,24 +34,36 @@ import {
   Ledger,
   ModelGateway,
   Scheduler,
+  type BudgetLimits,
   type CompensationScope,
 } from "@keel/core";
 import {
-  Assembler,
   CellSupervisor,
   CompensationExecutor,
   EffectTracker,
   ProcessIsolationProvider,
   SupervisedCell,
-  manifestAuthRules,
   serveCellChannel,
+  wirePolicies,
   type CompensationActionCell,
-  type CompensationTemplateDecl,
-  type LoadedManifest,
   type PermissionDecl,
+  type PolicySpec,
 } from "@keel/host";
 
-export const repoRoot = process.cwd();
+/**
+ * 声明侧（报关单组装、样本路径、可见表指纹、授权策略编译）拆在 `cordis-manifests.ts`
+ * （切片④收口：rig 只管"接线次序"），此处再导出以保持既有测试的 import 不变。
+ */
+import {
+  fingerprint,
+  legacyManifest,
+  names,
+  repoRoot,
+  type RawTemplate,
+} from "./cordis-manifests.js";
+
+export * from "./cordis-manifests.js";
+
 /** 承接层的 Cell 进程入口（旧插件专用；子进程只跑 dist，见 P-002 规则 4）。 */
 export const cordisCellEntry = path.join(
   repoRoot,
@@ -57,11 +72,13 @@ export const cordisCellEntry = path.join(
   "dist",
   "cell-entry.js",
 );
-const manifestSchema: object = JSON.parse(
-  readFileSync(
-    path.join(repoRoot, "docs", "design", "phase-1", "schema", "keel-plugin.schema.json"),
-    "utf-8",
-  ),
+/** 策略插件的进程入口（切片④，ADR-0012）。 */
+export const policyCellEntry = path.join(
+  repoRoot,
+  "packages",
+  "cell-runtime",
+  "dist",
+  "policy-main.js",
 );
 
 /**
@@ -77,7 +94,23 @@ export interface RoundPlan {
   visible?: string[];
   absent?: string[];
   call?: { tool: string; params?: unknown };
+  /**
+   * 内核侧的模型动作（切片④ hook④ 用）：`kind:"model"` 由**调度器**发起，
+   * 预算耗尽才会走到 `resolveExhaustion` → hook④；工具 handler 内部的模型调用失败
+   * 只成为该次工具的错误结果，不触发耗尽语义。
+   */
+  model?: { reqId: string; model: string; estimate: number; params?: unknown };
   awaitCellExit?: boolean;
+  /**
+   * 本轮决策前先做一件事（切片④：B7① 要观察"策略舱在半途死掉"——
+   * 那必须发生在 run 活着的时候，而不是起舱之前或收束之后）。
+   */
+  before?: () => void | Promise<void>;
+  /**
+   * 追加到本轮 DECISION.summary 尾部的标记（切片④：策略的 stopAdvice 要按"driver 说过什么"
+   * 决定收束，而不能按轮号——装载屏障本身会吃掉若干轮，轮号在测试里不是稳定量）。
+   */
+  label?: string;
   /**
    * 切片③（B3 的 #9 链）：本轮以 abort 收束——`RUN_FAILED` 是补偿状态机的触发点之一
    * （`failRun` 尽力收尾 = compensate("run")），用来观察"报关过 → 舱内失败 → 补偿真的执行"。
@@ -102,6 +135,8 @@ export interface LegacyRunSpec {
   /** 接补偿执行器（run 模式 = 全 Run 回滚，动作舱用**承接层入口**装载旧插件的补偿表）。 */
   compensate?: boolean;
   toolCallTimeoutMs?: number;
+  /** 本 run 的额度与耗尽处置档（切片④ hook④ 用 `onRunExhausted:"policy"`）。 */
+  budgetLimits?: BudgetLimits;
   plan: RoundPlan[];
   /**
    * Cell 入口：缺省 "legacy"（承接层入口，旧形状插件）；"default" = 内核默认入口（新生态插件）。
@@ -134,48 +169,6 @@ export interface RunProbe {
   /** 补偿重派缝（仅 `compensate: true` 的 run 有）：B3 用它证"闭环后再派不重复执行"。 */
   compensate?: () => Promise<boolean>;
   done: Promise<RunStatus>;
-}
-
-export function fingerprint(entries: ToolEntry[]): string[] {
-  return entries.map((t) => `${t.name}@${t.schemaVersion}`).sort();
-}
-
-export function names(entries: ToolEntry[]): string[] {
-  return entries.map((t) => t.name).sort();
-}
-
-/** 报关单里的原始补偿模板形状（`class` 是输入侧字段名，与 assembler 一致）。 */
-export interface RawTemplate {
-  kind: string;
-  class: CompensationTemplateDecl["compensationClass"];
-  action: { type: "plugin" | "builtin"; ref: string };
-  idempotency: CompensationTemplateDecl["idempotency"];
-  probe?: { ref: string };
-}
-
-/** 组装旧插件用的 manifest（切片②才引入合成路径，本片按"已报关"给声明）。 */
-export function legacyManifest(
-  caps: PermissionDecl[] = [{ cap: "tool.provide" }],
-  toolCallTimeoutMs = 5_000,
-  templates: RawTemplate[] = [],
-): LoadedManifest {
-  return new Assembler({ schema: manifestSchema }).assemble({
-    kind: "capability",
-    meta: { name: `cordis-${caps.length}`, version: "1.0.0", title: "legacy", description: "x" },
-    permissions: caps,
-    resources: { toolCallTimeoutMs },
-    compensation: { templates },
-    compat: { keelContract: "^1.0" },
-  });
-}
-
-export function fixtureFile(name: string): string {
-  return path.join(repoRoot, "tests", "fixtures", "cordis-plugins", name);
-}
-
-/** fixtures 根目录下的**新生态**插件（.mjs，默认入口装载）——对照用，不参与零改动扫描。 */
-export function coreFixtureFile(name: string): string {
-  return path.join(repoRoot, "tests", "fixtures", name);
 }
 
 /** 激活屏障的节奏与截止：子进程起飞实测 <1s，截止只在该红的样本上才会跑到。 */
@@ -223,7 +216,13 @@ async function probeCellAlive(cell: SupervisedCell): Promise<boolean> {
  * `upstream` 可注入（切片③ F8）：B3 的 #6 要观察"预扣/实结/同 reqId 重放不重复计费"，
  * 那就必须能数清**上游真的被打了几次**——缺省仍是零用量桩（既有主张不变）。
  */ export function createLegacyRig(
-  opts: { log?: (line: string) => void; upstream?: ModelUpstream } = {},
+  opts: {
+    log?: (line: string) => void;
+    upstream?: ModelUpstream;
+    /** 策略绑定（切片④ B7①）：装配期就起策略舱并注册进本 rig 的 HookBus。 */
+    policies?: PolicySpec[];
+    policyEntryPath?: string;
+  } = {},
 ) {
   const instances: Ledger[] = [];
   const cells: SupervisedCell[] = [];
@@ -237,6 +236,10 @@ async function probeCellAlive(cell: SupervisedCell): Promise<boolean> {
   let auth!: Authorizer;
   let budget!: Budgeter;
   let gateway!: ModelGateway;
+  let hookBus!: HookBus;
+  let policyBindings: Awaited<ReturnType<typeof wirePolicies>> = [];
+  /** 内核实际请求的重试退避时长（注入的 delay 缝记下的；策略要的数被钳在这里）。 */
+  const retryDelays: number[] = [];
 
   async function setup(policyRules: AuthRule[]): Promise<void> {
     dir = await mkdtemp(path.join(tmpdir(), "keel-b1-"));
@@ -253,14 +256,23 @@ async function probeCellAlive(cell: SupervisedCell): Promise<boolean> {
         invoke: async () => ({ result: {}, usage: { tokens: 0 }, cost: 0 }),
       },
     });
-    scheduler = new Scheduler({
-      ledger,
-      auth,
-      budget,
-      ctx: ctxMgr,
-      hooks: new HookBus(ledger),
-      gateway,
-    });
+    hookBus = new HookBus(ledger);
+    scheduler = new Scheduler(
+      {
+        ledger,
+        auth,
+        budget,
+        ctx: ctxMgr,
+        hooks: hookBus,
+        gateway,
+      },
+      {
+        // 重试退避改记不真等（standards/05 §3 时间注入）：切片④要用"策略要的退避被内核钳住"
+        // 作断言，而 30s×3 的真实等待不该进测试预算。注意 Scheduler 的签名是 (deps, opts)——
+        // 这个缝只能落在第二个参数位（踩过一次：写在 deps 里会被静默忽略）。
+        delay: async (ms) => void retryDelays.push(ms),
+      },
+    );
     supervisor = new CellSupervisor({
       provider: new ProcessIsolationProvider(),
       // 默认入口 = 新生态；旧插件走 per-spawn cellEntry 覆盖（02 稿 §4）
@@ -270,6 +282,16 @@ async function probeCellAlive(cell: SupervisedCell): Promise<boolean> {
         const ref = e.cell.ref;
         if (ref) void scheduler.abort(ref.runId, e.reasonCode, e.message);
       },
+    });
+    /**
+     * 策略接线（切片④ B7①）：装配期一次做完（起舱 → 探就绪 → 按声明注册）。
+     * 策略舱**不调 attachRun**，所以它的退出不会走上面那条 abort 缝（I2 的测试点在 B4/B7 测试里）。
+     */
+    policyBindings = await wirePolicies({
+      supervisor,
+      bus: hookBus,
+      specs: opts.policies ?? [],
+      policyEntryPath: opts.policyEntryPath ?? policyCellEntry,
     });
   }
 
@@ -297,6 +319,7 @@ async function probeCellAlive(cell: SupervisedCell): Promise<boolean> {
       { ledger, auth, budget, ctx: ctxMgr, gateway, tracker },
     );
     ctxMgr.alloc(scope);
+    if (spec.budgetLimits) budget.configure(scope, spec.budgetLimits);
 
     const probe: RunProbe = {
       ref,
@@ -344,6 +367,8 @@ async function probeCellAlive(cell: SupervisedCell): Promise<boolean> {
         }
         const plan = spec.plan[round] ?? { done: true };
         round += 1;
+        const tag = plan.label ? ` ${plan.label}` : "";
+        if (plan.before) await plan.before();
         if (plan.awaitCellExit) {
           // 等舱退出（截止 = ACTIVATION_DEADLINE_MS），再留一段让 abort 缝把 RUN_FAILED 落下去
           const t0 = Date.now();
@@ -377,9 +402,24 @@ async function probeCellAlive(cell: SupervisedCell): Promise<boolean> {
           void scheduler.abort(ref.runId, plan.abort.code, plan.abort.message);
           return { done: true, summary: `${spec.runId} abort-requested` };
         }
+        if (plan.model) {
+          // 内核侧的模型动作：预算检查发生在 reserve 上，耗尽才会走 hook④（见 RoundPlan.model 注）
+          return {
+            summary: `${spec.runId} r${c.round} model ${plan.model.reqId}${tag}`,
+            actions: [
+              {
+                kind: "model",
+                reqId: plan.model.reqId,
+                model: plan.model.model,
+                params: plan.model.params ?? {},
+                estimate: plan.model.estimate,
+              },
+            ],
+          };
+        }
         if (plan.call) {
           return {
-            summary: `${spec.runId} r${c.round}`,
+            summary: `${spec.runId} r${c.round}${tag}`,
             actions: [{ kind: "tool", tool: plan.call.tool, params: plan.call.params }],
           };
         }
@@ -425,12 +465,19 @@ async function probeCellAlive(cell: SupervisedCell): Promise<boolean> {
       probe.compensate = () => executor.compensate(ref, { mode: "run" });
     }
 
+    /**
+     * 装配审计带上策略摘要（切片④ B7① 的"谁在插话"凭据）：没有策略时**不写该字段**，
+     * 旧账本的 ASSEMBLY_RECORDED 形状保持不变（追加字段而非改写，ADR-0012 决策 6）。
+     */
     const started = scheduler.start({
       ref,
       subject: scope.agentId,
       executor: cell.executor,
       driver,
-      assembly: manifest.record,
+      assembly:
+        policyBindings.length > 0
+          ? { ...manifest.record, policies: policyBindings.map((b) => b.summary) }
+          : manifest.record,
       compensator,
     });
     /**
@@ -460,6 +507,8 @@ async function probeCellAlive(cell: SupervisedCell): Promise<boolean> {
   }
 
   async function close(): Promise<void> {
+    // 策略舱先收：它的 handler 还挂在 HookBus 上，后收的 run 舱若触发 hook 会打到已退的舱
+    await Promise.allSettled(policyBindings.map((b) => b.cell.drainAndReap()));
     await Promise.allSettled(cells.map((c) => c.drainAndReap()));
     await Promise.allSettled(instances.map((l) => l.close()));
     if (dir) await rm(dir, { recursive: true, force: true });
@@ -476,6 +525,23 @@ async function probeCellAlive(cell: SupervisedCell): Promise<boolean> {
     get ledger() {
       return ledger;
     },
+    get auth() {
+      return auth;
+    },
+    /** 额度面（切片④ hook④：限额配置与耗尽计量都从这里观察）。 */
+    get budget() {
+      return budget;
+    },
+    /** 本 rig 的插话总线（B7① 断言"注册的是策略舱 handler"时读它的注册位）。 */
+    get hooks() {
+      return hookBus;
+    },
+    /** 策略绑定（装配期起好的策略舱 + 审计摘要）。 */
+    get policies() {
+      return policyBindings;
+    },
+    /** 内核请求过的重试退避时长序列（切片④：策略要的退避受契约 §7 钳制的观测位）。 */
+    retryDelays,
     /** 本 rig 的账本临时目录（样本用它的绝对路径做副作用标记得到的载体；setup 之后才有值）。 */
     get dir() {
       return dir;
@@ -483,17 +549,4 @@ async function probeCellAlive(cell: SupervisedCell): Promise<boolean> {
     /** 补偿升级告警缝（B3 观察位：升级 = 补偿自身失败，不该静默）。 */
     alerts,
   };
-}
-
-/** 由声明编译策略 + 本 rig 固定的"工具执行放行"（tool.invoke 是 Core→Cell 方向，不属本片扩展面）。 */
-export function policyFor(
-  manifest: LoadedManifest,
-  subject: string,
-  extra: AuthRule[] = [],
-): AuthRule[] {
-  return [
-    ...manifestAuthRules(manifest, subject),
-    { subject: "*", action: "tool.invoke", resource: "*" },
-    ...extra,
-  ];
 }

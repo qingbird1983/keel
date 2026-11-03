@@ -17,6 +17,7 @@ const USAGE = `keel — Phase 1 验收场景执行入口（命令面见 docs/des
 
 用法：
   keel run --manifest <path> --plugin <path> [--tool ok] [--rounds 2] [--data-dir <dir>]
+          [--policy-manifest <path> --policy-module <path>]…（成对、可重复；策略舱见 ADR-0012）
   keel recover --data-dir <dir> --run <runId> [--plugin <path>] [--manifest <path>] [--tool get-state]
   keel replay --data-dir <dir> --run <runId>
   keel validate (--manifest <path> | --dir <dir>) [--expect accept|reject]
@@ -46,6 +47,20 @@ function parseArgs(argv: string[]): Args {
   return out;
 }
 
+/**
+ * 可重复的开关（切片④：`--policy-manifest` / `--policy-module` 各给 N 次 = N 份策略绑定）。
+ * `parseArgs` 是"后者覆盖前者"的形状，对成对且可重复的开关不适用，所以单独扫一遍 argv。
+ */
+function parseList(argv: string[], key: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === `--${key}` && argv[i + 1] !== undefined && !argv[i + 1].startsWith("--")) {
+      out.push(argv[++i]);
+    }
+  }
+  return out;
+}
+
 const str = (v: string | boolean | undefined): string => (typeof v === "string" ? v : "");
 const optNum = (v: string | boolean | undefined): number | undefined =>
   typeof v === "string" && v !== "" ? Number(v) : undefined;
@@ -56,14 +71,25 @@ export async function main(argv: string[]): Promise<number> {
   const a = parseArgs(rest);
   try {
     switch (cmd) {
-      case "run":
+      case "run": {
+        const policyManifests = parseList(rest, "policy-manifest");
+        const policyModules = parseList(rest, "policy-module");
+        if (policyManifests.length !== policyModules.length) {
+          console.error(
+            "--policy-manifest and --policy-module must appear the same number of times (paired)",
+          );
+          return 2;
+        }
         return await cmdRun({
           manifest: str(a.manifest),
           plugin: str(a.plugin),
           tool: str(a.tool) || undefined,
           rounds: optNum(a.rounds),
           dataDir: str(a["data-dir"]) || undefined,
+          policyManifests,
+          policyModules,
         });
+      }
       case "recover":
         return await cmdRecover({
           dataDir: str(a["data-dir"]),

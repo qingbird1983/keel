@@ -75,6 +75,12 @@ export class CellSupervisor {
      * **bootstrap 载荷形状不变**（`{pluginPath, toolCallTimeoutMs}`）——入口本身即"这是旧插件"的信号。
      */
     cellEntry?: string;
+    /**
+     * bootstrap 的**追加字段**（切片④）：策略舱要被告知报关单声明了哪几个插话点
+     * （`{hooks: [...]}`，入口据此校验导出集合）。既有入口的载荷形状不变——
+     * 不传就是今天的 `{pluginPath, toolCallTimeoutMs}`，能力舱与承接层舱都不受影响。
+     */
+    bootstrapExtra?: Record<string, unknown>;
   }): SupervisedCell {
     return new SupervisedCell({
       supervisor: this,
@@ -82,6 +88,7 @@ export class CellSupervisor {
       pluginPath: spec.pluginPath,
       tracker: spec.tracker,
       cellEntry: spec.cellEntry,
+      bootstrapExtra: spec.bootstrapExtra,
     });
   }
 
@@ -121,6 +128,7 @@ export class SupervisedCell implements ManagedCell {
     pluginPath: string;
     tracker?: EffectTracker;
     cellEntry?: string;
+    bootstrapExtra?: Record<string, unknown>;
   }) {
     this.supervisor = params.supervisor;
     this.manifest = params.manifest;
@@ -128,6 +136,7 @@ export class SupervisedCell implements ManagedCell {
     const boot = JSON.stringify({
       pluginPath: params.pluginPath,
       toolCallTimeoutMs: params.manifest.resources.toolCallTimeoutMs ?? 0,
+      ...params.bootstrapExtra, // 追加而非改写：既有载荷形状不变（切片④只给策略舱加 hooks）
     });
     this.process = this.supervisor.spawnProcess(boot, params.cellEntry);
     this.conn = new FrameConn({ input: this.process.stdout, output: this.process.stdin });

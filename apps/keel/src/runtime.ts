@@ -30,8 +30,11 @@ import {
   SupervisedCell,
   manifestAuthRules,
   wireCell,
+  wirePolicies,
   type CompensationActionCell,
   type LoadedManifest,
+  type PolicyBinding,
+  type PolicySpec,
 } from "@keel/host";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -54,6 +57,17 @@ const schemaPath = path.join(
   "phase-1",
   "schema",
   "keel-plugin.schema.json",
+);
+/**
+ * 策略插件的进程入口（切片④，ADR-0012）：与能力舱同 supervisor、同帧协议，
+ * 但受理面只有 `policy.hook`，且不注入任何主动接口。
+ */
+export const policyCellEntryPath = path.join(
+  repoRoot,
+  "packages",
+  "cell-runtime",
+  "dist",
+  "policy-main.js",
 );
 
 /** 子进程只能跑 dist：入口缺失即明确报错（04 稿 §2 前置检查）。 */
@@ -139,6 +153,8 @@ export interface Runtime {
   alerts: AlertRecord[];
   /** runId → 在途 Cell（onCheckpoint 快照索取缝的查找表，切片④）。 */
   bindings: Map<string, { scope: Scope; cell: SupervisedCell }>;
+  /** 已接线的策略舱（切片④ 回填项 ①）：close 时一并收束，装配审计从这里的 summary 组载荷。 */
+  policies: PolicyBinding[];
   close(): Promise<void>;
 }
 
@@ -155,6 +171,12 @@ export interface BuildRuntimeOptions {
    * 缺省 = 演示策略 `p1`（只服务 Phase 1 场景复演与 benchmark），不再是无人认领的隐式默认。
    */
   policy?: PolicyInput;
+  /**
+   * 策略插件绑定（切片④ 回填项 ①，ADR-0012）：每个 spec = 一份已过五步校验的
+   * `kind:"policy"` 报关单 + 策略模块路径。装配期即完成"起舱 → 探就绪 → 按声明注册"，
+   * 抢同一插话点的两份策略**整份拒绝**（不注册、不起舱）。缺省 = 没有策略介入。
+   */
+  policies?: PolicySpec[];
 }
 
 /** 一次性装配：Ledger→Authorizer→Budgeter→Context→HookBus→Gateway→Scheduler→快照→补偿→恢复→Supervisor。 */
@@ -190,10 +212,13 @@ export async function buildRuntime(
     recovery: null as unknown as RecoveryManager,
     alerts: [],
     bindings: new Map(),
+    policies: [],
     close: async () => undefined,
   };
+  // 插话总线在装配期就接线（handler 注册是装配动作，运行期不换装——hooks.ts 既有口径）
+  const hookBus = new HookBus(ledger);
   rt.scheduler = new Scheduler(
-    { ledger, auth, budget, ctx, hooks: new HookBus(ledger), gateway },
+    { ledger, auth, budget, ctx, hooks: hookBus, gateway },
     {
       // 快照索取缝（D3，切片④）：CHECKPOINT → STATE_SNAPSHOT_REF → ROUND_ENDED（I3 顺序）
       onCheckpoint: async (r, info) => {
@@ -223,6 +248,19 @@ export async function buildRuntime(
       const ref = e.cell.ref;
       if (ref) void rt.scheduler.abort(ref.runId, e.reasonCode, e.message);
     },
+  });
+  /**
+   * 策略接线（切片④ 回填项 ①）：装配期一次做完；失败即抛，不留半活的策略舱。
+   * 子进程只能跑 dist（与 `assertDist` 同一约定）——要绑策略而入口缺失就明确报错。
+   */
+  if ((opts.policies ?? []).length > 0 && !existsSync(policyCellEntryPath)) {
+    throw new Error(`policy cell entry missing: ${policyCellEntryPath} — run "pnpm build" first`);
+  }
+  rt.policies = await wirePolicies({
+    supervisor: rt.supervisor,
+    bus: hookBus,
+    specs: opts.policies ?? [],
+    policyEntryPath: policyCellEntryPath,
   });
   rt.compensator = new CompensationExecutor(
     opts.actionSpec
@@ -304,12 +342,18 @@ export async function wireRun(rt: Runtime, opts: WireRunOptions): Promise<WiredR
     readyTimeoutMs: opts.readyTimeoutMs,
   });
   if (opts.mountState !== undefined) await cell.migrate(opts.mountState);
+  // 装配审计追加 policies（ADR-0012 决策 6）：**没绑策略时不写这个字段**，
+  // 于是账本形状与 Phase 1 的旧样例逐字节一致（B7⑤ 的兼容性口径靠这种取舍保住）。
+  const assembly =
+    rt.policies.length > 0
+      ? { ...opts.manifest.record, policies: rt.policies.map((b) => b.summary) }
+      : opts.manifest.record;
   const { done } = rt.scheduler.start({
     ref,
     subject: scope.agentId,
     executor: cell.executor,
     driver: opts.driver,
-    assembly: opts.manifest.record,
+    assembly,
     compensator: opts.withCompensator
       ? (mode) => rt.compensator.compensate(ref, { mode })
       : undefined,
@@ -323,7 +367,10 @@ export async function wireRun(rt: Runtime, opts: WireRunOptions): Promise<WiredR
 /** 关闭：收束全部在途 Cell + 落盘账本（standards/04 确定性释放）。 */
 export async function closeRuntime(rt: Runtime): Promise<void> {
   await Promise.allSettled([...rt.bindings.values()].map((b) => b.cell.drainAndReap()));
+  // 策略舱不属于任何 run（不进 bindings），但它同样是进程资源：收束覆盖所有 spawn 源（P-003）
+  await Promise.allSettled(rt.policies.map((b) => b.cell.drainAndReap()));
   rt.bindings.clear();
+  rt.policies = [];
   await rt.ledger.close();
 }
 

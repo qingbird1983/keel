@@ -4,7 +4,8 @@
  *
  * 已落地（切片③④）：stdio JSON 行帧协议（契约 §3.1）/ Cell 进程体 + 私有工具表 /
  * EFFECT_DECLARED 发起端 / 迁移钩入口（A5，兼恢复挂载通道）/ 补偿动作分发
- * （compensation.exec）/ 快照索取面（cell.snapshot）。零运行时依赖。
+ * （compensation.exec）/ 快照索取面（cell.snapshot）/ 策略插话面（policy.hook，切片④ 回填项 ①，
+ * 见 `policy-main.ts` 入口与 ADR-0012）。零运行时依赖。
  */
 
 export {
@@ -28,6 +29,8 @@ export {
   type CompensationExecInput,
   type CompensationHandler,
   type EffectDeclaration,
+  type PolicyHookHandler,
   type RegisteredToolView,
   type ToolExecResult,
 } from "./cell.js";
+export { normalizePolicyHooks, PolicyLoadRefused } from "./policy-hooks.js";

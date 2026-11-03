@@ -184,13 +184,15 @@ describe("manifest 负路径 fixtures 组（A5 语义，manifest 稿 §8）", ()
     .filter((f) => f.endsWith(".json"))
     .sort();
 
-  it("组内有预期的六枚负例（防目录漂移）", () => {
+  it("组内有预期的八枚负例（防目录漂移）", () => {
     expect(files).toEqual([
       "bad-meta-name.json",
       "boundary-no-template.json",
+      "capability-with-hooks.json",
       "hook-unknown-name.json",
       "missing-net-allow.json",
       "policy-with-permissions.json",
+      "policy-with-timeout.json",
       "unknown-top-field.json",
     ]);
   });
