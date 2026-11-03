@@ -23,7 +23,7 @@ const FIRST_PAGE = 16;
 const upstream: ModelUpstream = {
   invoke: async () => ({ result: { text: "one-shot" }, usage: { tokens: 3 }, cost: 3 }),
   async *stream(req: { model: string; params: unknown }) {
-    const p = (req.params ?? {}) as { n?: number; boomAfter?: number };
+    const p = (req.params ?? {}) as { chunks?: number; boomAfter?: number };
     if (typeof p.boomAfter === "number") {
       // 先正常出 boomAfter 片，然后**抛**：半截答案不能以"完成"的形状回到舱内
       for (let i = 1; i <= p.boomAfter; i++) {
@@ -31,7 +31,7 @@ const upstream: ModelUpstream = {
       }
       throw new Error("upstream died mid-stream");
     }
-    const n = p.n ?? 20;
+    const n = p.chunks ?? 20;
     for (let i = 1; i <= n; i++) {
       yield {
         chunk: { seq: i, text: `c${String(i)}` },
@@ -80,7 +80,7 @@ describe("B7④：model.stream 跨通道的分片顺序、断流闭环与不级�
   it("逐页取片：顺序 = 上游产出顺序，一次调用 = 一条 MODEL_INVOKED + 一条 MODEL_USAGE，分片不写事件", async () => {
     const probe = streamRun("run-order", "stream-all", {
       reqId: "req-order",
-      n: 20,
+      chunks: 20,
       pageSize: 4,
     });
     expect((await probe.done).state).toBe("halted");
@@ -116,7 +116,7 @@ describe("B7④：model.stream 跨通道的分片顺序、断流闭环与不级�
   }, 120_000);
 
   it("舱内主动取消：已交付的一满页结算，之后的 next 只是终局重放", async () => {
-    const probe = streamRun("run-cancel", "stream-cancel", { reqId: "req-cancel", n: 20 });
+    const probe = streamRun("run-cancel", "stream-cancel", { reqId: "req-cancel", chunks: 20 });
     expect((await probe.done).state).toBe("halted");
 
     const evs = await rig.readRun("run-cancel");

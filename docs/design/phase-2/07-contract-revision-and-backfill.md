@@ -1,6 +1,6 @@
 # Phase 2 切片⑤：契约修订与三项回填
 
-- 状态：**定稿**（2026-11-03 所有者确认 §7 四项，全部按建议落地：`schemaVersion` 按事件类型分别递增 / 快照落盘走 `--snapshots` 且缺省由账本根派生 / 流式取拉式分片（为此立 ADR-0013，§8 第 2 步）/ drain 复用 `SCHED/BACKPRESSURE` 与既有宽限硬界；定稿后开始写本片实现代码——铁律 1）
+- 状态：**定稿 + 已施工完成**（2026-11-03 所有者确认 §7 四项，全部按建议落地：`schemaVersion` 按事件类型分别递增 / 快照落盘走 `--snapshots` 且缺省由账本根派生 / 流式取拉式分片（为此立 ADR-0013，§8 第 2 步）/ drain 复用 `SCHED/BACKPRESSURE` 与既有宽限硬界；定稿后开始写本片实现代码——铁律 1。**同日施工收口**：§8 九项全部打勾，**B7②③④⑤ 达成**、B8 全库复跑 431 项/53 文件六道门禁全绿；施工撞出的七处出入如实记在 §10）
 - 日期：2026-11-03
 - 关联：[phase-2 合同](../../roadmap/phase-2-cordis-compat.md) §7 切片⑤（锚 **B7②③④⑤ + B8**）、§2「做」的回填项 ②③④ 与「契约修订随 ADR-0008 落地」、§6 风险 5；[ADR-0008](../../adr/ADR-0008-decision-attribution-upper-bound.md)（决策 1~5，落点就是本片）；[契约](../phase-1/01-core-api-contract.md) §4.1 / §4.5 / §4.7 / §5 / §6 / §7 / §12；[ADR-0003](../../adr/ADR-0003-model-gateway.md)、[ADR-0004](../../adr/ADR-0004-ledger-consistency-point.md)、[ADR-0005](../../adr/ADR-0005-cell-isolation.md)；[Phase 1 报告](../phase-1/report.md) §3 限制 2 与限制 4；[06 稿](06-policy-chain-and-d-tier-refusal.md) §9（两条限制由本片接手）；[05 手册](05-migration-handbook.md)
 
@@ -129,15 +129,15 @@
 
 ## 8. 定稿后的落地清单（按序）
 
-- [ ] **第 1 步 = 复现测试先行**（铁律 7）：`tests/snapshot-cross-host.test.ts` 真子进程跑出今天必然命中的 `RECOVER/SNAPSHOT-MISSING`，并留红证据（这条红先于实现存在，才证得了实现满足主张）
-- [ ] ADR-0013（流式通道形状、会话与记账时序不变式、断流口径；被否方案留在文内）
-- [ ] `core`：类型级版本表（§7 第 1 项已定）+ `Ledger` 盖章选项 + `DECISION.throughSeq` + `stream.ts` 会话表 + `model.stream` 三 op 的服务端处理
-- [ ] `host`：`snapshot.ts` 落盘 + `supervisor.ts` drain 次序与 `DrainOutcome` + `cell-server.ts` 流式 op 接线 + `assembly-manager.ts` 注释升级为规则（配套 `assembly-manager.test.ts` 断言随之改写理由）
-- [ ] `cordis-adapter`：`ctx.llm` 未知成员护栏（+ 符号扫描一条判据）
-- [ ] `apps/keel`：`--snapshots` 参数与默认派生、`keel replay` 的 `throughSeq` 显示、`keel bench` 流式一行
-- [ ] 测试：§4 表逐份（§4 的三份真进程文件先红后绿）
-- [ ] 文档收口：契约 §4.1/§4.7/§5/§12 注记 + ADR-0008 实施注记 + Phase 1 报告 §3 限制 2/4 关闭注记 + 01 稿 #6 注记 + 05 手册新增两节 + docs/README 登记 + CHANGELOG
-- [ ] B7②③④⑤ 验收 + B8 复跑（含 Phase 1 契约级五测试点与切片①②③④验收组）+ 基准复采数据入 report + 体量核对 + 六道门禁（`pnpm clean` 起，逐条取真实退出码）
+- [x] **第 1 步 = 复现测试先行**（铁律 7）：`tests/snapshot-cross-host.test.ts` 真子进程跑出今天必然命中的 `RECOVER/SNAPSHOT-MISSING`，并留红证据（这条红先于实现存在，才证得了实现满足主张）
+- [x] ADR-0013（流式通道形状、会话与记账时序不变式、断流口径；被否方案留在文内）
+- [x] `core`：类型级版本表（§7 第 1 项已定）+ `Ledger` 盖章选项 + `DECISION.throughSeq` + `stream.ts` 会话表 + `model.stream` 三 op 的服务端处理
+- [x] `host`：`snapshot.ts` 落盘 + `supervisor.ts` drain 次序与 `DrainOutcome` + `cell-server.ts` 流式 op 接线 + `assembly-manager.ts` 注释升级为规则（配套 `assembly-manager.test.ts` 断言随之改写理由）
+- [x] `cordis-adapter`：`ctx.llm` 未知成员护栏（+ 符号扫描一条判据）
+- [x] `apps/keel`：`--snapshots` 参数与默认派生、`keel replay` 的 `throughSeq` 显示、`keel bench` 流式一行
+- [x] 测试：§4 表逐份（§4 的三份真进程文件先红后绿；文件名与表的出入见 §10 第 5 条）
+- [x] 文档收口：契约 §4.1/§4.7/§5/§12 注记 + ADR-0008 实施注记 + Phase 1 报告 §3 限制 2/4 关闭注记 + 01 稿 #6 注记 + 05 手册新增两节 + docs/README 登记 + CHANGELOG
+- [x] B7②③④⑤ 验收 + B8 复跑（含 Phase 1 契约级五测试点与切片①②③④验收组）+ 基准复采数据入 report + 体量核对 + 六道门禁（`pnpm clean` 起，逐条取真实退出码）
 
 ## 9. 本片的限制（先登记，别等报告）
 
@@ -147,3 +147,17 @@
 4. **拉式流式不是"透传"的字面实现**：分片经宿主-舱多次往返，上游边产边被缓冲。契约 §4.7 要写清这个重新解释；若将来出现"必须真流式低首片延迟"的真实需求，重评推式方案（ADR-0013 的重评条件）。
 5. **断流的部分计量单位是"网关权威计量"**，不是分片计数——上游若不报中途用量，本片按已下发分片的估算计量并记 `truncated:true`（估算与权威的差额口径要在 ADR-0013 写死，别留给读方猜）。
 6. **材料仍是合成**：流式与快照的样本都是我们自己写的形状；真样本到位后按 01 稿 §5 义务回填，B1/B5 第二批复跑（切片⑥）。
+
+## 10. 施工记录：与本篇设想的出入（评审读这节，别读代码猜）
+
+设计稿写到"确切断言"这一层，施工仍然撞出七处稿面没预见的东西。逐条写下，是因为**主张与实现不一致时，改哪一侧必须是显式决定**——这里除第 1、2、6 条外都是"实现比稿面更硬"，没有一处把主张调低。
+
+1. **快照失败的可见性落在交付入口，不在调度器缝**。§3.2 第 4 步写的是"`save()` 抛 → checkpoint 缝抛 → 该 run 走既有失败路径"。实情：调度器对 `onCheckpoint` 缝的既有语义是**尽力而为**（Phase 1 D3 定案，`scheduler.ts` 吞掉缝内异常），把异常透上去等于回改一条 Phase 1 决定。落点因此是：宿主把失败记进 `rt.snapshotFailures`，`keel run` 打 `snapshot-persist: FAILED round=…` 并以**非零退出**收场（halted 也不给 0）。"不静默跳过"这条主张保住了，实现位置从内核挪到交付入口。
+2. **`JSON.stringify` 不拒函数与 symbol，它丢掉它们**。§9 第 2 条写的"函数/循环引用一律拒"只在循环引用上自动成立。若不加守卫，一个 `snapshot()` 返回 `{cb: fn}` 的插件会"成功落盘"而内容少了那个字段——挂载时拿到一个不是舱写过的状态，正是归因污染。处置：`guardUnrepresentable` 作 `stringify` 的 replacer，遇函数/symbol/`bigint` 即抛（`undefined` 按 JSON 语义仍是丢弃，这是 `JSON` 的形状，已写进 05 手册 §9 而不是假装解决了）。
+3. **流式终局是四条，不是三条**。§3.4 第 4 步只写了"等待到点 / 总长到点 / `cancel`"。上游 `stream()` **中途抛**是第四条：它的异常若按语言默认冒出去，就绕过 settle（悬空预扣）并把会话留在"活着但坏了"的状态。处置 = 先按断流口径闭环，再抛 `GATEWAY/UPSTREAM-ERROR{reason:"STREAM_UPSTREAM_THROW", produced, cost}`——慢断流交还半截内容（结果未知），抛错交还错误（上游明确失败），两者的读法本来就该不同。写进 ADR-0013 实施注记 1。
+4. **两个码与时限的落点**：会话查找失败复用 `SCHED/NOT-FOUND`（`detail.reason:"STREAM_NOT_FOUND"`，§3.4 没指定码）；舱→宿主的三笔 op 请求超时取 §7 的**总长 300s** 档，内核侧单次等待取**首字节 30s** 档——于是正常路径内核一定先答，通道超时只在真故障时命中。两个都是既有数字，§7 第 4 项"不新增时限数"的口径不变。
+5. **测试文件名与 §4 表有出入**（内容都在，位置换了）：drain 的六条单测并入 `packages/host/test/supervisor.test.ts`（原计划 `supervisor-drain.test.ts`），B7③ 的真进程用例并入 `tests/cordis-legacy-upgrade.test.ts` 的新 `describe`（原计划 `cell-drain-inflight.test.ts`）——同一批起舱接线再开一份文件只是把 fixture 成本付两遍。§4 表里两份"先红"文件都真红过：`snapshot-cross-host`（`SNAPSHOT-MISSING`）与流式的分片丢失（首页只回 `chunks:[]`）。
+6. **B7③ 定下来之后，Phase 1 的 A3 必须换原语**：`drainAndReap()` 从前等于 `halting→kill→reaped`（不等在途），A3 与 `keel scenario a3` 就借它表达"kill"。新的 drain 会**等在途收束**，于是那个 run 多跑几轮、未决效果清单从 2 条变成"全收干净"——A3 的前提（在途被打断）没了。处置 = `SupervisedCell.kill()` 转为公开（硬中断，OS 级），两处改调用 `kill()`；跑出来 `checkpoint round=2 / pending=2 / snapshot v1@round1` 与 Phase 1 记录逐字一致。**这不是回退**：drain 与 kill 现在是两件不同的事，A3 需要的是后者。
+7. **一处既有缺陷被真进程测试抓到**：`toFrameError` 只对 `ChannelError` 保 `detail`，Core 侧的 `KeelError` 跨通道后只剩一个光码。B7④ 主张"失败前给了几片、结了多少钱"要能穿回舱内，故修在帧序列化层（形状仍是 `{code, message, detail?}`，不新增字段）。单测全绿也照样看不见这层——契约 §6 加了一条注记。
+
+体量核对：`gateway.ts` 450 行（§6 预估"保持 130~150"未成立——流式的四条终局都要读得到网关的私有状态，硬拆成第二只类会把不变式切两半；离 600 红线尚有 150 行，**切片⑥若再往网关加面就先拆**）、`stream.ts` 102、`snapshot.ts` 145、`supervisor.ts` 372、`apps/keel/src/runtime.ts` 456。文档侧 07 稿本篇 + 契约 01 稿 275 行（上限 500）、05 手册 313、报告 149。测试 388 → **431 条 / 53 份文件**，新增依赖 0。

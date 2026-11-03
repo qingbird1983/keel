@@ -106,19 +106,16 @@ const demoPolicy = {
 };
 
 /**
- * 演示上游（MVP 无凭证桩，ADR-0003）：非流式回空结果；流式按请求参数给分片，
- * 并且**可以模拟断流**（`stallMs` = 在首片之前挂住不动）——B7④ 的真进程样本与 `keel bench`
- * 的流式一行都靠这两条路径，不需要再造第二个测试运行时。
+ * 演示上游（MVP 无凭证桩，ADR-0003）：非流式回空结果；流式按请求参数 `chunks` 给分片
+ * （B7④ 的真进程样本与 `keel bench` 的流式一行都用它，不需要再造第二个测试运行时）。
  * 每片 `cost:1` = 权威计量的演示口径；`usage` 随片累计（末片即终值）。
+ * 断流的两条路径（等待超时、上游中途抛）由 `ModelGateway` 的时限注入位在单测里造，
+ * 这里不放"假装挂住"的旋钮——CLI 侧没有对应的参数，留着就是没人能按下的开关。
  */
 const stubUpstream: ModelUpstream = {
   invoke: async () => ({ result: {}, usage: { tokens: 0 }, cost: 0 }),
   async *stream(req: { model: string; params: unknown }) {
-    const p = (req.params ?? {}) as { chunks?: number; stallMs?: number };
-    if (typeof p.stallMs === "number" && p.stallMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, p.stallMs));
-      return; // 一片都没出（网关据此走"零产物的断流 = 失败"口径）
-    }
+    const p = (req.params ?? {}) as { chunks?: number };
     const n = Math.max(1, Math.min(64, Math.trunc(p.chunks ?? 4) || 1));
     for (let i = 1; i <= n; i++) {
       yield { chunk: { seq: i, text: `chunk-${i}` }, cost: 1, usage: { parts: i, tokens: i * 4 } };
@@ -229,12 +226,6 @@ export interface BuildRuntimeOptions {
    * 恰恰只在落盘时才成立（§7 第 2 项被否 B 的理由）。
    */
   snapshotDir?: string;
-  /**
-   * 流式时限注入位（**测试缝**，standards/05 §3）：缺省 = 契约 §7 的首字节 30s / 总长 300s。
-   * 真进程断流样本要用它把等待压到毫秒级，否则一条测试等 30 秒。
-   */
-  streamWaitMs?: number;
-  streamDeadlineMs?: number;
 }
 
 /** 一次性装配：Ledger→Authorizer→Budgeter→Context→HookBus→Gateway→Scheduler→快照→补偿→恢复→Supervisor。 */
@@ -256,9 +247,8 @@ export async function buildRuntime(
     auth,
     budget,
     upstream: stubUpstream,
-    // 流式时限注入位（测试缝，standards/05 §3）：缺省 = 契约 §7 的 30s / 300s
-    ...(opts.streamWaitMs !== undefined ? { streamWaitMs: opts.streamWaitMs } : {}),
-    ...(opts.streamDeadlineMs !== undefined ? { streamDeadlineMs: opts.streamDeadlineMs } : {}),
+    // 流式时限不在这里开洞：装配出的就是契约 §7 的 30s / 300s 两个默认档
+    // （断流的两条计时路径由 `ModelGateway` 自身的注入位在单测里跑，CLI 侧没有对应参数）
   });
   const rt: Runtime = {
     ledger,
