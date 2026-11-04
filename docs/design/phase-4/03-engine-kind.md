@@ -102,7 +102,7 @@ engine 插件**跑在哪、谁驱动、每一步怎么和 Core 交换、上下�
 - [ ] 崩溃、超时、超步数三种收束都有账本证据，且不新增错误码
 - [ ] engine manifest 只允许 `model.adapter` 一项能力（语义校验强制）
 
-## 9. 待所有者拍板
+## 9. 确认记录与待拍板
 
-- **E1**：接受"决策在 Cell、推进在 Core"的 step 协议（不新增 Cell→Core 工具执行 op），还是要求 engine 一次 `run` 到底、新开 `tool.invoke` 通道？
-- **E3**：`engine.step` 的请求/响应形状与 300s 时限档是否照准。
+- **E1 已确认（2026-11-04）**：决策在 Cell、推进在 Core（`engine.step` 每步一往返）；**不**新开 Cell→Core 的工具执行通道。
+- **E3 待拍板**：`engine.step` 的请求/响应字段与"一步取 300s 档"时限。
