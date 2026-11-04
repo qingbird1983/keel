@@ -1,6 +1,6 @@
 # Phase 5 切片①设计稿 04：契约与 CLI 修订清单（含测试与门禁）
 
-- 状态：**草稿**（2026-11-04 起草；随 ADR-0025 / ADR-0026 一起过第二道闸后转定稿）
+- 状态：**定稿**（2026-11-04 起草并定稿：随 ADR-0025 选 A 复合键、ADR-0026 选新增 `SURFACE_COMPACTED` 同步定稿）
 - 日期：2026-11-04
 - 关联：[01](01-session-stream.md) / [02](02-resume-and-recovery.md) / [03](03-compaction.md)；[ADR-0025](../../adr/ADR-0025-session-stream-addressing.md) / [ADR-0026](../../adr/ADR-0026-compaction-as-view.md)；[契约](../../design/phase-1/01-core-api-contract.md)；`packages/core/src/{ledger,events,surface,scheduler}.ts`；`apps/keel/src/main.ts`
 

@@ -1,6 +1,6 @@
 # ADR-0026：压缩是视图操作（复用 `surfaceOp` vs 新增表面事件）
 
-- 状态：**草稿**（2026-11-04 起草；两案对比与建议已完成，等待所有者第二道闸拍板——[phase-5 合同](../roadmap/phase-5-session-continuity.md) §8 K4）
+- 状态：**定稿**（2026-11-04 起草并定稿：两案对比后，所有者第二道闸拍板选 **新增 `SURFACE_COMPACTED`**（本篇方案 B）；落地见 [03 稿](../design/phase-5/03-compaction.md)）
 - 日期：2026-11-04
 - 关联：[phase-5 合同](../roadmap/phase-5-session-continuity.md) §6 S6；[ADR-0021](ADR-0021-session-ledger-topology.md) 决策 3/4（白名单封闭、`surfaceOp` 预留）；[ADR-0024](ADR-0024-surface-event-family.md)（表面事件族只由 Core 写）；[ADR-0003](ADR-0003-model-gateway.md)（模型调用统一经网关）；[ADR-0025](ADR-0025-session-stream-addressing.md)（复合地址，压缩区间依赖它）；[research/01](../research/01-dsh-data-flow-survey.md) §4（DSH：压缩是视图操作、原始事件永留）；[设计稿 03](../design/phase-5/03-compaction.md)
 - 取代：无（落地 ADR-0021 决策 4 的预留）
@@ -61,10 +61,13 @@ Phase 4 给压缩留了形状没给实现：`SurfaceOp {kind:"compress"|"redact"
 
 A 的成立条件是"绝不想让压缩出现在事件表里"。本项目的事件表本就是审计面，这个条件不存在。
 
-## 决策（2026-11-04 所有者拍板：待第二道闸）
+## 决策（2026-11-04 所有者拍板：新增 `SURFACE_COMPACTED`）
 
-- [ ] 选 A（复用 `surfaceOp`）
-- [ ] 选 B（新增 `SURFACE_COMPACTED`）
+新增表面事件 `SURFACE_COMPACTED`（本篇方案 B；所有者选项以"新增表面事件"呈现），白名单三类 → 四类；载荷形状见 [03 稿](../design/phase-5/03-compaction.md) §3；`surfaceOp` 保持预留给单条表面事件的 `redact`。
+
+- **K4-1**：选 **新增 `SURFACE_COMPACTED`**（建议案通过）。
+- **K4-2**：`surfaceOp` 继续预留，不参与压缩。
+- **K4-3**：压缩标记只进模型视图与审计，永不进治理/归因；原始事件永不改删；`includeCompacted` 为还原口径。
 
 ## 后果
 

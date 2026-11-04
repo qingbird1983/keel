@@ -1,6 +1,6 @@
 # ADR-0025：会话序列的定址（复合键 vs 会话级扁平 seq）
 
-- 状态：**草稿**（2026-11-04 起草；两案对比与建议已完成，等待所有者第二道闸拍板——[phase-5 合同](../roadmap/phase-5-session-continuity.md) §8 K2）
+- 状态：**定稿**（2026-11-04 起草并定稿：两案对比后，所有者第二道闸拍板选 **A 复合键**；落地见 [01 稿](../design/phase-5/01-session-stream.md)）
 - 日期：2026-11-04
 - 关联：[phase-5 合同](../roadmap/phase-5-session-continuity.md) §6 S1/S2/S3；[ADR-0021](ADR-0021-session-ledger-topology.md) 决策 6（跨 run 会话 = 同一 session 的 run 序列上做投影）；[ADR-0004](ADR-0004-ledger-consistency-point.md)（run 内单写者、轮边界一致点）；[ADR-0008](ADR-0008-decision-attribution-upper-bound.md)（`basedOn` / `throughSeq` 的 run 内口径）；[research/01](../research/01-dsh-data-flow-survey.md) §4（DSH 的单一 `log.length` 会话编号）；[设计稿 01](../design/phase-5/01-session-stream.md)
 - 取代：无
@@ -59,10 +59,13 @@ Phase 4 结束时，"会话"只是信封里的 `sessionId`：账本按 `<agent>/
 
 B 的成立条件很具体：**会话的跨进程写者不止一个，且读取性能被实测证明不可接受**。触发其一再重评；届时读取层可保留。
 
-## 决策（2026-11-04 所有者拍板：待第二道闸）
+## 决策（2026-11-04 所有者拍板：选 A）
 
-- [ ] 选 A（复合键）
-- [ ] 选 B（会话级扁平 seq）
+会话流 = 按 `sessionRun` 升序的 run 序列拼接，事件地址保持 `(runId, seq)`；`sessionRun` 落 `RUN_STARTED` 追加字段；旧账本按 `RUN_STARTED.ts` + `runId` 兜底排序并排在编号 run 之前；既有 `basedOn` / `throughSeq` 的 run 内口径不改。
+
+- **K2-1**：选 **A 复合键**（建议案通过）。
+- **K2-2**：复合地址只在新面使用（会话游标、压缩区间）；信封与既有归因字段不动。
+- **K2-3**：单活与序号分配由宿主在会话租约内完成（01 稿 §3.1/§3.3），不改账本写路径。
 
 ## 后果
 

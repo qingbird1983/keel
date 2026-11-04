@@ -1,6 +1,6 @@
 # Phase 5 切片①设计稿 03：压缩（视图操作、摘要治理、折叠与还原）
 
-- 状态：**草稿**（2026-11-04 起草；随 ADR-0025 / ADR-0026 一起过第二道闸后转定稿）
+- 状态：**定稿**（2026-11-04 起草并定稿：所有者第二道闸拍板 K4 选新增 `SURFACE_COMPACTED`）
 - 日期：2026-11-04
 - 关联：[phase-5 合同](../../roadmap/phase-5-session-continuity.md) §2/§5 E3/§6 S6·S7；[ADR-0026](../../adr/ADR-0026-compaction-as-view.md)（压缩是视图操作，待拍板）；[ADR-0021](../../adr/ADR-0021-session-ledger-topology.md) 决策 1/3/4；[ADR-0003](../../adr/ADR-0003-model-gateway.md)（模型调用统一经网关）；[ADR-0025](../../adr/ADR-0025-session-stream-addressing.md)（复合地址）；[01 稿](01-session-stream.md)；[research/01](../research/01-dsh-data-flow-survey.md) §4
 
@@ -39,7 +39,7 @@ interface SurfaceCompactedPayload {
   1. 先收集全部压缩标记，展开 `shadowed` 的复合区间为"被遮蔽地址集合"。
   2. 再按会话顺序遍历：被遮蔽的地址跳过；标记自身若被更晚的标记遮蔽，则连摘要一起丢弃（**最新摘要为准**）；未被遮蔽的标记在该位置发出 `{role:"system", content:summary}`。
 - **`includeCompacted:true`**：忽略所有标记与遮蔽，重算出未压缩视图——这就是"可还原"的机械定义。
-- **`surfaceOp` 保持预留**，不参与压缩（ADR-0026 若选 B）；若选 A，则本节改为"标记 = 带 `surfaceOp` 的 `TURN_INPUT`"，投影需要在该事件上做特例，其余规则不变。
+- **`surfaceOp` 保持预留**，不参与压缩（[ADR-0026](../../adr/ADR-0026-compaction-as-view.md) 定稿：新增 `SURFACE_COMPACTED`）。
 
 ### 3.1 遮蔽区间的选择（写时算，读时不猜）
 

@@ -1,6 +1,6 @@
 # Phase 5 切片①设计稿 01：会话流（读取面、顺序、单活、跨 run 投影、会话预算）
 
-- 状态：**草稿**（2026-11-04 起草；随 ADR-0025 / ADR-0026 一起过第二道闸后转定稿）
+- 状态：**定稿**（2026-11-04 起草并定稿：所有者第二道闸拍板 K2 选 A 复合键；本稿按 A 写）
 - 日期：2026-11-04
 - 关联：[phase-5 合同](../../roadmap/phase-5-session-continuity.md) §2/§5 E1·E4·E5·E6/§6 S1~S4·S7；[ADR-0025](../../adr/ADR-0025-session-stream-addressing.md)（定址，待拍板）；[ADR-0021](../../adr/ADR-0021-session-ledger-topology.md)（统一流 + 表面投影）；[ADR-0004](../../adr/ADR-0004-ledger-consistency-point.md)（run 内单写者与一致点）；[ADR-0008](../../adr/ADR-0008-decision-attribution-upper-bound.md)（归因口径）；[契约 §4.4/§4.5/§5](../../design/phase-1/01-core-api-contract.md)
 
@@ -156,4 +156,4 @@ function projectSession(
 - 风险 1：`session.read` 逐 run 拼接在 run 很多时变慢——V1 只记录基准；阈值触发后再做反向取数或派生索引（backlog）。
 - 风险 2：旧账本同毫秒并发导致顺序不确定——已在契约注记声明；新账本靠 `sessionRun` 消除。
 - 风险 3：租约在硬杀（`SIGKILL`）后残留——TTL 兜底；测试用注入时钟覆盖"过期即接管"。
-- 待决：无（K2 的两案见 ADR-0025；本稿按建议 A 写，若所有者选 B，§3.1/§3.2 的地址与游标需重写，其余不变）。
+- 待决：无（K2 已拍板选 A，[ADR-0025](../../adr/ADR-0025-session-stream-addressing.md) 定稿；本稿即最终口径）。

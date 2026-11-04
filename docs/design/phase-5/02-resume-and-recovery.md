@@ -1,6 +1,6 @@
 # Phase 5 切片①设计稿 02：续跑与崩溃恢复（统一入口与一致点语义）
 
-- 状态：**草稿**（2026-11-04 起草；随 ADR-0025 / ADR-0026 一起过第二道闸后转定稿）
+- 状态：**定稿**（2026-11-04 起草并定稿：所有者第二道闸拍板 K2 选 A 复合键）
 - 日期：2026-11-04
 - 关联：[phase-5 合同](../../roadmap/phase-5-session-continuity.md) §2/§5 E2/§6 S5；[01 稿](01-session-stream.md)（会话流与单活）；[ADR-0004](../../adr/ADR-0004-ledger-consistency-point.md)（一致点、轮边界 fsync）；[ADR-0021](../../adr/ADR-0021-session-ledger-topology.md)（统一流）；[契约 §4.5](../../design/phase-1/01-core-api-contract.md)（恢复语义）；`packages/host/src/recovery.ts`（既有恢复器）
 
