@@ -7,7 +7,7 @@
 ## 当前阶段与状态（对照 roadmap 看板）
 
 - Phase 1 ✅ / Phase 2 ✅（提前收口）/ Phase 3 ✅ / Phase 4 ✅（`phase-4.end` 已打并 merge）
-- **Phase 5 ✅ 完成**（2026-11-04，四切片全收）：E1~E7 全过（E1/E2/E3 三条一票否决）；分支 `docs/phase5-charter` 已按"干完再合并"并入 main；**`phase-5.end` tag 归所有者**
+- **Phase 5 ✅ 完成**（2026-11-04，四切片全收）：E1~E7 全过（E1/E2/E3 三条一票否决）；分支已并入 `main` 并推送；**`phase-5.end` 已在 CI 绿后打标（指向 `a6a12b4`）**
   - 合同：[phase-5-session-continuity.md](../docs/roadmap/phase-5-session-continuity.md)
   - 设计稿：[01 会话流](../docs/design/phase-5/01-session-stream.md) / [02 续跑与恢复](../docs/design/phase-5/02-resume-and-recovery.md) / [03 压缩](../docs/design/phase-5/03-compaction.md) / [04 修订清单](../docs/design/phase-5/04-contract-revision.md)（均含实施注记）
   - ADR：[0025 定址](../docs/adr/ADR-0025-session-stream-addressing.md)（选 A 复合键）/ [0026 压缩](../docs/adr/ADR-0026-compaction-as-view.md)（选新增 `SURFACE_COMPACTED`）
@@ -35,9 +35,8 @@
 
 ## 下一步（按优先级）
 
-1. 所有者决定：`phase-5.end` tag 的时机与附言。
-2. 后续候选（backlog，立项先写 ADR）：`kind:"ui"`/桌面壳、多 Agent 编排、会话 fork/回滚、留存 GC、自动压缩调度、会话导出。
-3. 既有欠账：根 `tests/` 类型检查（单独一票）；phase-1~4 设计稿相对链接（P-023）。
+1. 下一阶段方向待所有者定（均走 backlog/ADR）：`kind:"ui"`/桌面壳、多 Agent 编排、会话 fork/回滚、留存 GC、自动压缩调度、会话导出、压缩的缓存友好化。
+2. 若先不动方向：可清既有欠账——根 `tests/` 类型检查（单独一票）、phase-1~4 设计稿相对链接（P-023）。
 
 ## 关键提醒（坑/规范/易错点）
 

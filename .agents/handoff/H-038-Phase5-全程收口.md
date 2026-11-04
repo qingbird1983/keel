@@ -18,7 +18,7 @@
    - 测试：会话读取 6、投影 4、租约 4、会话预算 3、真进程端到端 4（E1/E4/E6 + list）。
 7. **切片③（崩溃后的会话恢复）**：`prepareSession` 把"最后一个 run 无终态"判成恢复；`RecoveryManager` 的硬顺序（补偿 → 快照校验 → 新 run）之上接会话历史，历史**截到最后一个 `CHECKPOINT.seq`**；`RUN_RECOVERED{recoveredFromSeq}`；engine 无状态不挂快照 blob；R9：Core 生成的 `toolCallId` 带 `runId` 前缀。
 8. **切片④（压缩）**：`SURFACE_COMPACTED`（白名单四类）+ `compactSession`（摘要走网关；失败不阻断）+ `projectSession(events,{includeCompacted})` 两遍折叠（摘要落在被遮蔽区间起点、最新摘要为准、消息组不拆）；`BeforeFirstRound` 缝（R8）+ `--compact`/`--compact-threshold`（默认 128000）/`--keep-recent`/`--summary-model`；`sessions show --full` 还原口径。
-9. **阶段收口**：`docs/design/phase-5/report.md`（E1~E7 逐条 + 接缝核对 + 体量 + 规范四问）；看板 Phase 5 转 ✅；分支按"干完再合并"并入 main（tag 未打，归所有者）。
+9. **阶段收口**：`docs/design/phase-5/report.md`（E1~E7 逐条 + 接缝核对 + 体量 + 规范四问）；看板 Phase 5 转 ✅；分支按"干完再合并"并入 main、推送；CI（Node 22/26）绿后打 `phase-5.end` 并推标签。
 
 ## 验证
 
@@ -31,7 +31,7 @@
 
 ## 遗留与下一步
 
-- **所有者决定**：`phase-5.end` tag 与附言（分支已按"干完再合并"并入 main）。
+- **下一阶段方向待所有者定**；`phase-5.end` 已打并推送（指向 CI 绿的合并提交 `a6a12b4`）。
 - 后续候选（backlog）：`kind:"ui"`/桌面壳、多 Agent、fork/回滚、留存 GC、自动压缩调度、会话导出。
 - 根 `tests/` 类型检查缺口：试过 `tests/tsconfig.json`（paths 指向各包 src），暴露大量**既有**错误（归档 cordis 测试的导入/隐式 any、engine-kind-e2e 一处强转）；已撤回并登记 backlog，需单独一票。
 - 既有 docs 相对链接债（P-023）未修；租约无心跳（>60s 运行可被接管）是单机已知上限。
