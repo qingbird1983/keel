@@ -1,6 +1,6 @@
 # Phase 4 切片①设计稿 03：`kind:"engine"`（Cell 里的最小 ReAct 循环）
 
-- 状态：**草稿**（待所有者评审——第二道闸；过闸后转定稿方可开工切片④）
+- 状态：**定稿**（2026-11-04 起草 / 2026-11-04 所有者过闸——第二道闸通过，E1/E3 已确认）
 - 日期：2026-11-04
 - 关联：[phase-4 合同](../roadmap/phase-4-profile-engine-loop.md) §2/§5 D3/D5/§6 B1/B5/C2~C5/§8 K2；[契约 §4.1/§4.6/§4.8/§5](../design/phase-1/01-core-api-contract.md)；[ADR-0011](../adr/ADR-0011-cell-load-gate.md)（装载门）；[ADR-0013](../adr/ADR-0013-model-stream-pull-chunking.md)（模型流终局）；[ADR-0021](../adr/ADR-0021-session-ledger-topology.md)（统一流 + 表面投影，已定稿）；[01 稿](01-profile-assembly.md)（装配与 scope）；[02 稿](02-model-kind.md)（模型调用面）
 
@@ -36,6 +36,7 @@ engine 插件**跑在哪、谁驱动、每一步怎么和 Core 交换、上下�
 
   - 响应形状**封闭**：未知字段、未声明的工具名、超过 `maxSteps` 的继续请求一律拒绝（`SCHED/MANIFEST-INVALID`? 不——运行期用既有 `TRANSPORT/BADFRAME` 语义？见 §6）。
   - 一步请求时限：取契约 §7 的 **300s 档**（一步内最多含一次流式模型调用），不新增数字；空闲看门狗归模型插件（02 稿 M5）。
+
 - **E4 上下文的装配者仍是 Core**（C2/C4 的落地）：递进 `engine.step` 的 `messages` = 按 ADR-0021 的**纯投影**从账本算出；工具清单 = 本 run 的工具目录（按 scope 过滤）；engine 不读账本、不写账本（`ledger.read` 对它可选关闭，首版不给）。消息形状至少 `{role, content, reasoning?, toolCalls?, toolCallId?}`——**`reasoning` 原样保留并回传**：DeepSeek 思考模式默认开启，带工具的请求漏传历史思考内容会直接 400（[research/02](../research/02-deepseek-api-survey.md) §3/§9），这是表面词汇必须留字段的硬理由，不是可选优化。
 - **E5 决策入账与归因**（D5）：Core 收到 `decision` 后写 `DECISION{actions, summary, basedOn}`，`basedOn` 至少引用本步的 `MODEL_INVOKED`/`MODEL_USAGE` 与上一步 `TOOL_RESULT`；`throughSeq` 由账本盖章。engine 自己写不了账本，所以归因链只有一条（无第二条写者）。
 - **E6 崩溃语义**（D3/B5）：kill engine Cell → 调度器收到舱退出 → 本轮 `RUN_FAILED{reasonCode:"ENGINE_EXITED"}` → 在途模型流按 ADR-0013 终局收束（已产出结算、`truncated`）→ 已声明未结算 effect 由补偿执行器按状态机收束 → 账本完整、并行 run 不受影响（既有 cell-crash 语义，不新增错误码）。**不做自动重启**：重启即"新 run"，属会话持久化范围（合同 §2 不做）。
@@ -58,13 +59,13 @@ engine 插件**跑在哪、谁驱动、每一步怎么和 Core 交换、上下�
 }
 ```
 
-| 字段 | 必填 | 约束 |
-| --- | --- | --- |
-| `loop` | 是 | 首版仅 `"react"`；未知值拒绝（不猜语义） |
-| `model.ref` | 是 | profile 内 model 插件 `id`；装配期必须命中 |
-| `model.name` | 是 | 该插件 `model.models` 之一 |
-| `tools` | 是 | 非空字符串数组；每个名字装配期唯一命中一个能力插件 |
-| `maxSteps` | 是 | 1~100；超限装配期拒绝 |
+| 字段         | 必填 | 约束                                               |
+| ------------ | ---- | -------------------------------------------------- |
+| `loop`       | 是   | 首版仅 `"react"`；未知值拒绝（不猜语义）           |
+| `model.ref`  | 是   | profile 内 model 插件 `id`；装配期必须命中         |
+| `model.name` | 是   | 该插件 `model.models` 之一                         |
+| `tools`      | 是   | 非空字符串数组；每个名字装配期唯一命中一个能力插件 |
+| `maxSteps`   | 是   | 1~100；超限装配期拒绝                              |
 
 ## 5. 一步的时序（机制核心）
 
@@ -84,12 +85,12 @@ engine 插件**跑在哪、谁驱动、每一步怎么和 Core 交换、上下�
 
 ## 7. 验收映射（D3/D5）与红测先行
 
-| 场景 | 机械断言 |
-| --- | --- |
+| 场景              | 机械断言                                                                                             |
+| ----------------- | ---------------------------------------------------------------------------------------------------- |
 | D3 真进程多步闭环 | mock 剧本 3 步（模型→工具→模型→终结）：独立 engine Cell、file-write 真写盘、补偿在环；账本事件序完整 |
-| D3 故障半径 | kill engine Cell：`RUN_FAILED`、在途模型收束、effect 补偿、并行 run 继续 |
-| D5 可重放归因 | 每步 `DECISION.basedOn` 覆盖模型事件与上一步工具结果；按账本重放能复现决策序列 |
-| 协议封闭 | 未声明工具、未知字段、超 maxSteps 各一条拒绝用例 |
+| D3 故障半径       | kill engine Cell：`RUN_FAILED`、在途模型收束、effect 补偿、并行 run 继续                             |
+| D5 可重放归因     | 每步 `DECISION.basedOn` 覆盖模型事件与上一步工具结果；按账本重放能复现决策序列                       |
+| 协议封闭          | 未声明工具、未知字段、超 maxSteps 各一条拒绝用例                                                     |
 
 红测先行：`tests/engine-kind-e2e.test.ts`（真进程，切片④开工时红→绿）。
 
@@ -102,7 +103,7 @@ engine 插件**跑在哪、谁驱动、每一步怎么和 Core 交换、上下�
 - [ ] 崩溃、超时、超步数三种收束都有账本证据，且不新增错误码
 - [ ] engine manifest 只允许 `model.adapter` 一项能力（语义校验强制）
 
-## 9. 确认记录与待拍板
+## 9. 确认记录
 
-- **E1 已确认（2026-11-04）**：决策在 Cell、推进在 Core（`engine.step` 每步一往返）；**不**新开 Cell→Core 的工具执行通道。
-- **E3 待拍板**：`engine.step` 的请求/响应字段与"一步取 300s 档"时限。
+- **E1（2026-11-04）**：决策在 Cell、推进在 Core（`engine.step` 每步一往返）；**不**新开 Cell→Core 的工具执行通道。
+- **E3（2026-11-04 随整稿过闸）**：`engine.step` 的请求/响应字段与"一步取 300s 档"照准。

@@ -13,7 +13,6 @@ import { wireCell, wirePolicies, type LoadedManifest } from "@keel/host";
 import {
   assembleManifest,
   buildRuntime,
-  cellEntryPath,
   closeRuntime,
   fixturePath,
   policyCellEntryPath,

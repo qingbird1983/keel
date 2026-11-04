@@ -1,6 +1,9 @@
-// 原生插件禁面扫描器（Phase 3 切片①，design/phase-3/02 稿 §2/§3）。
+// 原生插件禁面扫描器（Phase 3 切片①，design/phase-3/02 稿 §2/§3；Phase 4 切片①扩 kind 规则，04 稿 §4）。
 // 禁面判据的唯一代码事实源；01 清单（docs/design/phase-3/01-legacy-anti-patterns.md）是语义来源，只增不改。
 // 刻意过收（宁误报不漏报）：命中 = 插件不可转正，无白名单豁免通道；误报时改插件写法绕开歧义。
+//
+// Phase 4 起，部分判据**按 manifest 的 kind 生效**（engine 禁出网/禁持密钥；model 禁自报费用）——
+// kind 从插件目录的 keel-plugin.json 读取；读不到 = 只跑全局规则（清单本身会在装配期被拒）。
 //
 // CLI：node scripts/scan-native-plugins.mjs [dir]   —— 缺省扫 packages/plugins，命中即退出码 1。
 // 门禁：tests/native-plugin-scan.test.ts（负样本组证明扫描器有效 + 实扫组证明在库插件干净）。
@@ -109,7 +112,59 @@ export const FORBIDDEN_SURFACES = [
     note: "import 说明符必须在 @keel/* / 相对路径 / node: 白名单内",
   },
   { id: "B4-deps", row: "B4", media: "package-json", note: "插件 package.json 不得声明任何依赖" },
+  // ── Phase 4 K6（04 稿 §4）：按 kind 生效的新判据 ──────────────────────
+  {
+    id: "E1-net",
+    row: "E1",
+    kinds: ["engine"],
+    media: "code",
+    pattern: /node:(?:http|https|net|tls|dgram)\b|(?<![\w.$])fetch\s*\(/,
+    note: "engine 禁直连出网（模型调用走网关）",
+  },
+  {
+    id: "E2-env",
+    row: "E2",
+    kinds: ["engine", "model"],
+    media: "code",
+    pattern: /\bprocess\s*\.\s*env\b/,
+    note: "密钥只经注入的解析面，不读进程环境",
+  },
+  {
+    id: "E3-ledger",
+    row: "E3",
+    kinds: ["engine"],
+    media: "code",
+    pattern:
+      /\bledger\s*\.\s*(append|checkpoint|read)\b|\beffect\s*\.\s*declare\b|\bworkspace\s*\.\s*(write|create)\b|\btool\s*\.\s*register\b/,
+    note: "engine 无写账本/副作用/注册工具入口（决策交还核心）",
+  },
+  {
+    id: "E4-hook",
+    row: "E4",
+    kinds: ["engine"],
+    media: "code",
+    pattern: /\bpolicy\s*\.\s*hook\b|\bhooks?\s*\.\s*register\b/,
+    note: "被审者不能自审（hook 归策略舱）",
+  },
+  {
+    id: "E5-key",
+    row: "E5",
+    media: "code",
+    pattern: /sk-[A-Za-z0-9_-]{8,}/,
+    note: "密钥明文零出现（D4）",
+  },
+  {
+    id: "M1-cost",
+    row: "M1",
+    kinds: ["model"],
+    media: "code",
+    pattern: /\bcost\s*:/,
+    note: "费用由核心按价格表算，模型模块不自报 cost",
+  },
 ];
+
+/** Phase 4 新增判据的完整性清单（04 稿 §4；与 01 清单行不同源，单列防止两套编号混用） */
+export const REQUIRED_RULE_IDS = ["E1-net", "E2-env", "E3-ledger", "E4-hook", "E5-key", "M1-cost"];
 
 /** 01 清单中"应有机械判据"的行号集合（新行入 01 清单时同步扩这里 + 补负样本） */
 export const REQUIRED_ROWS = [
@@ -137,14 +192,18 @@ const IMPORT_RE =
 /** @returns {Promise<Array<{file: string, line: number, id: string, row: string, excerpt: string}>>} */
 export async function scanNativePlugins(rootDir) {
   const files = await listFiles(rootDir);
+  const kinds = await pluginKinds(files);
   const hits = [];
   for (const file of files) {
     const ext = path.extname(file);
     const isCode = CODE_EXTS.has(ext);
     const isPackageJson = path.basename(file) === "package.json";
+    const kind = kindOf(file, kinds);
     const text = await readFile(file, "utf8");
     const lines = text.split(/\r?\n/);
     for (const rule of FORBIDDEN_SURFACES) {
+      // kind 规则只对声明了对应 kind 的插件生效；读不到清单 = 不跑 kind 规则（装配期另有拒绝）
+      if (rule.kinds && !(kind !== null && rule.kinds.includes(kind))) continue;
       if (rule.media === "code" && !isCode) continue;
       if (rule.media === "package-json") {
         if (!isPackageJson) continue;
@@ -194,6 +253,36 @@ export async function scanNativePlugins(rootDir) {
     }
   }
   return hits;
+}
+
+/**
+ * 每个插件目录（含 keel-plugin.json 的那一层）→ kind。
+ * 读不到或非法 JSON 不入表：kind 规则因此不生效，但清单本身会在装配期被拒（这里不重复判死）。
+ */
+async function pluginKinds(files) {
+  const kinds = new Map();
+  for (const file of files) {
+    if (path.basename(file) !== "keel-plugin.json") continue;
+    try {
+      const m = JSON.parse(await readFile(file, "utf8"));
+      if (typeof m?.kind === "string") kinds.set(path.dirname(file), m.kind);
+    } catch {
+      /* 非法清单不是扫描器的判据 */
+    }
+  }
+  return kinds;
+}
+
+/** 文件归属的插件根 = 最近的、带清单的祖先目录；不属于任何插件 = null。 */
+function kindOf(file, kinds) {
+  let dir = path.dirname(file);
+  for (;;) {
+    const kind = kinds.get(dir);
+    if (kind !== undefined) return kind;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
 }
 
 function isAllowedSpecifier(spec) {

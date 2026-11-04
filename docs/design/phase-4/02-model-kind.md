@@ -1,6 +1,6 @@
 # Phase 4 切片①设计稿 02：`kind:"model"`（宿主驻留的模型插件）
 
-- 状态：**草稿**（待所有者评审——第二道闸；过闸后转定稿方可开工切片③）
+- 状态：**定稿**（2026-11-04 起草 / 2026-11-04 所有者过闸——第二道闸通过，M3/M5 已确认）
 - 日期：2026-11-04
 - 关联：[phase-4 合同](../roadmap/phase-4-profile-engine-loop.md) §2/§5 D2/D4/D6/§6 B2~B4/§8 K4/K5；[契约 §4.7/§4.8/§7](../design/phase-1/01-core-api-contract.md)；[ADR-0003](../adr/ADR-0003-model-gateway.md)（网关唯一通道、预扣/实结）；[ADR-0013](../adr/ADR-0013-model-stream-pull-chunking.md)（拉式分片）；[ADR-0019](../adr/ADR-0019-trust-tiers-and-cell-isolation.md)（spawn env 白名单）；[ADR-0021](../adr/ADR-0021-session-ledger-topology.md)（表面事件与投影）；[research/02](../research/02-deepseek-api-survey.md)（DeepSeek API 现状：模型名/思考模式/usage/峰谷计价）
 
@@ -66,18 +66,18 @@
 }
 ```
 
-| 字段 | 必填 | 约束 |
-| --- | --- | --- |
-| `provider` | 是 | kebab-case，仅用于诊断/记录 |
-| `protocol` | 是 | `"http-sse"` \| `"mock"`；未知值拒绝 |
-| `models` | 是 | 非空，**provider 现行模型名**（示例 `deepseek-flash`；`deepseek-chat`/`deepseek-reasoner` 已停用，仅见于说明文字） |
-| `endpoint` | protocol=`http-sse` 时必填 | `https://`；本地回环测试允许 `http://127.0.0.1`；请求路径由协议决定（DeepSeek = `POST /chat/completions`） |
-| `auth.ref` | 是 | 环境变量名；**不得**出现 `sk-` 等明文形态（schema pattern + 扫描双保险） |
-| `pricing.<模型名>` | 是 | 键集合必须与 `models` 完全一致；`unit` 首版只 `usd_per_mtok` |
-| `pricing.*.offPeak` | 是 | 三个桶 `inputCached`/`inputUncached`/`output`，非负有限数 |
-| `pricing.*.peak` | 否 | 缺省 = 峰价缺失时落 `unknownTier`（默认 `"peak"` 保守计费，不静默按谷价） |
-| `pricing.*.peakWindows` | 否 | `days`（`mon-fri`）+ `utc:"HH:MM-HH:MM"`；有 `peak` 时必填；法定节假日不建模 |
-| `timeouts.idleMs` | 否 | 正整数，≤ 契约 §7 对应总时限（装配器语义校验） |
+| 字段                    | 必填                       | 约束                                                                                                               |
+| ----------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `provider`              | 是                         | kebab-case，仅用于诊断/记录                                                                                        |
+| `protocol`              | 是                         | `"http-sse"` \| `"mock"`；未知值拒绝                                                                               |
+| `models`                | 是                         | 非空，**provider 现行模型名**（示例 `deepseek-flash`；`deepseek-chat`/`deepseek-reasoner` 已停用，仅见于说明文字） |
+| `endpoint`              | protocol=`http-sse` 时必填 | `https://`；本地回环测试允许 `http://127.0.0.1`；请求路径由协议决定（DeepSeek = `POST /chat/completions`）         |
+| `auth.ref`              | 是                         | 环境变量名；**不得**出现 `sk-` 等明文形态（schema pattern + 扫描双保险）                                           |
+| `pricing.<模型名>`      | 是                         | 键集合必须与 `models` 完全一致；`unit` 首版只 `usd_per_mtok`                                                       |
+| `pricing.*.offPeak`     | 是                         | 三个桶 `inputCached`/`inputUncached`/`output`，非负有限数                                                          |
+| `pricing.*.peak`        | 否                         | 缺省 = 峰价缺失时落 `unknownTier`（默认 `"peak"` 保守计费，不静默按谷价）                                          |
+| `pricing.*.peakWindows` | 否                         | `days`（`mon-fri`）+ `utc:"HH:MM-HH:MM"`；有 `peak` 时必填；法定节假日不建模                                       |
+| `timeouts.idleMs`       | 否                         | 正整数，≤ 契约 §7 对应总时限（装配器语义校验）                                                                     |
 
 ## 5. 装配与调用链（切片③落地形状）
 
@@ -88,22 +88,22 @@
 
 ## 6. 失败剧本（D6 的模型半边）
 
-| 注入 | 期望 |
-| --- | --- |
-| 上游慢 / 不出片 | 总时限先到 → 断流终局：按已产出结算、`truncated:true`、失败上报语义按 ADR-0013 区分"慢"与"抛" |
-| 上游中途抛 | 已产出部分结算 + `truncated`，`GATEWAY/UPSTREAM-ERROR{reason:"STREAM_UPSTREAM_THROW", produced, cost}` |
-| 一片都没出就断 | 失败（`STREAM_STALL`/`STREAM_DEADLINE`），仍先 settle 闭环 |
-| 预扣后实结超高 | M5 第 3 条：账本如实、scope 置耗尽、下一跳被拒（D2 的机械断言） |
+| 注入            | 期望                                                                                                                              |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| 上游慢 / 不出片 | 总时限先到 → 断流终局：按已产出结算、`truncated:true`、失败上报语义按 ADR-0013 区分"慢"与"抛"                                     |
+| 上游中途抛      | 已产出部分结算 + `truncated`，`GATEWAY/UPSTREAM-ERROR{reason:"STREAM_UPSTREAM_THROW", produced, cost}`                            |
+| 一片都没出就断  | 失败（`STREAM_STALL`/`STREAM_DEADLINE`），仍先 settle 闭环                                                                        |
+| 预扣后实结超高  | M5 第 3 条：账本如实、scope 置耗尽、下一跳被拒（D2 的机械断言）                                                                   |
 | 429 / 500 / 503 | `GATEWAY/UPSTREAM-ERROR` + `detail.reason`（`RATE_LIMITED`/`SERVER_ERROR`/`OVERLOADED`）→ 由 hook③ `retryAdvice` 裁决；无自动退避 |
-| 未实现 stream | `UPSTREAM_NO_STREAM`，不降级 |
+| 未实现 stream   | `UPSTREAM_NO_STREAM`，不降级                                                                                                      |
 
 ## 7. 验收映射与红测先行
 
-| 场景 | 机械断言 |
-| --- | --- |
+| 场景          | 机械断言                                                                                                                                                                                                                                                 |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | D2 计量与预算 | mock 剧本固定用量（hit/miss/output 三桶各不同）→ 账本 `MODEL_USAGE` 分桶与峰谷 `tier` 正确 → 预算注入超限 → 下一次调用 `BUDGET/EXHAUSTED` → `RUN_HALTED`，无未落账调用（遍历账本：每次 `MODEL_INVOKED` 必有对应 `MODEL_USAGE` 或 `BUDGET_SETTLED` 收束） |
-| D4 密钥红线 | 扫描：manifest/账本/事件/日志/engine Cell env 中零密钥；真适配器路径只在 Host 模块内 resolve；mock 用 `sk-test-*` 假值也零泄漏 |
-| D6 流失败 | 四类注入各一条真进程/单测用例；`truncated` 与 `produced` 可对账 |
+| D4 密钥红线   | 扫描：manifest/账本/事件/日志/engine Cell env 中零密钥；真适配器路径只在 Host 模块内 resolve；mock 用 `sk-test-*` 假值也零泄漏                                                                                                                           |
+| D6 流失败     | 四类注入各一条真进程/单测用例；`truncated` 与 `produced` 可对账                                                                                                                                                                                          |
 
 红测先行：`packages/plugins/model-mock/test/*`（单测）+ `tests/model-kind-e2e.test.ts`（真进程，切片③开工时红→绿）。
 
@@ -118,7 +118,8 @@
 - [ ] 两个实现共用同一串验收断言；真适配器不进 CI 且文档写明不承诺生产
 - [ ] manifest 的 `model` 段与 profile（01 稿 P2）分工不重叠
 
-## 9. 确认记录与待拍板
+## 9. 确认记录
 
-- **M3 已确认（2026-11-04）**：价格表进 manifest、模块只报用量、费用由 Core 计算并结算；`kind:"model"` 装配路径拒绝模块返回 `cost`。
-- **M5 已确认（2026-11-04）**：三层治理照准——总时限（复用契约既有数字）+ 可选空闲看门狗（≤ 总时限）+ 单次超支不把预算打成负数（超出即记 `overrun` 并按既有耗尽处置，计量如实）。
+- **M3（2026-11-04）**：价格表进 manifest、模块只报用量、费用由 Core 计算并结算；`kind:"model"` 装配路径拒绝模块返回 `cost`。
+- **M5（2026-11-04）**：三层治理照准——总时限（复用契约既有数字）+ 可选空闲看门狗（≤ 总时限）+ 单次超支不把预算打成负数（超出即记 `overrun` 并按既有耗尽处置，计量如实）。
+- **整稿（2026-11-04）**：四份设计稿一批过闸，本稿按 M1~M9 定稿。

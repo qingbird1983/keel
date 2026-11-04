@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 import {
   FORBIDDEN_SURFACES,
   REQUIRED_ROWS,
+  REQUIRED_RULE_IDS,
   scanNativePlugins,
 } from "../scripts/scan-native-plugins.mjs";
 
@@ -40,6 +41,14 @@ const POISON_SNIPPETS: Record<string, string> = {
   D1: "export function activate(ctx) {}\nexport default { apply(ctx, config) {} };\n",
   D3: "const where = { dsh: { client: { platform: 'web' } } };\n",
   "B4-import": "import leftPad from 'left-pad';\nimport { thing } from '@deepseek-ai/cordis';\n",
+  // Phase 4 K6（04 稿 §4）
+  "E1-net":
+    'import { request } from "node:https";\nconst r = await fetch("https://example.com");\n',
+  "E2-env": "const key = process.env.DEEPSEEK_API_KEY;\n",
+  "E3-ledger": 'await ledger.append(ref, "X", {});\neffect.declare({ kind: "fs" });\n',
+  "E4-hook": 'await policy.hook("toolApproval", input);\nhooks.register("stopAdvice", fn);\n',
+  "E5-key": 'const leaked = "sk-live-1234567890";\n',
+  "M1-cost": "export function invoke() { return { result: {}, usage: {}, cost: 3 }; }\n",
 };
 
 async function writePlugin(root: string, rel: string, body: string): Promise<void> {
@@ -53,6 +62,13 @@ describe("native plugin forbidden-surface scan", () => {
     const covered = new Set(FORBIDDEN_SURFACES.map((r) => r.row));
     for (const row of REQUIRED_ROWS) {
       expect(covered.has(row), `01 清单行 ${row} 没有对应的机械判据`).toBe(true);
+    }
+  });
+
+  it("Phase 4 判据齐全（K6：04 稿 §4 的六条按 kind 规则）", () => {
+    const ids = new Set(FORBIDDEN_SURFACES.map((r) => r.id));
+    for (const id of REQUIRED_RULE_IDS) {
+      expect(ids.has(id), `Phase 4 判据 ${id} 缺失`).toBe(true);
     }
   });
 
@@ -73,6 +89,15 @@ describe("native plugin forbidden-surface scan", () => {
           } else {
             const snippet = POISON_SNIPPETS[rule.id];
             expect(snippet, `判据 ${rule.id} 缺少负样本`).toBeTruthy();
+            // 按 kind 生效的判据：先给它一份带 kind 的清单，否则规则不适用（这正是被测语义）
+            const kind = rule.kinds?.[0];
+            if (kind) {
+              await writePlugin(
+                dir,
+                "pkg/keel-plugin.json",
+                JSON.stringify({ kind, meta: { name: "poison" } }),
+              );
+            }
             await writePlugin(dir, "pkg/entry.ts", snippet);
           }
           const hits = await scanNativePlugins(dir);
@@ -101,6 +126,45 @@ describe("native plugin forbidden-surface scan", () => {
           'import { helper } from "./helper.js";',
           'import { readFileSync } from "node:fs";',
           "export const tools = [{ name: 'echo', run: (x: string) => x }];",
+          "",
+        ].join("\n"),
+      );
+      const hits = await scanNativePlugins(dir);
+      expect(hits).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("负样本组：干净的 engine / model 样本零命中（kind 规则不误伤）", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "keel-scan-clean-kinds-"));
+    try {
+      await writePlugin(dir, "engine/keel-plugin.json", JSON.stringify({ kind: "engine" }));
+      await writePlugin(
+        dir,
+        "engine/entry.ts",
+        [
+          "export const tools = [];",
+          "export function step(input: unknown) {",
+          '  return { decision: { kind: "done", summary: "ok", input } };',
+          "}",
+          "",
+        ].join("\n"),
+      );
+      await writePlugin(dir, "model/keel-plugin.json", JSON.stringify({ kind: "model" }));
+      await writePlugin(
+        dir,
+        "model/entry.ts",
+        [
+          "export function create(opts: unknown) {",
+          "  return {",
+          "    invoke: async () => ({",
+          "      result: {},",
+          "      usage: { inputCached: 1, inputUncached: 2, output: 3 },",
+          "      opts,",
+          "    }),",
+          "  };",
+          "}",
           "",
         ].join("\n"),
       );

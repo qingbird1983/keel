@@ -1,6 +1,6 @@
 # Phase 4 切片①设计稿 01：Profile 装配面（一份装配清单拉起全家桶）
 
-- 状态：**草稿**（待所有者评审——第二道闸；过闸后转定稿方可开工切片②）
+- 状态：**定稿**（2026-11-04 起草 / 2026-11-04 所有者过闸——第二道闸通过；P4/P6 一并通过，见 §8）
 - 日期：2026-11-04
 - 关联：[phase-4 合同](../roadmap/phase-4-profile-engine-loop.md) §1/§2/§5 D1/§9 切片②；[manifest 规范](../design/phase-1/03-plugin-manifest.md)（五步校验，本稿零豁免复用）；[契约 §4.1/§5](../design/phase-1/01-core-api-contract.md)（`ASSEMBLY_RECORDED`）；[ADR-0011](../adr/ADR-0011-cell-load-gate.md)（就绪凭据）；[ADR-0012](../adr/ADR-0012-policy-plugin-process-and-hook-op.md)（策略舱与整份拒绝）；[ADR-0019](../adr/ADR-0019-trust-tiers-and-cell-isolation.md)（信任申请/授予）；[ADR-0021](../adr/ADR-0021-session-ledger-topology.md)（拓扑，K3 待拍板，不影响本稿）
 
@@ -34,13 +34,13 @@
 - **P6 装配记录**：**逐插件一条** `ASSEMBLY_RECORDED`（合同 D1 原文），按声明次序写；载荷沿用既有规格，**追加两个可选字段**：`profile:{name, version}` 与 `plugin:{id}`。契约 §5 的"run 首事件"注记修订为"run 启动时按声明序写入的**首批**事件"（不新增事件类型；旧账本仍可读）。
 - **P7 隔离环境分派**（K1/K2 的直接落地）：
 
-  | kind | 运行环境 | 谁 spawn | 持密钥 | 账本记录 |
-  | --- | --- | --- | --- | --- |
-  | `capability` | Cell 进程 | `CellSupervisor` | 否 | 逐插件 `ASSEMBLY_RECORDED` |
-  | `engine` | Cell 进程 | `CellSupervisor` | 否 | 同上 |
-  | `policy` | 策略舱（独立进程，仅 `policy.hook`） | `wirePolicies` | 否 | 同上 + `policies` 摘要 |
-  | `model` | Host 进程内模块 | profile 装配器直接构造 | **是**（per-request resolve，R5 地基） | 同上（`role:"model"`） |
-  | `observation` | 无运行时（只读账本） | — | 否 | 同上 |
+  | kind          | 运行环境                             | 谁 spawn               | 持密钥                                 | 账本记录                   |
+  | ------------- | ------------------------------------ | ---------------------- | -------------------------------------- | -------------------------- |
+  | `capability`  | Cell 进程                            | `CellSupervisor`       | 否                                     | 逐插件 `ASSEMBLY_RECORDED` |
+  | `engine`      | Cell 进程                            | `CellSupervisor`       | 否                                     | 同上                       |
+  | `policy`      | 策略舱（独立进程，仅 `policy.hook`） | `wirePolicies`         | 否                                     | 同上 + `policies` 摘要     |
+  | `model`       | Host 进程内模块                      | profile 装配器直接构造 | **是**（per-request resolve，R5 地基） | 同上（`role:"model"`）     |
+  | `observation` | 无运行时（只读账本）                 | —                      | 否                                     | 同上                       |
 
 - **P8 scope 分配**：profile 可给顶层 `scope:{agentId?, sessionId?}`，缺省 `agentId = profile.name`、`sessionId = "main"`；单个插件可用 `scope` 覆盖。同一 scope 内工具可见性规则不变（`ToolCatalog` 既有语义）；跨 scope 互不可见由既有测试守住（D1 回归项）。
 - **P9 包归属**：落在 `@keel/host`（`packages/host/src/profile/`：`parse.ts` 子集解析、`schema.ts` 校验、`assemble.ts` 编排）。**不新建 `packages/profile`**——一个装配面还撑不起一个包的生命周期，等它长出独立 API 面再拆（体量红线，standards/08）。
@@ -53,38 +53,38 @@
 ```yaml
 version: 1
 name: local-workspace
-scope:            # 可选；下同
+scope: # 可选；下同
   agentId: local
   sessionId: main
 plugins:
   - id: model-mock
     kind: model
-    manifest: ./plugins/model-mock/manifest.json
+    manifest: ./plugins/model-mock/keel-plugin.json
     module: ./plugins/model-mock/dist/index.mjs
   - id: engine-react
     kind: engine
-    manifest: ./plugins/engine-react/manifest.json
+    manifest: ./plugins/engine-react/keel-plugin.json
     module: ./plugins/engine-react/dist/index.mjs
   - id: fs-reader
     kind: capability
-    manifest: ./plugins/fs-reader/manifest.json
+    manifest: ./plugins/fs-reader/keel-plugin.json
     module: ./plugins/fs-reader/dist/index.mjs
   - id: danger-guard
     kind: policy
-    manifest: ./plugins/danger-guard/manifest.json
+    manifest: ./plugins/danger-guard/keel-plugin.json
     module: ./plugins/danger-guard/dist/index.mjs
 ```
 
-| 字段 | 必填 | 约束 |
-| --- | --- | --- |
-| `version` | 是 | 目前仅 `1`；未知版本拒绝（不猜兼容） |
-| `name` | 是 | kebab-case，作为缺省 `agentId` |
-| `scope` | 否 | `{agentId?, sessionId?}`；缺省如上 |
-| `plugins[].id` | 是 | kebab-case，清单内唯一 |
-| `plugins[].kind` | 是 | 五值枚举；必须与 manifest 一致（P3） |
-| `plugins[].manifest` | 是 | 相对路径，指向 JSON 报关单 |
-| `plugins[].module` | 是 | 相对路径，指向已构建入口（`dist/`） |
-| `plugins[].scope` | 否 | 覆盖顶层 scope |
+| 字段                 | 必填 | 约束                                 |
+| -------------------- | ---- | ------------------------------------ |
+| `version`            | 是   | 目前仅 `1`；未知版本拒绝（不猜兼容） |
+| `name`               | 是   | kebab-case，作为缺省 `agentId`       |
+| `scope`              | 否   | `{agentId?, sessionId?}`；缺省如上   |
+| `plugins[].id`       | 是   | kebab-case，清单内唯一               |
+| `plugins[].kind`     | 是   | 五值枚举；必须与 manifest 一致（P3） |
+| `plugins[].manifest` | 是   | 相对路径，指向 JSON 报关单           |
+| `plugins[].module`   | 是   | 相对路径，指向已构建入口（`dist/`）  |
+| `plugins[].scope`    | 否   | 覆盖顶层 scope                       |
 
 Schema 文件：`docs/design/phase-4/schema/keel-profile.schema.json`（新目录，随本稿登记文档地图）。
 
@@ -96,13 +96,13 @@ Schema 文件：`docs/design/phase-4/schema/keel-profile.schema.json`（新目�
 
 ## 6. 验收映射（D1）与红测先行
 
-| D1 子项 | 机械断言 |
-| --- | --- |
-| 五步校验零豁免 | 用一份越界 manifest 混进 profile → 整份拒绝、零进程、零事件 |
-| 逐插件隔离环境 | 进程表：capability/engine/policy = 子进程；model = 宿主内模块；无第三种 |
-| 装配记录逐插件落账 | 账本按声明序出现 N 条 `ASSEMBLY_RECORDED`，`plugin.id` 齐全 |
-| 未声明零加载 | 放一个"野生"插件目录不被 profile 引用 → 无进程、无 import、无事件 |
-| 跨 scope 回归 | 两 scope 各一能力插件 → 互不可见（既有 C1 用例复用） |
+| D1 子项            | 机械断言                                                                |
+| ------------------ | ----------------------------------------------------------------------- |
+| 五步校验零豁免     | 用一份越界 manifest 混进 profile → 整份拒绝、零进程、零事件             |
+| 逐插件隔离环境     | 进程表：capability/engine/policy = 子进程；model = 宿主内模块；无第三种 |
+| 装配记录逐插件落账 | 账本按声明序出现 N 条 `ASSEMBLY_RECORDED`，`plugin.id` 齐全             |
+| 未声明零加载       | 放一个"野生"插件目录不被 profile 引用 → 无进程、无 import、无事件       |
+| 跨 scope 回归      | 两 scope 各一能力插件 → 互不可见（既有 C1 用例复用）                    |
 
 红测先行：先写 `tests/profile-assembly-e2e.test.ts`（失败 → 实现 → 绿），至少覆盖上表五条 + 一条"路径为绝对路径即拒"。
 
@@ -115,8 +115,8 @@ Schema 文件：`docs/design/phase-4/schema/keel-profile.schema.json`（新目�
 - [ ] 未声明插件零加载有机械证据，不是注释（P5）
 - [ ] 单件 `--manifest` 路径仍可用（P10 回归）
 
-## 8. 待所有者拍板
+## 8. 确认记录
 
-- ~~**P1**~~：**已确认（2026-11-04）**——`profile.yaml` + 严格 YAML 子集解析器（零依赖）。
-- **P4**：六步顺序与"全部就绪才开放受理"是否照准。
-- **P6**：装配记录改为"逐插件 N 条 + 两个追加字段"，是否照准（影响契约 §5 注记）。
+- **P1（2026-11-04）**：`profile.yaml` + 严格 YAML 子集解析器（零依赖）。
+- **P4（2026-11-04 随整稿过闸）**：六步装配顺序与"全部就绪才开放受理"照准。
+- **P6（2026-11-04 随整稿过闸）**：装配记录改为"逐插件 N 条 + `profile`/`plugin` 两个追加字段"照准（契约 §5 注记按 04 稿 R2 修订）。
