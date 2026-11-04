@@ -135,3 +135,15 @@ export {
 } from "./workspace.js";
 export { SnapshotStore, type SnapshotEntry } from "./snapshot.js";
 export { RecoveryManager, type RecoveredContinuation, type RecoveryPlan } from "./recovery.js";
+export {
+  SessionLease,
+  type LeaseHandle,
+  type LeaseRecord,
+  type SessionLeaseOptions,
+} from "./session/lease.js";
+export { projectSessionBudget } from "./session/budget.js";
+export {
+  MAX_SUMMARY_CHARS,
+  compactSession,
+  type CompactSessionOptions,
+} from "./session/compact.js";

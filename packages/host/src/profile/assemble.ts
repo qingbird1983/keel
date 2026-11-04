@@ -58,6 +58,11 @@ export interface LoadProfileOptions {
   profileSchema: unknown;
   /** 已构造的 manifest 装配器（五步校验的唯一实现）。 */
   assembler: Assembler;
+  /**
+   * 运行期会话覆盖（Phase 5 `--session`）：作为顶层缺省的 `sessionId`。
+   * 插件自己显式写了 `scope.sessionId` 的仍以插件为准。
+   */
+  sessionId?: string;
 }
 
 interface RawProfilePlugin {
@@ -139,7 +144,7 @@ export function loadProfile(profilePath: string, opts: LoadProfileOptions): Prof
 
   const scope: Scope = {
     agentId: profile.scope?.agentId ?? profile.name,
-    sessionId: profile.scope?.sessionId ?? "main",
+    sessionId: opts.sessionId ?? profile.scope?.sessionId ?? "main",
   };
   const ids = new Set<string>();
   const plugins: ProfilePluginPlan[] = [];

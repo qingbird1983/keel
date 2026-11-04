@@ -434,11 +434,18 @@ describe("费用权威在 Core：模块自报 cost 与未注册模型都显式�
 });
 
 describe("R1/R3：表面事件族（ADR-0021）", () => {
-  it("TURN_INPUT / MODEL_MESSAGE 进账本（v1），白名单只含三类，surfaceOp 形状预留", async () => {
-    expect(SURFACE_EVENT_TYPES).toEqual(["TURN_INPUT", "MODEL_MESSAGE", "TOOL_RESULT"]);
+  it("TURN_INPUT / MODEL_MESSAGE 进账本（v1），白名单封闭（Phase 5 扩到四类），surfaceOp 形状预留", async () => {
+    // Phase 5 R5：白名单第三类 → 第四类（压缩标记，ADR-0026）
+    expect(SURFACE_EVENT_TYPES).toEqual([
+      "TURN_INPUT",
+      "MODEL_MESSAGE",
+      "TOOL_RESULT",
+      "SURFACE_COMPACTED",
+    ]);
     expect(isSurfaceEventType("TURN_INPUT")).toBe(true);
     expect(isSurfaceEventType("MODEL_MESSAGE")).toBe(true);
     expect(isSurfaceEventType("TOOL_RESULT")).toBe(true);
+    expect(isSurfaceEventType("SURFACE_COMPACTED")).toBe(true);
     expect(isSurfaceEventType("MODEL_USAGE")).toBe(false);
     expect(isSurfaceEventType("BUDGET_SETTLED")).toBe(false);
 

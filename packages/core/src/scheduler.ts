@@ -171,7 +171,13 @@ export class Scheduler {
           recoveredFromSeq: h.manifest.recoveredFrom.seq,
         });
       }
-      await this.emit(h, "RUN_STARTED", {});
+      await this.emit(h, "RUN_STARTED", {
+        ...(h.manifest.sessionRun !== undefined ? { sessionRun: h.manifest.sessionRun } : {}),
+      });
+      // 首轮前的缝（Phase 5 R8）：压缩标记与其摘要调用都在这里落本 run，且在本次输入之前。
+      if (h.manifest.beforeFirstRound) {
+        await h.manifest.beforeFirstRound({ ref: h.ref, ledger: this.ledger });
+      }
       // run 起始输入（Phase 4 切片④）：表面事件族的第一条，先于首轮。
       if (h.manifest.turnInput) await this.emit(h, "TURN_INPUT", h.manifest.turnInput);
       for (;;) {
@@ -350,8 +356,9 @@ export class Scheduler {
     }
 
     // 工具：Core 授权 → hook① 否决权 → 执行（hook③ 重试钳制 ≤3 次）
-    // toolCallId 优先用决策方给的（engine 的模型 tool_call id）；缺省 Core 生成。
-    const toolCallId = action.toolCallId ?? randomUUID();
+    // toolCallId 优先用决策方给的（engine 的模型 tool_call id）；缺省 Core 生成，
+    // 带本 run 前缀（Phase 5 R9）：跨 run 投影时两个 run 的随机 id 撞号会配错结果。
+    const toolCallId = action.toolCallId ?? `${ref.runId}-${randomUUID()}`;
     const d = await this.auth.check(ref, manifest.subject, "tool.invoke", action.tool);
     if (!d.allowed) return this.deniedTool(h, action, "core", d.reason);
     const approval = await this.hooks.call(ref, "toolApproval", h.round, {

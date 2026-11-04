@@ -1,0 +1,19 @@
+{
+  "kind": "engine",
+  "meta": {
+    "name": "session-engine",
+    "version": "1.0.0",
+    "title": "Session Engine",
+    "description": "会话 e2e 夹具：复用 engine-react 实现，模型指向 session-model（Phase 5 切片②）"
+  },
+  "permissions": [{ "cap": "model.adapter", "reason": "ReAct 每步经网关调用模型" }],
+  "resources": {},
+  "compensation": { "templates": [] },
+  "engine": {
+    "loop": "react",
+    "model": { "ref": "session-model", "name": "session-chat" },
+    "tools": ["echo"],
+    "maxSteps": 4
+  },
+  "compat": { "keelContract": "^1.0" }
+}

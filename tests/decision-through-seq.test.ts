@@ -108,9 +108,14 @@ describe("B7⑤：DECISION.throughSeq 承载直写事件，旧账本仍可读", 
         expect(p.throughSeq).toBe(d.seq - 1);
         expect(p.basedOn.every((s) => s >= 1 && s <= p.throughSeq!)).toBe(true);
       }
-      // 信封版本按类型：DECISION = 2，其余 = 1（切片⑤ §7 第 1 项选定形状）
+      // 信封版本按类型：DECISION = 2（ADR-0008）、RUN_STARTED = 2（Phase 5 R1 追加
+      // sessionRun），其余 = 1（切片⑤ §7 第 1 项选定形状）
       expect(decisions(evs).every((d) => d.schemaVersion === 2)).toBe(true);
-      expect(evs.filter((e) => e.type !== "DECISION").every((e) => e.schemaVersion === 1)).toBe(
+      expect(evs.filter((e) => e.type === "RUN_STARTED").every((e) => e.schemaVersion === 2)).toBe(
+        true,
+      );
+      const perTypeV2 = new Set(["DECISION", "RUN_STARTED"]);
+      expect(evs.filter((e) => !perTypeV2.has(e.type)).every((e) => e.schemaVersion === 1)).toBe(
         true,
       );
     } finally {

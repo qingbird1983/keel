@@ -42,9 +42,11 @@ export const EVENT_TYPES = [
   "TOOL_SCHEMA_CHANGED",
   "CONTEXT_PAGED",
   "CHECKPOINT",
-  /** 表面事件族（Phase 4 切片③，ADR-0021 决策 3 / R1）：只有这三类进模型视图。 */
+  /** 表面事件族（Phase 4 切片③，ADR-0021 决策 3 / R1）：只有白名单成员进模型视图。 */
   "TURN_INPUT",
   "MODEL_MESSAGE",
+  /** 压缩标记（Phase 5 R5，ADR-0026）：会话级视图操作，原始事件永留。 */
+  "SURFACE_COMPACTED",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -59,6 +61,8 @@ export type EventType = (typeof EVENT_TYPES)[number];
 export const EVENT_SCHEMA_VERSION: Partial<Record<EventType, number>> = {
   /** v2 = 追加依据上界 `throughSeq`（[ADR-0008](../../../docs/adr/ADR-0008-decision-attribution-upper-bound.md) 决策 2）。 */
   DECISION: 2,
+  /** v2 = 追加 `sessionRun`（Phase 5 R1：会话内运行序号，旧账本缺省）。 */
+  RUN_STARTED: 2,
   /** v2 = 流式会话追加 `streamId`（[ADR-0013](../../../docs/adr/ADR-0013-model-stream-pull-chunking.md) 决策 3/8）。 */
   MODEL_INVOKED: 2,
   /**
@@ -78,7 +82,12 @@ export const EVENT_SCHEMA_VERSION: Partial<Record<EventType, number>> = {
  * 其余事件（授权/预算/裁决/效果）永远是治理事实，不因"看起来有用"而进入提示。
  * 白名单封闭——改它走 ADR。
  */
-export const SURFACE_EVENT_TYPES = ["TURN_INPUT", "MODEL_MESSAGE", "TOOL_RESULT"] as const;
+export const SURFACE_EVENT_TYPES = [
+  "TURN_INPUT",
+  "MODEL_MESSAGE",
+  "TOOL_RESULT",
+  "SURFACE_COMPACTED",
+] as const;
 
 export type SurfaceEventType = (typeof SURFACE_EVENT_TYPES)[number];
 
@@ -106,6 +115,11 @@ export interface RunLifecyclePayload {
   /** RUN_RECOVERED 专用：延续后的新 runId 与恢复自的一致点 seq。 */
   newRunId?: string;
   recoveredFromSeq?: number;
+  /**
+   * RUN_STARTED 专用（Phase 5 R1，ADR-0025）：会话内单调的运行序号。
+   * 旧账本缺省 → 读方按 `RUN_STARTED.ts` + `runId` 兜底排序（兼容规则见 01 稿 §3.1）。
+   */
+  sessionRun?: number;
 }
 
 /**
@@ -362,6 +376,26 @@ export interface SurfaceOp {
   fromSeq?: number;
   toSeq?: number;
   note?: string;
+}
+
+/** 压缩遮蔽的复合区间（闭区间；跨 run 见 ADR-0025）。 */
+export interface SurfaceShadowRange {
+  from: { runId: string; seq: number };
+  to: { runId: string; seq: number };
+}
+
+/**
+ * 压缩标记（Phase 5 R5，ADR-0026 选新增表面事件）：
+ * - `summary` 只进模型视图（作为 system 消息），永不进治理/归因；
+ * - `shadowed` 是复合区间，原始事件永不改删；
+ * - `usageRef` 指回生成摘要的那次模型调用（`MODEL_USAGE.reqId`）。
+ */
+export interface SurfaceCompactedPayload {
+  summary: string;
+  shadowed: SurfaceShadowRange[];
+  reason: "manual" | "threshold";
+  usageRef: { reqId: string };
+  projectionVersion: number;
 }
 
 /** 模型回答里的工具调用意图（首块带 id/name，参数已按增量拼好）。 */

@@ -82,6 +82,32 @@ export class Budgeter {
     });
   }
 
+  /**
+   * 会话预算的账本投影回填（Phase 5 R7，01 稿 §3.4）：会话绑定时用投影值初始化
+   * `sessionUsed`，之后运行期仍由 reserve/settle 推进。
+   *
+   * 幂等：同一 scope 只认第一次回填（重复调用不会把两次投影相加）；已配置的限额保留。
+   */
+  seedSessionUsage(scope: Scope, used: number): void {
+    if (!Number.isFinite(used) || used < 0) {
+      throw new KeelError(
+        "BUDGET/INVALID-LIMIT",
+        "seeded usage must be a non-negative finite number",
+        {
+          scope,
+          used,
+        },
+      );
+    }
+    const key = scopeKey(scope);
+    const existing = this.scopes.get(key);
+    if (existing) {
+      if (existing.sessionUsed === 0) existing.sessionUsed = used;
+      return;
+    }
+    this.scopes.set(key, { limits: { ...DEFAULTS }, sessionUsed: used });
+  }
+
   /** 预扣估算：作用域链自 Run 向上逐级检查并预留；耗尽抛 BUDGET/EXHAUSTED（含处置模式）。 */
   async reserve(ref: RunRef, reqId: string, estimate: number): Promise<Reservation> {
     if (!Number.isFinite(estimate) || estimate < 0) {

@@ -1,0 +1,26 @@
+{
+  "kind": "model",
+  "meta": {
+    "name": "session-model",
+    "version": "1.0.0",
+    "title": "Session Model",
+    "description": "会话 e2e 夹具：把看到的历史条数写进回答（Phase 5 切片②）"
+  },
+  "permissions": [],
+  "resources": {},
+  "compensation": { "templates": [] },
+  "model": {
+    "provider": "mock",
+    "protocol": "mock",
+    "models": ["session-chat"],
+    "auth": { "ref": "KEEL_SESSION_MODEL_KEY" },
+    "pricing": {
+      "session-chat": {
+        "unit": "usd_per_mtok",
+        "offPeak": { "inputCached": 0, "inputUncached": 0, "output": 0 }
+      }
+    },
+    "timeouts": { "idleMs": 500 }
+  },
+  "compat": { "keelContract": "^1.0" }
+}
