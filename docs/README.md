@@ -102,5 +102,6 @@ docs/
 | design/phase-4/report                             | 定稿（2026-11-04）                                                                   | Phase 4 阶段报告：D1~D7 逐条复核（D1/D2/D3 三条一票否决全过）、四切片闭环与真进程证据、实施期修正 P-022；`phase-4.end` 已打并 merge 到 main                                                                        |
 | design/phase-4/schema/keel-profile.schema.json    | 定稿（2026-11-04）                                                                   | Profile 清单 JSON Schema：五 kind 枚举、id/name kebab-case、相对路径、未知字段拒绝；`profile.yaml` 的严格子集解析与语义校验见 01 稿                                                                                |
 | roadmap/phase-4-profile-engine-loop.md            | 定稿（2026-11-04，K1~K6 确认）                                                       | Phase 4 范围合同：全插件装配与最小业务闭环——Profile 装配面 + kind:"model" + kind:"engine"（headless 闭环）；验收 D1~D7、关键决策点 K1~K6 已确认（K3 两案对比 / K5 具体语义在设计稿阶段拍板）                       |
+| roadmap/phase-5-session-continuity.md             | 草稿（2026-11-04 起草，待 §8 K1~K6 确认）                                            | Phase 5 范围合同：跨 run 会话——会话流 + 跨 run 表面投影 + 续跑/崩溃恢复 + 会话预算连续性 + 压缩首版；验收 E1~E7、决策点 K1~K6（K2 定址 / K4 压缩形状留第二道闸）                                                   |
 
 > design/phase-1/ 另两份（补偿状态机、插件 manifest）为 Phase 0 后续交付物（见 phase-0 §4），产出即登记本表。
