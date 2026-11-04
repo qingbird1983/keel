@@ -36,7 +36,7 @@ engine 插件**跑在哪、谁驱动、每一步怎么和 Core 交换、上下�
 
   - 响应形状**封闭**：未知字段、未声明的工具名、超过 `maxSteps` 的继续请求一律拒绝（`SCHED/MANIFEST-INVALID`? 不——运行期用既有 `TRANSPORT/BADFRAME` 语义？见 §6）。
   - 一步请求时限：取契约 §7 的 **300s 档**（一步内最多含一次流式模型调用），不新增数字；空闲看门狗归模型插件（02 稿 M5）。
-- **E4 上下文的装配者仍是 Core**（C2/C4 的落地）：递进 `engine.step` 的 `messages` = 按 ADR-0021 的**纯投影**从账本算出；工具清单 = 本 run 的工具目录（按 scope 过滤）；engine 不读账本、不写账本（`ledger.read` 对它可选关闭，首版不给）。
+- **E4 上下文的装配者仍是 Core**（C2/C4 的落地）：递进 `engine.step` 的 `messages` = 按 ADR-0021 的**纯投影**从账本算出；工具清单 = 本 run 的工具目录（按 scope 过滤）；engine 不读账本、不写账本（`ledger.read` 对它可选关闭，首版不给）。消息形状至少 `{role, content, reasoning?, toolCalls?, toolCallId?}`——**`reasoning` 原样保留并回传**：DeepSeek 思考模式默认开启，带工具的请求漏传历史思考内容会直接 400（[research/02](../research/02-deepseek-api-survey.md) §3/§9），这是表面词汇必须留字段的硬理由，不是可选优化。
 - **E5 决策入账与归因**（D5）：Core 收到 `decision` 后写 `DECISION{actions, summary, basedOn}`，`basedOn` 至少引用本步的 `MODEL_INVOKED`/`MODEL_USAGE` 与上一步 `TOOL_RESULT`；`throughSeq` 由账本盖章。engine 自己写不了账本，所以归因链只有一条（无第二条写者）。
 - **E6 崩溃语义**（D3/B5）：kill engine Cell → 调度器收到舱退出 → 本轮 `RUN_FAILED{reasonCode:"ENGINE_EXITED"}` → 在途模型流按 ADR-0013 终局收束（已产出结算、`truncated`）→ 已声明未结算 effect 由补偿执行器按状态机收束 → 账本完整、并行 run 不受影响（既有 cell-crash 语义，不新增错误码）。**不做自动重启**：重启即"新 run"，属会话持久化范围（合同 §2 不做）。
 - **E7 终结与预算**：`done` 只在预算未耗尽且未触发 stop hook 时被接受；预算耗尽时下一跳 `model.invoke` 直接 `BUDGET/EXHAUSTED`，Core 按既有 `onRunExhausted` 收束（`hard-stop` 与 `graceful` 都走既有路径）。`maxSteps` 是最后一道闸（超限 = `RUN_HALTED{reasonCode:"MAX_STEPS"}`），与预算相互独立。

@@ -12,10 +12,10 @@
 
 | 编号 | 位置 | 变更 | 依据 |
 | --- | --- | --- | --- |
-| R1 | §5 事件表 | **新增表面事件类型两条**：`TURN_INPUT`（run 起始的用户/系统输入，`role` 区分）与 `MODEL_MESSAGE`（模型回答正文 + 工具调用意图 + 用量引用）。进账本、同 seq 序列、仅 Core 可写 | ADR-0021 决策 1/3；03 稿 E4 |
+| R1 | §5 事件表 | **新增表面事件类型两条**：`TURN_INPUT`（run 起始的用户/系统输入，`role` 区分）与 `MODEL_MESSAGE`（模型回答正文 + 工具调用意图 + 用量引用 + **`reasoningContent?`**）。进账本、同 seq 序列、仅 Core 可写 | ADR-0021 决策 1/3；03 稿 E4；research/02 §3（思考内容必须可回传） |
 | R2 | §5 注记 | `ASSEMBLY_RECORDED` 由"run 首事件"改为"run 启动时按 profile 声明序写入的首批事件"；载荷追加可选 `profile:{name,version}` 与 `plugin:{id}` | 01 稿 P6；D1 |
 | R3 | §5 注记 | 表面事件白名单：只有 `TURN_INPUT` / `MODEL_MESSAGE` / `TOOL_RESULT` 进模型视图；`surfaceOp` 字段**预留、本阶段不实现**，只允许出现在表面事件上 | ADR-0021 决策 3/4；C2/C4 |
-| R4 | §4.7 + §5 | `MODEL_USAGE` 载荷升 v3：追加 `usageBuckets:{input,output,...}` 与 `pricedBy:"manifest"`；`cost` 由 Core 按 manifest 价格表计算（`kind:"model"` 路径不接受模块自报 cost） | 02 稿 M3（已确认） |
+| R4 | §4.7 + §5 | `MODEL_USAGE` 载荷升 v3：追加 `usageBuckets:{inputCached,inputUncached,output}`、`tier:"peak"\|"offPeak"` 与 `pricedBy:"manifest"`；`cost` 由 Core 按 manifest 价格表计算（`kind:"model"` 路径不接受模块自报 cost） | 02 稿 M3（已确认）；research/02 §6/§7（三桶 + 峰谷两档） |
 | R5 | §4.7 注记 | 模型调用治理三层：总时限（既有 120s/300s）+ 模块空闲看门狗（可选，≤ 总时限）+ 单次实结超预扣不穿透预算（`overrun:true`，按既有耗尽处置） | 02 稿 M5（已确认）；补 `budget.settle` 现状缺口 |
 | R6 | §4 接口定义 | **新增 Host→Cell op `engine.step`**：`{runId, step, maxSteps, messages, tools, lastResult?}` → `{decision:{kind:"act",actions[]}|{kind:"done",summary}}`；响应形状封闭；一步取 §7 的 300s 档 | 03 稿 E1（已确认）/E3 |
 | R7 | §7 超时表 | `engine.step` 一行：取既有 300s 档，**不新增数字** | 03 稿 E3 |
@@ -27,9 +27,9 @@
 | --- | --- | --- | --- |
 | R9 | `schema/keel-plugin.schema.json` | `kind.enum` 扩为五值（+`model`、`engine`）；新增两段 `if/then`：`model` 必填 `model` 段、`engine` 必填 `engine` 段；`additionalProperties:false` 不变 | 01 稿 P7；02 稿 M1；03 稿 E9 |
 | R10 | manifest 规范 §5.2 | 能力词表**不增项**；补一条语义规则：`engine` 的 `permissions` 只允许 `model.adapter`，越界即整份拒绝（不靠评审） | 03 稿 E8 |
-| R11 | manifest 规范 §5（新小节） | `model` 段字段表（provider/protocol/models/endpoint/auth.ref/pricing/timeouts.idleMs）；`auth.ref` 为环境变量名，pattern 拒绝 `sk-` 形态 | 02 稿 §4 |
+| R11 | manifest 规范 §5（新小节） | `model` 段字段表（provider/protocol/models/endpoint/auth.ref/pricing/timeouts.idleMs）；`pricing` 按模型分表，三桶 + `offPeak`/`peak`/`peakWindows`/`unknownTier`；`auth.ref` 为环境变量名，pattern 拒绝 `sk-` 形态；示例模型名取现行名（`deepseek-flash`） | 02 稿 §4；research/02 §1/§7 |
 | R12 | manifest 规范 §5（新小节） | `engine` 段字段表（loop/model.ref/model.name/tools/maxSteps）；`tools` 每个名字装配期**恰好一个**能力插件提供，重名整份拒绝 | 03 稿 §4/E9 |
-| R13 | 装配器（`packages/host/src/assembler.ts`） | 新增语义校验：engine 能力白名单；`model.auth.ref` presence-only（缺失拒绝，错误只写 ref 名）；价格表非负；`timeouts.idleMs ≤ 总时限`；`maxSteps` 区间 | 02 稿 M6/M5；03 稿 E9/R12 |
+| R13 | 装配器（`packages/host/src/assembler.ts`） | 新增语义校验：engine 能力白名单；`model.auth.ref` presence-only（缺失拒绝，错误只写 ref 名）；`pricing` 的键集合 = `models`、三桶非负有限、`peak` 存在时 `peakWindows` 必填、`unit` 只 `usd_per_mtok`；`timeouts.idleMs ≤ 总时限`；`maxSteps` 区间 | 02 稿 M6/M5/§4；03 稿 E9/R12 |
 
 ## 4. 禁面扫描扩展（K6；`scripts/scan-native-plugins.mjs` + 门禁测试）
 
