@@ -101,6 +101,23 @@ export interface CompensationExecInput {
 export type CompensationHandler = (input: CompensationExecInput) => Promise<unknown> | unknown;
 
 /**
+ * engine 插件的一步（Phase 4 切片④，03 稿 E1/E3；ADR-0023）：
+ * Host 每步发一次 `engine.step`，插件在一步内调模型并返回决策。
+ * **没有工具执行通道**——工具调用由 Core 执行，engine 只返回意图。
+ */
+export interface EngineStepContext {
+  /** 业务能力出口（本切片只用到模型调用；工具执行不在这里）。 */
+  readonly client: CellClient;
+  /** 报关单 `engine` 段（宿主经 bootstrap 送达；模块不自报）。 */
+  readonly engine: unknown;
+}
+
+export type EngineStepHandler = (
+  input: unknown,
+  ctx: EngineStepContext,
+) => Promise<unknown> | unknown;
+
+/**
  * 策略插件的插话处理体（切片④回填项 ①，ADR-0012 决策 1/2）。
  *
  * 形状刻意薄到只有一进一出：入参 = 内核给出的 hook 入参（不含任何可操作句柄），
@@ -186,6 +203,8 @@ export interface CellOptions extends ConnStreams {
    * 缺省 = 无切面，`tool.exec` 走老路径（handler 仍收 `{client, effects:[]}`）。
    */
   governance?: CellGovernancePlan;
+  /** engine 插件专用：报关单 `engine` 段（bootstrap 送达；其余 kind 不设）。 */
+  engine?: unknown;
   now?: () => number;
 }
 
@@ -201,6 +220,8 @@ export interface CellHandle {
   setMigration(fn: (oldState: unknown) => Promise<unknown> | unknown): void;
   /** 注册补偿动作表（插件 export const compensations；切片④）。 */
   setCompensations(map: Record<string, CompensationHandler>): void;
+  /** 注册 engine 的一步（插件 export function step；Phase 4 切片④）。 */
+  setEngineStep(fn: EngineStepHandler): void;
   /**
    * 注册策略插话表（策略舱专用；切片④，ADR-0012）。**与 `setCompensations` 不同**：
    * 这里登记的是"本舱能应答哪几个 hook"，宿主只会按报关单声明的名字来问——问了没登记的
@@ -254,6 +275,7 @@ export function startCell(opts: CellOptions): CellHandle {
   const governed = new Map<string, GovernedToolPlan>(Object.entries(opts.governance?.tools ?? {}));
   const now = opts.now ?? (() => Date.now());
   let migration: ((oldState: unknown) => Promise<unknown> | unknown) | null = null;
+  let engineStep: EngineStepHandler | null = null;
   let snapshotProvider: (() => Promise<unknown> | unknown) | null = null;
   let disposeHook: (() => Promise<unknown> | unknown) | null = null;
   const resources = new EffectScope();
@@ -318,6 +340,13 @@ export function startCell(opts: CellOptions): CellHandle {
           );
         }
         return hardTimeout(() => fn(req), "CELL/COMPENSATION-FAILED");
+      }
+      case "engine.step": {
+        // Host→Cell 的"一步"（ADR-0023）：插件只拿模型调用出口，没有工具执行入口。
+        if (!engineStep) {
+          throw new ChannelError("CELL/OP-UNKNOWN", "engine.step not registered", { op });
+        }
+        return await engineStep(params, { client, engine: opts.engine });
       }
       case "cell.snapshot":
         return { state: snapshotProvider ? await snapshotProvider() : null };
@@ -549,6 +578,9 @@ export function startCell(opts: CellOptions): CellHandle {
     },
     setCompensations(map) {
       for (const [ref, fn] of Object.entries(map)) compensations.set(ref, fn);
+    },
+    setEngineStep(fn) {
+      engineStep = fn;
     },
     setHooks(map) {
       for (const [name, fn] of Object.entries(map)) hooks.set(name, fn);

@@ -62,6 +62,27 @@ describe("model-mock 剧本（Phase 4 切片③）", () => {
     expect(Date.now() - started).toBeLessThan(400);
   });
 
+  it("ReAct 模式：按用户计划先给工具调用意图，有工具结果后收束", async () => {
+    const plan = {
+      role: "user",
+      content: JSON.stringify({ tool: "echo", arguments: { text: "hi" }, final: "done" }),
+    };
+    const first = await upstream.invoke({
+      model: "mock-chat",
+      params: { messages: [plan], step: 1 },
+    });
+    expect(first.result).toMatchObject({
+      content: "",
+      toolCalls: [{ id: "call-1", name: "echo", arguments: { text: "hi" } }],
+    });
+    const second = await upstream.invoke({
+      model: "mock-chat",
+      params: { messages: [plan, { role: "tool", content: "{}", toolCallId: "call-1" }], step: 2 },
+    });
+    expect(second.result).toMatchObject({ content: "done", reasoningContent: "enough context" });
+    expect((second.result as { toolCalls?: unknown }).toolCalls).toBeUndefined();
+  });
+
   it("断流剧本：先出 N 片再抛（已产出部分可对账）", async () => {
     const seen: unknown[] = [];
     await expect(

@@ -49,7 +49,13 @@ export {
   type ToolSchemaChangedPayload,
   type TurnInputPayload,
 } from "./events.js";
-export { appendModelMessage, appendTurnInput } from "./surface.js";
+export {
+  SURFACE_PROJECTION_VERSION,
+  appendModelMessage,
+  appendTurnInput,
+  projectSurface,
+  type SurfaceMessage,
+} from "./surface.js";
 export {
   priceUsage,
   pricingTier,
@@ -122,6 +128,7 @@ export {
   type DriverAction,
   type DriverDecision,
   type PendingCompensator,
+  type RoundContext,
   type RunDriver,
   type RunManifest,
   type RunState,

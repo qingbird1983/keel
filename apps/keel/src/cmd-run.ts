@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import type { RunDriver } from "@keel/core";
 import {
   Assembler,
+  EngineDriver,
   assembleProfile,
   loadProfile,
   type PolicySpec,
@@ -52,6 +53,11 @@ export interface RunOptions {
    */
   policyManifests?: string[];
   policyModules?: string[];
+  /**
+   * engine 驱动的 run 起始输入（Phase 4 切片④）：`TURN_INPUT` 的正文。
+   * mock 剧本把计划写成 JSON（`{tool, arguments, final}`）；真实模型直接读自然语言。
+   */
+  input?: string;
 }
 
 /** @returns 退出码：0 = 终态 halted；1 = 其他终态/异常。 */
@@ -134,21 +140,16 @@ export async function cmdRun(opts: RunOptions): Promise<number> {
 }
 
 /**
- * `keel run --profile`（Phase 4 切片②，01 稿 P10）：
+ * `keel run --profile`（Phase 4 切片②/④，01 稿 P10 + 03 稿 E1）：
  * 一份清单 → 六步装配 → 逐插件记录 → 起 run。
- * engine 驱动的闭环要等 `engine.step`（切片④）；本片对含 engine 的 profile 明确拒绝，
- * 不用 demo driver 假装跑过——"跑了但没经过引擎"比"还没跑"更容易误导。
+ * 含 engine 的 profile 走引擎驱动（每步 `engine.step`，工具仍由 Core 执行）；
+ * 不含 engine 的 profile 保留 demo driver（能力型清单的既有入口）。
  */
 async function runProfile(profilePath: string, opts: RunOptions): Promise<number> {
   const plan = loadProfile(profilePath, {
     profileSchema: loadProfileSchema(),
     assembler: new Assembler({ schema: loadSchema() }),
   });
-  if (plan.plugins.some((p) => p.kind === "engine")) {
-    // engine 驱动的闭环要等 `engine.step`（切片④）：在拉任何进程之前就说清楚，
-    // 不用 demo driver 假装跑过——"跑了但没经过引擎"比"还没跑"更容易误导。
-    throw new Error("engine-driven profile runs land in slice ④ (engine.step 尚未接线)");
-  }
   const dataDir = opts.dataDir ?? (await mkdtemp(path.join(tmpdir(), "keel-profile-")));
   const snapshotDir = snapshotDirOf(dataDir, opts.snapshotDir);
   const policy = runPolicyFor(
@@ -175,21 +176,34 @@ async function runProfile(profilePath: string, opts: RunOptions): Promise<number
     });
     const tool = opts.tool ?? "ok";
     const total = opts.rounds ?? 2;
-    const driver: RunDriver = {
-      decide: async (c) =>
-        c.round < total
-          ? { summary: `call ${tool}`, actions: [{ kind: "tool", tool, params: {} }] }
-          : { done: true, summary: "profile-end" },
-    };
+    const driver: RunDriver = assembly.engine
+      ? new EngineDriver({
+          cell: assembly.engine.cell,
+          engine: assembly.engine.decl,
+          ledger: rt.ledger,
+          ref: assembly.ref,
+        })
+      : {
+          decide: async (c) =>
+            c.round < total
+              ? { summary: `call ${tool}`, actions: [{ kind: "tool", tool, params: {} }] }
+              : { done: true, summary: "profile-end" },
+        };
     const { done } = rt.scheduler.start({
       ref: assembly.ref,
       subject: assembly.ref.agentId,
       executor: assembly.executor,
       driver,
       assembly: assembly.records,
+      // engine 驱动必须有起始输入（表面投影的第一条）；能力型清单保持旧形状。
+      ...(assembly.engine
+        ? { turnInput: { role: "user" as const, content: opts.input ?? "run the profile" } }
+        : {}),
     });
     for (const c of assembly.cells) c.cell.attachRun(c.ref);
-    const binder = assembly.cells[0]?.cell;
+    if (assembly.engine) rt.engineCells.add(assembly.engine.cell);
+    // 快照索取优先指向 engine（它持有本 run 的循环上下文；能力舱仍各自保留快照面）。
+    const binder = assembly.engine?.cell ?? assembly.cells[0]?.cell;
     if (binder) rt.bindings.set(assembly.ref.runId, { scope: plan.scope, cell: binder });
     const status = await done;
     const events = await readRun(rt, assembly.ref.runId);

@@ -178,6 +178,12 @@ export interface ToolResultPayload {
   durationMs: number;
   resultDigest?: unknown;
   error?: unknown;
+  /**
+   * 发起本次执行的工具调用标识（Phase 4 切片④，表面投影 E4 的关联键）：
+   * 模型消息里的 `toolCalls[].id` 与工具结果里的 `toolCallId` 必须能对上，
+   * 否则第二轮的 ReAct 上下文无法把结果配给调用。缺省不写（旧账本可读）。
+   */
+  toolCallId?: string;
 }
 
 export interface AuthDeniedPayload {

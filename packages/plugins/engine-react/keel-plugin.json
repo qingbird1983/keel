@@ -1,0 +1,19 @@
+{
+  "kind": "engine",
+  "meta": {
+    "name": "engine-react",
+    "version": "1.0.0",
+    "title": "React Engine",
+    "description": "最小 ReAct 标杆：每步调一次模型，返回工具调用意图或终结摘要（Phase 4 切片④）"
+  },
+  "permissions": [{ "cap": "model.adapter", "reason": "ReAct 每步经网关调用模型" }],
+  "resources": {},
+  "compensation": { "templates": [] },
+  "engine": {
+    "loop": "react",
+    "model": { "ref": "model-mock", "name": "mock-chat" },
+    "tools": ["echo"],
+    "maxSteps": 8
+  },
+  "compat": { "keelContract": "^1.0" }
+}

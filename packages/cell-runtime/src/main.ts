@@ -17,6 +17,7 @@ import {
   startCell,
   type CellTool,
   type CompensationHandler,
+  type EngineStepHandler,
   type PluginSetupContext,
 } from "./cell.js";
 import type { CellGovernancePlan } from "./governance.js";
@@ -26,6 +27,8 @@ interface Bootstrap {
   toolCallTimeoutMs: number;
   /** 宿主编译的治理计划（ADR-0015）；缺省 = 无切面。 */
   governance?: CellGovernancePlan;
+  /** engine 插件的报关单 `engine` 段（Phase 4 切片④；其余 kind 缺省）。 */
+  engine?: unknown;
 }
 
 interface PluginModule {
@@ -36,6 +39,8 @@ interface PluginModule {
   dispose?: () => Promise<unknown> | unknown;
   migrate?: (oldState: unknown) => Promise<unknown> | unknown;
   compensations?: Record<string, CompensationHandler>;
+  /** engine kind 的每步决策（Phase 4 切片④；ADR-0023）。 */
+  step?: EngineStepHandler;
   snapshot?: () => Promise<unknown> | unknown;
 }
 
@@ -71,6 +76,7 @@ void (async () => {
     // "startCell 本来就在 import 之后"的巧合，这样漏调 markReady 会表现为就绪超时（可见失败）。
     loadGate: true,
     governance: boot.governance,
+    engine: boot.engine,
   });
   // 装载义务（ADR-0011 注记 2026-11-03；03 稿 §4.1）= 本地执行表登记 **和** 宿主侧分区发布，
   // 两者完成才开闸。发布走既有 op tool.register（ADR-0010 通道，两步式与承接层 cell-port 同形）：
@@ -96,6 +102,11 @@ void (async () => {
   }
   if (mod.migrate) cell.setMigration(mod.migrate);
   if (mod.compensations) cell.setCompensations(mod.compensations);
+  // engine kind 的装载义务：没有 step 导出 = 装配期可见失败（不是第一轮才 CELL/OP-UNKNOWN）。
+  if (boot.engine !== undefined && !mod.step) {
+    crash(new Error("engine module must export step(input, ctx)"));
+  }
+  if (mod.step) cell.setEngineStep(mod.step);
   if (mod.snapshot) cell.setSnapshotProvider(mod.snapshot);
   if (mod.dispose) cell.setDisposeHook(mod.dispose);
   cell.markReady();

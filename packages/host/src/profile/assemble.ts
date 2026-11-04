@@ -245,6 +245,12 @@ export interface ProfileAssembly {
   plan: ProfilePlan;
   ref: RunRef;
   plugins: AssembledProfilePlugin[];
+  /**
+   * engine 条目（Phase 4 切片④）：`engine.step` 的 Cell 与报关单声明。
+   * 驱动由调用方经 `new EngineDriver({cell, engine: decl, ledger, ref})` 组装；
+   * profile 不含 engine 时缺省（旧路径不受影响）。
+   */
+  engine?: { pluginId: string; cell: SupervisedCell; decl: NonNullable<LoadedManifest["engine"]> };
   /** 需要 attachRun 的 Cell（按声明序）。 */
   cells: { cell: SupervisedCell; ref: RunRef }[];
   policies: PolicyBinding[];
@@ -433,11 +439,18 @@ export async function assembleProfile(
     plugin: { id: p.id },
   }));
 
+  const enginePlugin = plugins.find((p) => p.kind === "engine");
+  const engine =
+    enginePlugin?.cell && enginePlugin.manifest.engine
+      ? { pluginId: enginePlugin.id, cell: enginePlugin.cell, decl: enginePlugin.manifest.engine }
+      : undefined;
+
   let closed = false;
   return {
     plan,
     ref: runRef,
     plugins,
+    ...(engine ? { engine } : {}),
     cells,
     policies,
     records,

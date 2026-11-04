@@ -208,6 +208,8 @@ export interface Runtime {
   snapshotFailures: SnapshotFailureRecord[];
   /** runId → 在途 Cell（onCheckpoint 快照索取缝的查找表，切片④）。 */
   bindings: Map<string, { scope: Scope; cell: SupervisedCell }>;
+  /** 本运行中 engine 的 Cell（Phase 4 切片④：退出原因码映射为 ENGINE_EXITED）。 */
+  engineCells: Set<SupervisedCell>;
   /** 已接线的策略舱（切片④ 回填项 ①）：close 时一并收束，装配审计从这里的 summary 组载荷。 */
   policies: PolicyBinding[];
   close(): Promise<void>;
@@ -288,6 +290,7 @@ export async function buildRuntime(
     alerts: [],
     snapshotFailures: [],
     bindings: new Map(),
+    engineCells: new Set(),
     policies: [],
     close: async () => undefined,
   };
@@ -336,7 +339,11 @@ export async function buildRuntime(
     toolKillGraceMs: 5_000,
     onCellExit: (e) => {
       const ref = e.cell.ref;
-      if (ref) void rt.scheduler.abort(ref.runId, e.reasonCode, e.message);
+      if (!ref) return;
+      // engine Cell 的退出在 reasonCode 上与普通能力舱区分（R8 / 03 稿 E6）：
+      // 契约错误码集合不变，变的是载荷级原因码。
+      const reasonCode = rt.engineCells.has(e.cell) ? "ENGINE_EXITED" : e.reasonCode;
+      void rt.scheduler.abort(ref.runId, reasonCode, e.message);
     },
   });
   /**
@@ -461,6 +468,7 @@ export async function closeRuntime(rt: Runtime): Promise<void> {
   // 策略舱不属于任何 run（不进 bindings），但它同样是进程资源：收束覆盖所有 spawn 源（P-003）
   await Promise.allSettled(rt.policies.map((b) => b.cell.drainAndReap()));
   rt.bindings.clear();
+  rt.engineCells.clear();
   rt.policies = [];
   await rt.ledger.close();
 }

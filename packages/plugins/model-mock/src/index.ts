@@ -47,6 +47,45 @@ export interface MockParams {
   content?: string;
   /** 非流式回答的思考内容（回传形状的证据）。 */
   reasoningContent?: string;
+  /**
+   * ReAct 模式（Phase 4 切片④）：engine 把投影好的消息交上来，mock 按"用户输入里的计划"
+   * 确定性地扮演模型——没有工具结果时产出工具调用意图，有工具结果时收束。
+   * 计划形状：`{tool, arguments, final?, scenario?, delayMs?}`（见 `reactPlan`）。
+   */
+  messages?: unknown[];
+  /** 当前步序（reqId 之外的第二重确定性来源）。 */
+  step?: number;
+}
+
+/** ReAct 模式的用户计划（最后一条 user 消息的 JSON）。 */
+interface ReactPlan {
+  tool?: string;
+  arguments?: unknown;
+  final?: string;
+  scenario?: "throw" | "slow";
+  delayMs?: number;
+  reasoningContent?: string;
+}
+
+function reactPlan(messages: unknown[]): ReactPlan {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i] as { role?: unknown; content?: unknown } | null;
+    if (!m || m.role !== "user" || typeof m.content !== "string") continue;
+    try {
+      const parsed = JSON.parse(m.content) as unknown;
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        return parsed as ReactPlan;
+      }
+    } catch {
+      /* 不是计划 = 普通对话：mock 只回一句确定性正文 */
+    }
+    return {};
+  }
+  return {};
+}
+
+function hasToolResult(messages: unknown[]): boolean {
+  return messages.some((m) => (m as { role?: unknown } | null)?.role === "tool");
 }
 
 /** 每片报一次**累计**三桶：最后一片即终值，断流时最后一片仍可计价。 */
@@ -91,6 +130,35 @@ export function create({ model }: CreateInput) {
   return {
     async invoke(req: { model: string; params: unknown }) {
       const p = asParams(req.params);
+      // ReAct 模式（engine 的每步请求）：按用户输入里的计划确定性扮演模型。
+      if (Array.isArray(p.messages)) {
+        const plan = reactPlan(p.messages);
+        const afterTool = hasToolResult(p.messages);
+        if (plan.scenario === "throw") throw new Error("mock upstream failure");
+        // slow：第一次调用（还没有工具结果）与收束调用都按同一延迟——崩溃用例要在
+        // "工具已落盘、模型还在想"的窗口里杀舱，所以收束那一步也要能挂住。
+        if (plan.scenario === "slow") await waitOrAbort(plan.delayMs ?? 50, idleMs);
+        const final = plan.final ?? "mock-react-done";
+        const reasoning =
+          plan.reasoningContent ??
+          (plan.tool !== undefined && !afterTool ? "need a tool" : "enough context");
+        let result: Record<string, unknown> = {
+          role: "assistant",
+          content: final,
+          reasoningContent: reasoning,
+        };
+        if (plan.tool !== undefined && !afterTool) {
+          result = {
+            role: "assistant",
+            content: "",
+            reasoningContent: reasoning,
+            toolCalls: [
+              { id: `call-${p.step ?? 1}`, name: plan.tool, arguments: plan.arguments ?? {} },
+            ],
+          };
+        }
+        return { result, usage: cumulative(1) };
+      }
       if (p.scenario === "throw") throw new Error("mock upstream failure");
       if (p.scenario === "slow") await waitOrAbort(p.delayMs ?? 50, idleMs);
       const result = {

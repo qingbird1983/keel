@@ -406,25 +406,45 @@ export class CompensationExecutor {
     });
   }
 
-  /** 本 run 的装配权限基线（内建 fs.remove 的路径复核依据；缺失 = 无允许路径）。 */
+  /**
+   * 本 run 的装配权限基线（内建 fs.remove 的路径复核依据；缺失 = 无允许路径）。
+   *
+   * Phase 4 切片④修正：profile 装配是**逐插件一条** ASSEMBLY_RECORDED（01 稿 P6），
+   * 只读第一条会把"权限在第三个插件身上"读成"无允许路径"——profile 全家桶下补偿必然升级。
+   * 这里改为合并本 run 全部装配记录的权限（按 cap+allow 去重；语义仍是"本 run 声明过什么"）。
+   */
   private async readPermissions(ref: RunRef): Promise<RunPermissionView[]> {
-    const page = await this.ledger.read({ runId: ref.runId, types: ["ASSEMBLY_RECORDED"] });
-    const payload = page.events[0]?.payload as { permissions?: unknown } | undefined;
-    if (!Array.isArray(payload?.permissions)) return [];
     const out: RunPermissionView[] = [];
-    for (const item of payload.permissions) {
-      if (typeof item !== "object" || item === null) continue;
-      const cap = (item as { cap?: unknown }).cap;
-      if (typeof cap !== "string") continue;
-      const allow = (item as { allow?: unknown }).allow;
-      out.push({
-        cap,
-        ...(Array.isArray(allow)
-          ? { allow: allow.filter((x): x is string => typeof x === "string") }
-          : {}),
-      });
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    for (;;) {
+      const page = await this.ledger.read(
+        { runId: ref.runId, types: ["ASSEMBLY_RECORDED"] },
+        cursor,
+      );
+      for (const ev of page.events) {
+        const payload = ev.payload as { permissions?: unknown };
+        if (!Array.isArray(payload.permissions)) continue;
+        for (const item of payload.permissions) {
+          if (typeof item !== "object" || item === null) continue;
+          const cap = (item as { cap?: unknown }).cap;
+          if (typeof cap !== "string") continue;
+          const allow = (item as { allow?: unknown }).allow;
+          const view: RunPermissionView = {
+            cap,
+            ...(Array.isArray(allow)
+              ? { allow: allow.filter((x): x is string => typeof x === "string") }
+              : {}),
+          };
+          const key = `${view.cap}\u0000${(view.allow ?? []).join("\u0000")}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push(view);
+        }
+      }
+      if (!page.nextCursor) return out;
+      cursor = page.nextCursor;
     }
-    return out;
   }
 
   private async alert(

@@ -18,8 +18,9 @@ const USAGE = `keel — Phase 1 验收场景执行入口（命令面见 docs/des
 用法：
   keel run --manifest <path> --plugin <path> [--tool ok] [--rounds 2] [--data-dir <dir>] [--snapshots <dir>]
           [--policy-manifest <path> --policy-module <path>]…（成对、可重复；策略舱见 ADR-0012）
-  keel run --profile <profile.yaml> [--tool ok] [--rounds 2] [--data-dir <dir>] [--snapshots <dir>]
-          （Phase 4：一份清单拉起全家桶；--manifest/--plugin 与 --profile 互斥）
+  keel run --profile <profile.yaml> [--input <text>] [--tool ok] [--rounds 2] [--data-dir <dir>] [--snapshots <dir>]
+          （Phase 4：一份清单拉起全家桶；--manifest/--plugin 与 --profile 互斥；
+           含 engine 的清单由引擎驱动，--input 是这次 run 的起始输入）
   keel recover --data-dir <dir> --run <runId> [--snapshots <dir>] [--plugin <path>] [--manifest <path>] [--tool get-state]
   keel replay --data-dir <dir> --run <runId>
   keel validate (--manifest <path> | --dir <dir> | --profile <path>) [--expect accept|reject]
@@ -107,6 +108,7 @@ export async function main(argv: string[]): Promise<number> {
           snapshotDir: str(a.snapshots) || undefined,
           policyManifests,
           policyModules,
+          input: str(a.input) || undefined,
         });
       }
       case "recover":

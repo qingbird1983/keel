@@ -63,6 +63,7 @@ export {
 export {
   CELL_EXIT_REASON,
   CellSupervisor,
+  ENGINE_STEP_TIMEOUT_MS,
   SupervisedCell,
   type CellExit,
   type CellExitClass,
@@ -70,6 +71,15 @@ export {
   type DrainOutcome,
   type SupervisorOptions,
 } from "./supervisor.js";
+export {
+  EngineDriver,
+  EngineProtocolError,
+  GracefulExhaustion,
+  modelEventsOf,
+  type EngineDriverOptions,
+  type EngineStepInput,
+  type EngineStepResponse,
+} from "./engine-driver.js";
 export { serveCellChannel, type CellChannelBinding, type CellServerDeps } from "./cell-server.js";
 export { manifestAuthRules, capabilitysWithoutRuntimeOp } from "./permission-rules.js";
 export {

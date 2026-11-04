@@ -2,19 +2,21 @@
  * keel bench —— A8 四项基准（04 稿 §3 口径）：只建测量不调优，无阈值断言。
  * B1 账本吞吐 / B2 网关延迟（壳层）/ B3 Cell 冷启 / B4 补偿编排延迟（观测项）
  * / B5 流式口径（切片⑤ §6：首片延迟、分片数、单 run 总延迟——同样只测量不设阈值）
- * / B6 插件开销（Phase 3 切片⑤：三件套三行同族口径，互相横向对比——合同"其他"交付物）。
+ * / B6 插件开销（Phase 3 切片⑤：三件套三行同族口径，互相横向对比——合同"其他"交付物）
+ * / B7 模型调用治理开销（Phase 4 切片④：gateway.invoke 全链，只测量不设阈值）。
  */
 import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { HookBus, type RunDriver, type RunRef } from "@keel/core";
-import { wireCell, wirePolicies, type LoadedManifest } from "@keel/host";
+import { HookBus, type ModelPricing, type RunDriver, type RunRef } from "@keel/core";
+import { Assembler, wireCell, wirePolicies, type LoadedManifest } from "@keel/host";
 import {
   assembleManifest,
   buildRuntime,
   closeRuntime,
   fixturePath,
+  loadSchema,
   policyCellEntryPath,
   repoRoot,
   runPolicy,
@@ -354,6 +356,52 @@ export async function cmdBench(_opts: BenchOptions = {}): Promise<number> {
     await Promise.allSettled(b6Policies.map((b) => b.cell.drainAndReap()));
     await closeRuntime(rt7);
 
+    // ── B7 模型调用治理开销（Phase 4 切片④，合同 §2"基准"）：一次 gateway.invoke 的全链
+    // （授权 → 预扣 → MODEL_INVOKED → 上游 → settle → MODEL_USAGE）。上游是确定性桩，
+    // 量的是 Core 治理与账本，不是网络；只测量不设阈值。
+    // presence-only 的密钥检查在基准里不适用：B7 不解析密钥、不发起真实请求。
+    const modelManifest = new Assembler({
+      schema: loadSchema(),
+      secretPresent: () => true,
+    }).assemble(pluginJson("model-mock"));
+    const modelPricing = (modelManifest.model as { pricing: Record<string, ModelPricing> }).pricing[
+      "mock-chat"
+    ];
+    const rt8 = await buildRuntime(dir, {
+      policy: runPolicyFor([{ manifest: modelManifest, subject: "keel-bench" }], "p-bench-b7"),
+    });
+    rt8.gateway.registerModel({
+      models: ["mock-chat"],
+      upstream: {
+        invoke: async () => ({
+          result: { role: "assistant", content: "bench" },
+          usage: { inputCached: 1_000, inputUncached: 1_000, output: 1_000 },
+        }),
+      },
+      pricing: modelPricing,
+    });
+    const b7Ref: RunRef = { ...scope, runId: "bench-b7" };
+    const b7Round: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      await rt8.gateway.invoke(b7Ref, "keel-bench", {
+        reqId: `bench-b7-warm-${i}`,
+        model: "mock-chat",
+        params: {},
+        estimate: 1,
+      });
+    }
+    for (let i = 0; i < b6N; i++) {
+      const a = now();
+      await rt8.gateway.invoke(b7Ref, "keel-bench", {
+        reqId: `bench-b7-${i}`,
+        model: "mock-chat",
+        params: {},
+        estimate: 1,
+      });
+      b7Round.push(ms(a, now()));
+    }
+    await closeRuntime(rt8);
+
     // ── 汇总（markdown 片段，供 report.md 抄录）
     const node = process.version;
     const plat = `${process.platform}/${process.arch}`;
@@ -392,6 +440,9 @@ export async function cmdBench(_opts: BenchOptions = {}): Promise<number> {
     );
     console.info(
       `| B6c 插件·策略插话 | toolApproval 跨进程往返 N=${b6N}（param-guard 策略舱，对 echo 输入恒 approve） | min/p50 = ${Math.min(...hookRound).toFixed(1)}/${pct(hookRound, 0.5).toFixed(1)} ms |`,
+    );
+    console.info(
+      `| B7 模型调用治理 | gateway.invoke 全链 N=${b6N}（授权+预扣+MODEL_INVOKED+桩上游+settle+MODEL_USAGE） | min/p50 = ${Math.min(...b7Round).toFixed(1)}/${pct(b7Round, 0.5).toFixed(1)} ms |`,
     );
     return 0;
   } finally {
