@@ -39,8 +39,14 @@
 
 - **未进 CI**（合同 K4）。手动脚本：[`scripts/verify-model-deepseek.mjs`](../../../scripts/verify-model-deepseek.mjs)
   （`DEEPSEEK_API_KEY=... node scripts/verify-model-deepseek.mjs [模型名]`，先 `pnpm build`）。
-- **未执行**：本次切片没有可用密钥，脚本只做过编译与静态检查；**没有**真实请求记录。
-  这一条按 K4 明示：真适配器不承诺生产可用，验收断言由 mock 承载。
+- **已执行（2026-11-04，密钥到位后补录）**：`deepseek-flash` 非流式与流式各一次真实请求成功。
+  - 非流式：`usage={inputCached:0,inputUncached:38,output:6}`、`tier=peak`、`usd=0.0000186`；
+    正文 `keel-\nok`（模型多回一个换行，非协议问题）。
+  - 流式：`parts=45`、末片 `usage={inputCached:0,inputUncached:40,output:44}`、`usd=0.0000648`；
+    拼接正文 `1, 2, 3`——用量挂末块、SSE 逐片到达的形状得到实测确认。
+  - 密钥只在运行时从本地文件读取并注入进程环境，未写入仓库/日志/账本。
+  - 两次简单问答均未返回非空 `reasoning_content`；该字段的回传路径仍由单测覆盖。
+    这一条按 K4 明示：真适配器仍不进 CI、不承诺生产可用，验收断言由 mock 承载。
 - 禁面扫描：`native-plugin-scan: clean`。
 
 ## ⑤ 不可观察面

@@ -134,3 +134,16 @@
 4. **空闲看门狗**：`model.timeouts.idleMs` 由模块在两次取片之间 rearm；mock 用 `pauseAfterFirstMs` 剧本复现，e2e 断言 `produced/cost/truncated` 可对账。
 5. **两个实现**：`packages/plugins/model-mock`（CI）+ `packages/plugins/model-deepseek`（手动脚本，未执行真实请求）；扫描零命中，REVIEW 留痕在各插件目录。
 6. **证据**：`tests/model-kind-e2e.test.ts` 12 例（D2/D4/D6）+ 包内单测（6 例）+ `packages/core/test/{pricing,gateway-priced,budget}.test.ts`；六道门禁见阶段看板。
+
+## 11. 手动验证记录（2026-11-04，密钥到位后补录）
+
+- **执行方式**：`scripts/verify-model-deepseek.mjs`（脚本只打印用量与按 manifest 价格表算出的费用；密钥运行时从本地文件读取后仅注入进程环境，**未写入仓库、未打印、未进账本**）。先 `pnpm build`。
+- **环境与档位**：2026-11-04 06:23 UTC（周三）→ 落在 `peakWindows` 的 06:00-10:00 UTC 内，`tier=peak` 判定正确。
+- **非流式**（`deepseek-flash`）：`usage={"inputCached":0,"inputUncached":38,"output":6}`，
+  `usd=0.0000186`（38×0.3 + 6×1.2 = 18.6 / 1e6）；`content="keel-\nok"`——
+  指令要求 "exactly: keel-ok"，模型多回了一个换行；这是模型行为，不是协议/适配器问题。
+- **流式**：`parts=45`（短回答也按 SSE 增量逐片到达），末片 `usage={"inputCached":0,"inputUncached":40,"output":44}`，
+  `usd=0.0000648`，拼接正文 `"1, 2, 3"`——与指令一致；用量挂末块的形状得到实测确认。
+- **观察**：本次两次调用都没有返回非空 `reasoning_content`（简单问答未触发可见思考内容）；
+  适配器的"原样回传"字段与 `tool_choice` 前置拒绝仍由单测/静态检查覆盖，未在本次真实请求中触发。
+- **口径不变**：真适配器**仍不进 CI**、**不承诺生产可用**；验收断言继续由 `model-mock` 承载（K4）。

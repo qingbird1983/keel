@@ -41,15 +41,15 @@
 - 已验证：六道门禁全绿（format / lint / typecheck+build / test **64 文件 485 测试** / 扫描实扫零命中）；
   D3 多步闭环 + 真写盘 + 补偿回放 + kill 故障半径；D5 归因与投影重算；D2 预算熔断；协议封闭三例；
   CLI 四插件全家桶经引擎驱动；Phase 1~3 承载测试零退化
-- 未验证：`model-deepseek` 真实请求（无密钥，仅编译+静态检查）；`engine.step` 300s 到点语义
-  （由网关/通道既有用例覆盖）；跨 run 会话/压缩/UI（合同 §2 不做）
+- 已补验（2026-11-04）：`model-deepseek` 真实请求——`deepseek-flash` 非流式 + 流式各一次成功
+  （用量/峰谷档位/SSE 末块用量与价格表口径一致；仍不进 CI，见 02 稿 §11）
+- 未验证：`engine.step` 300s 到点语义（由网关/通道既有用例覆盖）；跨 run 会话/压缩/UI（合同 §2 不做）
 
 ## 下一步（按优先级）
 
 1. 所有者决定 `phase-4.end` tag 与 `docs/phase4-charter` merge 时机
-2. 有密钥后跑 `scripts/verify-model-deepseek.mjs`，补真实请求记录（仍不进 CI）
-3. 下阶段立项：跨 run 会话持久化/压缩、`kind:"ui"`/桌面壳、多 Agent（均须先写 ADR / 走 backlog）
-4. 既有欠账：根 `tests/` 不在任何包 tsconfig include 内（类型检查缺口）
+2. 下阶段立项：跨 run 会话持久化/压缩、`kind:"ui"`/桌面壳、多 Agent（均须先写 ADR / 走 backlog）
+3. 既有欠账：根 `tests/` 不在任何包 tsconfig include 内（类型检查缺口）
 
 ## 关键提醒（坑/规范/易错点）
 
