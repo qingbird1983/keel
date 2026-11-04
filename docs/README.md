@@ -90,6 +90,6 @@ docs/
 | adr/ADR-0020-workspace-error-codes                | 定稿                                                                                 | Workspace 错误码：新增 `WORKSPACE/EXISTS` / `WORKSPACE/PATH` / `WORKSPACE/IO`，与 `AUTH/DENIED` 分工（授权先于路径）                                                                            |
 | design/phase-0/report                             | 定稿                                                                                 | Phase 0 阶段进度报告：验收 A1~A7 通过、体量与规范复查                                                                                                                                           |
 | research/01-dsh-data-flow-survey                  | 冻结（2026-11-04）                                                                   | DeepSeek Harness 关键数据流勘察：模型流/会话上下文流/桌面流实况（带 checkout 快照证据）+ 六条流级结论 + 与 Keel 五不变量逐条对照；Phase 4+ 设计稿的参照目标                                       |
-| roadmap/phase-4-profile-engine-loop.md            | **草稿**（待所有者评审定稿）                                                          | Phase 4 范围合同（起草）：全插件装配与最小业务闭环——Profile 装配面 + kind:"model" + kind:"engine"（headless 闭环）；验收 D1~D7、关键决策点 K1~K6 待确认                                          |
+| roadmap/phase-4-profile-engine-loop.md            | 定稿（2026-11-04，K1~K6 确认）                                                        | Phase 4 范围合同：全插件装配与最小业务闭环——Profile 装配面 + kind:"model" + kind:"engine"（headless 闭环）；验收 D1~D7、关键决策点 K1~K6 已确认（K3 两案对比 / K5 具体语义在设计稿阶段拍板）   |
 
 > design/phase-1/ 另两份（补偿状态机、插件 manifest）为 Phase 0 后续交付物（见 phase-0 §4），产出即登记本表。
