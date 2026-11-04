@@ -2,19 +2,19 @@
 
 > 模板文件：每轮会话收尾**整体重写**本卡（覆盖式，不追加），≤ 150 行（规范见 `.agents/README.md`）。
 
-- 更新：2026-11-04（会话主题：**Phase 4 切片④收口——`kind:"engine"` 端到端 + 阶段验收 D1~D7**）
+- 更新：2026-11-04（会话主题：**Phase 4 完成——切片④ engine kind、D1~D7 验收、`phase-4.end` 打标并 merge**）
 
 ## 当前阶段与状态（对照 roadmap 看板）
 
-- Phase 1 ✅ / Phase 2 ✅（提前收口）/ Phase 3 ✅（`phase-3.end` tag 已打）
-- **Phase 4 验收收口（切片①~④全部完成）**；分支 `docs/phase4-charter` 未 merge：
+- Phase 1 ✅ / Phase 2 ✅（提前收口）/ Phase 3 ✅ / **Phase 4 ✅ 完成（`phase-4.end` tag 已打，分支已 merge 到 main）**
+- 切片①~④全部完成：
   - 切片①：合同/四份设计稿/ADR-0021~0024/禁面扫描扩展
   - 切片②：Profile 装配面（严格 YAML 子集、六步装配、五 kind 隔离、逐插件记录、`validate/run --profile`）
   - 切片③：model kind（manifest 价格表三桶/峰谷、`MODEL_USAGE` v3、超预扣不穿透预算、三层超时、表面事件族）
   - 切片④：engine kind（`engine.step` 每步一往返、纯投影上下文、`DECISION.basedOn` 含模型事件、
     kill 引擎舱故障半径、`engine-react` 标杆、`keel run --profile` 接引擎驱动、D1~D7 复核）
 - 设计输入：`docs/research/01`（DSH 数据流）、`docs/research/02`（DeepSeek API），均冻结
-- 阶段报告：`docs/design/phase-4/report.md`（D1~D7 全过）；tag / merge 时机归所有者
+- 阶段报告：`docs/design/phase-4/report.md`（D1~D7 全过）；`phase-4.end` 已打，分支已 merge 到 main
 
 ## 本轮关键结论（别丢）
 
@@ -47,9 +47,8 @@
 
 ## 下一步（按优先级）
 
-1. 所有者决定 `phase-4.end` tag 与 `docs/phase4-charter` merge 时机
-2. 下阶段立项：跨 run 会话持久化/压缩、`kind:"ui"`/桌面壳、多 Agent（均须先写 ADR / 走 backlog）
-3. 既有欠账：根 `tests/` 不在任何包 tsconfig include 内（类型检查缺口）
+1. 下阶段立项：跨 run 会话持久化/压缩、`kind:"ui"`/桌面壳、多 Agent（均须先写 ADR / 走 backlog）
+2. 既有欠账：根 `tests/` 不在任何包 tsconfig include 内（类型检查缺口）
 
 ## 关键提醒（坑/规范/易错点）
 
@@ -64,6 +63,6 @@
   Windows 控制台输出中文是乱码，不代表文件坏了（用 read 工具核对）
 - **外部事实必须带来源 URL + 检索日期**：[P-018](pitfalls/P-018-外部API事实过期.md)；
   `deepseek-chat`/`deepseek-reasoner` 已停用，只许出现在"已停用"说明里
-- **ADR 只增不改**；docs 新增必须登记 `docs/README.md`；CHANGELOG 新在前、面向非技术读者（本轮 0.1.057）
+- **ADR 只增不改**；docs 新增必须登记 `docs/README.md`；CHANGELOG 新在前、面向非技术读者（本轮 0.1.059）
 - **体量**：docs 75 篇（软上限 150）；`.agents` 34 个文件（上限 40，不含 vendored）；CONTEXT ≤150 行
 - 踩坑索引：[pitfalls/](pitfalls/)（P-001~P-022）；方法索引：[skills/](skills/README.md)（S-001）

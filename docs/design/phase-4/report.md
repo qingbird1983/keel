@@ -1,13 +1,13 @@
 # Phase 4 阶段进度报告（写给非技术读者）
 
-- 状态：定稿（阶段验收 D1~D7 逐条复核完毕，两条一票否决项全过）
+- 状态：定稿（阶段验收 D1~D7 逐条复核完毕，三条一票否决项全过；`phase-4.end` 已打并 merge 到 main）
 - 日期：2026-11-04（切片④验收轮）
 - 本阶段目标（一句话）：让"万物皆插件"从主张变成可运行的事实——**一份清单拉起引擎、模型、能力、策略全家桶，跑通一个真进程、全治理、账本脊柱完整的 headless 闭环**。
 - 关联：[合同](../../roadmap/phase-4-profile-engine-loop.md)（验收 D1~D7）；[01 稿](01-profile-assembly.md) / [02 稿](02-model-kind.md) / [03 稿](03-engine-kind.md) / [04 稿](04-contract-revision.md)；ADR-0021~0024
 
 ## 结论（一句话）
 
-七条验收场景全部达成（D1/D2/D3 含两条一票否决），`profile.yaml` → engine + model + capability + policy 的真实进程闭环成立；实施期发现并修正一处"profile 全家桶下补偿必然升级"的权限读取缺口（P-022）。**具备打 `phase-4.end` 的条件（tag 与分支 merge 时机归所有者）**。
+七条验收场景全部达成（D1/D2/D3 三条一票否决全过），`profile.yaml` → engine + model + capability + policy 的真实进程闭环成立；实施期发现并修正一处"profile 全家桶下补偿必然升级"的权限读取缺口（P-022）。**`phase-4.end` 已打，`docs/phase4-charter` 已 merge 到 main**。
 
 ## 完成了什么（四片切片，全部真进程证据）
 
