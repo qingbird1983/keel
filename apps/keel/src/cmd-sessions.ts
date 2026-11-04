@@ -19,6 +19,8 @@ export interface SessionsOptions {
   agent?: string;
   session?: string;
   raw?: boolean;
+  /** 还原口径：忽略压缩标记，重算未压缩视图（Phase 5 切片④）。 */
+  full?: boolean;
   json?: boolean;
 }
 
@@ -95,7 +97,9 @@ async function showSession(
         {
           ref,
           runs: summary.runs,
-          ...(opts.raw ? { events } : { messages: projectSession(events) }),
+          ...(opts.raw
+            ? { events }
+            : { messages: projectSession(events, { includeCompacted: opts.full === true }) }),
         },
         null,
         2,
@@ -111,7 +115,7 @@ async function showSession(
     }
     return 0;
   }
-  const messages = projectSession(events);
+  const messages = projectSession(events, { includeCompacted: opts.full === true });
   if (messages.length === 0) {
     console.info("(empty session)");
     return 0;

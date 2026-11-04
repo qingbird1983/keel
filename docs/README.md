@@ -109,5 +109,6 @@ docs/
 | design/phase-5/02-resume-and-recovery             | 定稿（2026-11-04）                                                                   | Phase 5 切片①设计稿 02：续跑与崩溃恢复——有终态=续跑、无终态=恢复（一致点截断）、新 run 装配顺序、engine 驱动接历史、失败阻断与错误码零新增（锚 E2）                                                                |
 | design/phase-5/03-compaction                      | 定稿（2026-11-04）                                                                   | Phase 5 切片①设计稿 03：压缩——`SURFACE_COMPACTED` 载荷、两遍投影折叠与还原、消息组边界、首轮前触发与摘要调用的治理链（锚 E3）                                                                                      |
 | design/phase-5/04-contract-revision               | 定稿（2026-11-04）                                                                   | Phase 5 切片①设计稿 04：契约与 CLI 修订清单（R1~R9 / C1~C5）、代码落点、测试 T1~T8 与门禁口径、实施顺序                                                                                                            |
+| design/phase-5/report                             | 定稿（2026-11-04）                                                                   | Phase 5 阶段报告：E1~E7 全过（E1/E2/E3 三条一票否决）、会话流/崩溃恢复/压缩的证据链、六道门禁 72 文件 512 测试；`phase-5.end` tag 归所有者                                                                         |
 
 > design/phase-1/ 另两份（补偿状态机、插件 manifest）为 Phase 0 后续交付物（见 phase-0 §4），产出即登记本表。

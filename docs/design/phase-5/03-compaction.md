@@ -100,7 +100,10 @@ interface SurfaceCompactedPayload {
 - 风险 3：`summary` 过长（> 8KB）被拒 → 本次不压缩，run 继续；不做二次摘要（会再花一次调用且不保证收敛）。
 - 待决：摘要模型是否应允许与引擎模型不同（本稿允许但默认同模型）；若所有者要求"压缩即换模型"，属于本阶段内的配置项，不扩语义。
 
-## 10. 实施注记（2026-11-04，切片②）
+## 10. 实施注记（2026-11-04，切片②→④）
 
-- 本稿尚未进入实现（切片④）。`projectSession` 目前**不带** `includeCompacted` 参数：压缩标记还没有写入口，带一个被静默忽略的开关比不带更危险；切片④ 以追加式签名补上。
-- 切片②只保证"跨 run 投影顺序正确"，压缩折叠的四条断言（E3）仍待切片④ 落地。
+- 切片④已落地：`SURFACE_COMPACTED`（白名单四类）、`compactSession`（摘要走网关、受预算/超时/失败约束）、`projectSession(events, {includeCompacted})` 两遍折叠。
+- **摘要落点细化**：摘要放在**被遮蔽区间的起点**（不是标记自身的位置），视图顺序因此是"摘要 + 最近的保留消息"；标记的"最新摘要为准"规则不变。
+- 切点按**消息组**边界（带 `toolCalls` 的 assistant + 紧随的 tool 结果不可拆）；默认保留 6 条，`--keep-recent` 可配。
+- 触发：`--compact` 手动 / `--compact-threshold`（默认 128000，取最近一次 `MODEL_USAGE` 输入桶）；失败 = 无标记、视图不变、任务继续（测试钉住）。
+- 证据：`tests/session-compaction-e2e.test.ts` 2 例 + `packages/core/test/surface-project-compacted.test.ts` 3 例。

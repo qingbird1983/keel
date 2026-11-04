@@ -41,8 +41,10 @@ export {
   type RunRef,
   type Scope,
   type StateSnapshotRefPayload,
+  type SurfaceCompactedPayload,
   type SurfaceEventType,
   type SurfaceOp,
+  type SurfaceShadowRange,
   type SurfaceToolCall,
   type ToolInvokePayload,
   type ToolResultPayload,
@@ -54,7 +56,10 @@ export {
   appendModelMessage,
   appendTurnInput,
   projectSession,
+  projectSessionEntries,
   projectSurface,
+  type ProjectSessionOptions,
+  type SessionSurfaceEntry,
   type SurfaceMessage,
 } from "./surface.js";
 export {

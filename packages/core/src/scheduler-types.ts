@@ -5,7 +5,7 @@
 
 import type { ToolEntry } from "./tool-catalog.js";
 import type { AssemblyRecordedPayload, RunRef, TurnInputPayload } from "./events.js";
-import type { CheckpointInfo } from "./ledger.js";
+import type { CheckpointInfo, Ledger } from "./ledger.js";
 
 /** 工具执行通道（切片③绑定 Cell stdio；本切片注入桩/进程内实现）。 */
 export type ToolExecutor = (call: {
@@ -113,6 +113,12 @@ export interface RunManifest {
    * 落账（载荷 v2）。缺省 = 单件路径/旧调用方，不写该字段（账本形状与 Phase 4 一致）。
    */
   sessionRun?: number;
+  /**
+   * 首轮之前的一次性缝（Phase 5 R8）：`RUN_STARTED` / 装配记录之后、`TURN_INPUT` 之前执行。
+   * 压缩（`SURFACE_COMPACTED`）只在这里发生——它的 `MODEL_*` 事件要落本 run，且标记必须
+   * 排在本次输入之前（03 稿 §4）。
+   */
+  beforeFirstRound?: (ctx: { ref: RunRef; ledger: Ledger }) => Promise<void>;
 }
 
 /** 状态机位置（契约 run.status；recovering 随切片④恢复器启用）。 */

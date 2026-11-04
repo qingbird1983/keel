@@ -93,3 +93,12 @@
   3. `loadProfile` 新增可选 `sessionId`：profile 的插件 scope 在**装载期**就已固化（`p.scope?.sessionId ?? scope.sessionId`），装配后再改 `plan.scope` 不会传播到插件；运行期覆盖必须走装载选项。
 - **工具债未清（如实记录）**：根 `tests/` 的类型检查覆盖试过一版 `tests/tsconfig.json`（paths 指向各包 src），实测暴露大量**既有**错误——集中在已归档的 cordis 测试（相对导入缺 `.js`、隐式 any）、另有 `engine-kind-e2e` 一处断言强转。修复面超出本片范围，已撤回该文件并登记 backlog；不把"新增的 tests 目录 tsconfig"留成一片红。
 - **证据**：`pnpm lint` 0 error；`pnpm format:check` 通过；`pnpm -r run typecheck` 通过；`pnpm test` **69 文件 506 测试**全绿（新增 5 文件 21 测试：会话读取 6、投影 4、租约 4、会话预算 3、会话端到端 4）；`node scripts/scan-native-plugins.mjs` clean。
+
+## 9. 实施注记（2026-11-04，切片③/④）
+
+- **已关闭**：R5（`SURFACE_COMPACTED` + 白名单四类 + 两遍折叠 + `includeCompacted`）、R8（`RunManifest.beforeFirstRound`：`RUN_STARTED`/装配之后、`TURN_INPUT` 之前）、R9（Core 生成的 `toolCallId` 带 `runId` 前缀）、C2（`--compact` / `--compact-threshold` / `--keep-recent` / `--summary-model`）。切片③同时接通自动恢复（有终态=续跑 / 无终态=恢复）。
+- **清单外实现细节（三处）**：
+  1. **摘要落点**：`projectSession` 把摘要放在**被遮蔽区间的起点**，而不是标记自身的位置——这样视图顺序是"摘要 + 最近的保留消息"，与 03 稿 §3 一致；标记仍按 `shadowed` 区间与"最新摘要为准"折叠。
+  2. **`--full`**：`keel sessions show --full` = `includeCompacted:true` 的还原口径（03 稿 §6 的机械定义），默认视图按标记折叠。
+  3. **恢复不挂引擎快照**：`engine` 无状态（03 稿 E7），`RecoveryManager` 仍校验快照存在性，但 blob 不进引擎舱；对话来自账本投影。
+- **证据**：`pnpm test` **72 文件 512 测试**全绿（新增：压缩折叠 3、崩溃恢复端到端 1、压缩端到端 2）；扫描 clean；Phase 1~4 承载测试零退化。

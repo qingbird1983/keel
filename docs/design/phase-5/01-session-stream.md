@@ -164,3 +164,4 @@ function projectSession(
 - 版本覆盖选项落成 `loadProfile` 的可选 `sessionId`——profile 的插件 scope 在**装载期**就把顶层默认值固化了，装配后再改 `plan.scope` 不会传播到插件（详见 [04 稿](04-contract-revision.md) §8）。
 - `sessions show --agent` 会核对会话存在性：读不到 = 拒绝，不返回"看起来空"的会话（E4 零泄漏）。
 - 切片②未做：`--compact`（C2）、`includeCompacted` 还原开关、心跳续期（TTL 覆盖单次 run 即可）；均按 04 稿顺序留后续切片。
+- 切片④补：`sessions show --full` = `includeCompacted:true`（还原压缩前视图）；压缩与续跑共用同一份会话投影，恢复路径的历史截断仍按一致点。

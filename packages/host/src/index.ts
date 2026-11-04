@@ -142,3 +142,8 @@ export {
   type SessionLeaseOptions,
 } from "./session/lease.js";
 export { projectSessionBudget } from "./session/budget.js";
+export {
+  MAX_SUMMARY_CHARS,
+  compactSession,
+  type CompactSessionOptions,
+} from "./session/compact.js";
