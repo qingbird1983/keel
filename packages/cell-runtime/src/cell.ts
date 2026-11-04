@@ -20,6 +20,7 @@
  */
 
 import { EffectScope, type EffectReceipt } from "@keel/runtime-context";
+import type { EngineStepHandler, RegisteredToolView, StreamPageView } from "./cell-types.js";
 import { ChannelError, FrameConn, type ConnStreams, type EventFrame } from "./protocol.js";
 import { createWorkspaceCapability, type WorkspaceCapability } from "./workspace.js";
 import {
@@ -31,6 +32,13 @@ import {
   type DeclaredEffectView,
   type GovernedToolPlan,
 } from "./governance.js";
+
+export type {
+  EngineStepContext,
+  EngineStepHandler,
+  RegisteredToolView,
+  StreamPageView,
+} from "./cell-types.js";
 
 /** handler 上下文（治理动作不再由插件调用；`effects` 只读）。 */
 export interface ToolExecutionContext {
@@ -101,23 +109,6 @@ export interface CompensationExecInput {
 export type CompensationHandler = (input: CompensationExecInput) => Promise<unknown> | unknown;
 
 /**
- * engine 插件的一步（Phase 4 切片④，03 稿 E1/E3；ADR-0023）：
- * Host 每步发一次 `engine.step`，插件在一步内调模型并返回决策。
- * **没有工具执行通道**——工具调用由 Core 执行，engine 只返回意图。
- */
-export interface EngineStepContext {
-  /** 业务能力出口（本切片只用到模型调用；工具执行不在这里）。 */
-  readonly client: CellClient;
-  /** 报关单 `engine` 段（宿主经 bootstrap 送达；模块不自报）。 */
-  readonly engine: unknown;
-}
-
-export type EngineStepHandler = (
-  input: unknown,
-  ctx: EngineStepContext,
-) => Promise<unknown> | unknown;
-
-/**
  * 策略插件的插话处理体（切片④回填项 ①，ADR-0012 决策 1/2）。
  *
  * 形状刻意薄到只有一进一出：入参 = 内核给出的 hook 入参（不含任何可操作句柄），
@@ -126,12 +117,6 @@ export type EngineStepHandler = (
  * 这个量（报关单 `resources` 必须是空对象），唯一预算是宿主侧 hook 请求超时 + HookBus 超时。
  */
 export type PolicyHookHandler = (input: unknown) => Promise<unknown> | unknown;
-
-/** 内核指派的工具视图（tool.register 返回；Cell 侧不得自算版本，ADR-0010 决策 4）。 */
-export interface RegisteredToolView {
-  name: string;
-  schemaVersion: number;
-}
 
 /** Cell→Core 客户端（契约 §4 可见面矩阵 Cell 行；超时按 §7 默认表）。 */
 export interface CellClient {
@@ -174,18 +159,6 @@ export interface CellClient {
   modelStreamCancel(
     streamId: string,
   ): Promise<{ settled: boolean; cost: number; truncated: boolean }>;
-}
-
-/** 舱内可见的流式应答形状（与 core 的 `StreamPage` 同形，跨包零依赖）。 */
-export interface StreamPageView {
-  streamId: string;
-  chunks: unknown[];
-  done: boolean;
-  produced: number;
-  usage?: unknown;
-  cost?: number;
-  truncated?: boolean;
-  replay?: boolean;
 }
 
 export interface CellOptions extends ConnStreams {
