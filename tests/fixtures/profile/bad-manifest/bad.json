@@ -1,0 +1,13 @@
+{
+  "kind": "capability",
+  "meta": {
+    "name": "bad-cap",
+    "version": "1.0.0",
+    "title": "Bad Capability",
+    "description": "越界能力缺 allow + 零补偿模板：五步校验第二/三步必须拒绝"
+  },
+  "permissions": [{ "cap": "net.fetch", "reason": "故意越界" }],
+  "resources": { "toolCallTimeoutMs": 10000 },
+  "compensation": { "templates": [] },
+  "compat": { "keelContract": "^1.0" }
+}

@@ -8,22 +8,35 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { RunDriver } from "@keel/core";
-import type { PolicySpec } from "@keel/host";
+import {
+  Assembler,
+  EngineDriver,
+  assembleProfile,
+  loadProfile,
+  type PolicySpec,
+  type ProfileAssembly,
+} from "@keel/host";
 import {
   assembleManifest,
   buildRuntime,
   closeRuntime,
+  loadProfileSchema,
+  loadSchema,
+  policyCellEntryPath,
   readRun,
   runPolicy,
+  runPolicyFor,
   snapshotDirOf,
   wireRun,
 } from "./runtime.js";
 
 export interface RunOptions {
-  /** manifest JSON 文件路径。 */
-  manifest: string;
-  /** 插件 .mjs 路径（Cell 进程加载面）。 */
-  plugin: string;
+  /** manifest JSON 文件路径（与 `profile` 互斥）。 */
+  manifest?: string;
+  /** 插件 .mjs 路径（Cell 进程加载面；与 `profile` 互斥）。 */
+  plugin?: string;
+  /** profile.yaml 路径（Phase 4 切片②；与 manifest/plugin 互斥）。 */
+  profile?: string;
   /** demo driver 调用的工具名（缺省 ok——tests/fixtures/ok-plugin.mjs 的工具）。 */
   tool?: string;
   /** 轮数（缺省 2：轮 1 调工具，轮 2 收束）。 */
@@ -40,11 +53,23 @@ export interface RunOptions {
    */
   policyManifests?: string[];
   policyModules?: string[];
+  /**
+   * engine 驱动的 run 起始输入（Phase 4 切片④）：`TURN_INPUT` 的正文。
+   * mock 剧本把计划写成 JSON（`{tool, arguments, final}`）；真实模型直接读自然语言。
+   */
+  input?: string;
 }
 
 /** @returns 退出码：0 = 终态 halted；1 = 其他终态/异常。 */
 export async function cmdRun(opts: RunOptions): Promise<number> {
-  const manifest = assembleManifest(JSON.parse(readFileSync(opts.manifest, "utf-8")));
+  // Phase 4 切片②：profile 是另一条装配入口（多插件）；单件路径原样保留（P10）
+  if (opts.profile) return runProfile(opts.profile, opts);
+  if (!opts.manifest || !opts.plugin) {
+    throw new Error("--manifest/--plugin 与 --profile 必居其一（二者互斥）");
+  }
+  const manifestPath = opts.manifest;
+  const pluginPath = opts.plugin;
+  const manifest = assembleManifest(JSON.parse(readFileSync(manifestPath, "utf-8")));
   const policySpecs: PolicySpec[] = (opts.policyManifests ?? []).map((file, i) => {
     const modulePath = (opts.policyModules ?? [])[i];
     if (!modulePath) {
@@ -74,7 +99,7 @@ export async function cmdRun(opts: RunOptions): Promise<number> {
           : { done: true, summary: "demo-end" },
     };
     const runId = `run-${randomUUID().slice(0, 8)}`;
-    const run = await wireRun(rt, { runId, driver, manifest, pluginPath: opts.plugin });
+    const run = await wireRun(rt, { runId, driver, manifest, pluginPath });
     const status = await run.done;
     const events = await readRun(rt, runId);
     const counts = new Map<string, number>();
@@ -109,6 +134,99 @@ export async function cmdRun(opts: RunOptions): Promise<number> {
     if (!opts.dataDir) {
       await rm(dataDir, { recursive: true, force: true });
       // 派生的快照目录跟着账本临时目录一起清（不留一堆没人读的内容在临时区）
+      if (!opts.snapshotDir) await rm(snapshotDir, { recursive: true, force: true });
+    }
+  }
+}
+
+/**
+ * `keel run --profile`（Phase 4 切片②/④，01 稿 P10 + 03 稿 E1）：
+ * 一份清单 → 六步装配 → 逐插件记录 → 起 run。
+ * 含 engine 的 profile 走引擎驱动（每步 `engine.step`，工具仍由 Core 执行）；
+ * 不含 engine 的 profile 保留 demo driver（能力型清单的既有入口）。
+ */
+async function runProfile(profilePath: string, opts: RunOptions): Promise<number> {
+  const plan = loadProfile(profilePath, {
+    profileSchema: loadProfileSchema(),
+    assembler: new Assembler({ schema: loadSchema() }),
+  });
+  const dataDir = opts.dataDir ?? (await mkdtemp(path.join(tmpdir(), "keel-profile-")));
+  const snapshotDir = snapshotDirOf(dataDir, opts.snapshotDir);
+  const policy = runPolicyFor(
+    plan.plugins
+      .filter((p) => p.kind === "capability" || p.kind === "engine")
+      .map((p) => ({ manifest: p.manifest, subject: p.scope.agentId })),
+    "p-profile",
+  );
+  const rt = await buildRuntime(dataDir, { policy, snapshotDir });
+  let assembly: ProfileAssembly | undefined;
+  try {
+    const runId = `run-${randomUUID().slice(0, 8)}`;
+    assembly = await assembleProfile(plan, {
+      supervisor: rt.supervisor,
+      deps: {
+        ledger: rt.ledger,
+        auth: rt.auth,
+        budget: rt.budget,
+        ctx: rt.ctx,
+        gateway: rt.gateway,
+      },
+      runId,
+      policy: { bus: rt.hooks, entryPath: policyCellEntryPath },
+    });
+    const tool = opts.tool ?? "ok";
+    const total = opts.rounds ?? 2;
+    const driver: RunDriver = assembly.engine
+      ? new EngineDriver({
+          cell: assembly.engine.cell,
+          engine: assembly.engine.decl,
+          ledger: rt.ledger,
+          ref: assembly.ref,
+        })
+      : {
+          decide: async (c) =>
+            c.round < total
+              ? { summary: `call ${tool}`, actions: [{ kind: "tool", tool, params: {} }] }
+              : { done: true, summary: "profile-end" },
+        };
+    const { done } = rt.scheduler.start({
+      ref: assembly.ref,
+      subject: assembly.ref.agentId,
+      executor: assembly.executor,
+      driver,
+      assembly: assembly.records,
+      // engine 驱动必须有起始输入（表面投影的第一条）；能力型清单保持旧形状。
+      ...(assembly.engine
+        ? { turnInput: { role: "user" as const, content: opts.input ?? "run the profile" } }
+        : {}),
+    });
+    for (const c of assembly.cells) c.cell.attachRun(c.ref);
+    if (assembly.engine) rt.engineCells.add(assembly.engine.cell);
+    // 快照索取优先指向 engine（它持有本 run 的循环上下文；能力舱仍各自保留快照面）。
+    const binder = assembly.engine?.cell ?? assembly.cells[0]?.cell;
+    if (binder) rt.bindings.set(assembly.ref.runId, { scope: plan.scope, cell: binder });
+    const status = await done;
+    const events = await readRun(rt, assembly.ref.runId);
+    const counts = new Map<string, number>();
+    for (const e of events) counts.set(e.type, (counts.get(e.type) ?? 0) + 1);
+    console.info(`profile: ${plan.name} (${plan.plugins.length} plugins)`);
+    console.info(`runId:   ${assembly.ref.runId}`);
+    console.info(
+      `status:  ${status.state}${"reasonCode" in status && status.reasonCode ? ` (${status.reasonCode})` : ""}`,
+    );
+    console.info(
+      `events:  ${events.length} → ${[...counts].map(([t, n]) => `${t}×${n}`).join(" ")}`,
+    );
+    for (const f of rt.snapshotFailures) {
+      console.error(`snapshot-persist: FAILED round=${String(f.round)} (${f.runId}): ${f.message}`);
+    }
+    return status.state === "halted" && rt.snapshotFailures.length === 0 ? 0 : 1;
+  } finally {
+    if (assembly) await assembly.close();
+    rt.bindings.clear();
+    await closeRuntime(rt);
+    if (!opts.dataDir) {
+      await rm(dataDir, { recursive: true, force: true });
       if (!opts.snapshotDir) await rm(snapshotDir, { recursive: true, force: true });
     }
   }

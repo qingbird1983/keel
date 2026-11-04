@@ -79,6 +79,12 @@ export interface SupervisorOptions {
 /** 默认迁移钩超时：A5 序列在 run.start 5s 窗口内（契约 §7）。 */
 const MIGRATE_TIMEOUT_MS = 5_000;
 
+/**
+ * `engine.step` 的一步时限（Phase 4 切片④，04 稿 R7 / ADR-0023）：取契约 §7 既有的
+ * **300s 档**（一步内最多含一次流式模型调用），不新增数字。
+ */
+export const ENGINE_STEP_TIMEOUT_MS = 300_000;
+
 export class CellSupervisor {
   private readonly provider: IsolationProvider;
   private readonly cellEntryPath: string;
@@ -179,10 +185,13 @@ export class SupervisedCell implements ManagedCell {
     // 治理计划随 spawn 一次送达（ADR-0015）：所有起舱路径（run / 热装配 / fixture）共用，
     // 无声明不加字段——既有载荷形状不变。显式 bootstrapExtra 可覆盖（测试/特殊入口）。
     const governance = compileGovernancePlan(params.manifest.governance);
+    // engine 的报关单段随 bootstrap 一次送达（Phase 4 切片④）：模块不自报模型名/工具清单。
+    const engine = params.manifest.kind === "engine" ? params.manifest.engine : null;
     const boot = JSON.stringify({
       pluginPath: params.pluginPath,
       toolCallTimeoutMs: params.manifest.resources.toolCallTimeoutMs ?? 0,
       ...(governance ? { governance } : {}),
+      ...(engine ? { engine } : {}),
       ...params.bootstrapExtra, // 追加而非改写：策略舱 hooks 与能力舱 governance 是同一 seam 的两个字段
     });
     this.process = this.supervisor.spawnProcess(
@@ -389,6 +398,14 @@ export class SupervisedCell implements ManagedCell {
   /** A5 迁移钩：新 Cell 内、快照挂载后首轮前（失败由 AssemblyManager 回退）。 */
   migrate(oldState: unknown): Promise<unknown> {
     return this.call("cell.migrate", { oldState }, MIGRATE_TIMEOUT_MS);
+  }
+
+  /**
+   * engine 的一步（Phase 4 切片④，ADR-0023）：Host→Cell 请求/响应，300s 档。
+   * 走 `call`：收尾期间拒绝新步（`SCHED/BACKPRESSURE`），在途步计入 drain 等待。
+   */
+  stepEngine(input: unknown): Promise<unknown> {
+    return this.call("engine.step", input, ENGINE_STEP_TIMEOUT_MS);
   }
 
   /** 快照索取（D3）：宿主于轮边界（onCheckpoint 缝）调用；无快照面 → null。 */

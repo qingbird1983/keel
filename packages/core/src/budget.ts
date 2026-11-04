@@ -129,8 +129,18 @@ export class Budgeter {
     return reservation;
   }
 
-  /** 实结：按权威计量扣用并逐级退还差额；写 BUDGET_SETTLED。同 reservation 只结算一次。 */
-  async settle(ref: RunRef, reservationId: string, actual: number): Promise<{ refund: number }> {
+  /**
+   * 实结：按权威计量扣用并逐级退还差额；写 BUDGET_SETTLED。同 reservation 只结算一次。
+   *
+   * 单次超支（Phase 4 切片③ R5）：`actual` 可以大于预扣，但**预算不得被打成负数**——
+   * 超出部分把用量夹到限额、记 `overrun:true`，该 scope 之后按既有耗尽处置拒绝新预扣。
+   * 计量本身不被篡改（`actual` 与 `MODEL_USAGE` 如实），夹的是账上余量。
+   */
+  async settle(
+    ref: RunRef,
+    reservationId: string,
+    actual: number,
+  ): Promise<{ refund: number; overrun: boolean }> {
     if (!Number.isFinite(actual) || actual < 0) {
       throw new KeelError("BUDGET/INVALID-LIMIT", "actual must be a non-negative finite number", {
         reservationId,
@@ -142,10 +152,20 @@ export class Budgeter {
       throw new KeelError("BUDGET/RESERVATION-UNKNOWN", "unknown reservation", { reservationId });
     }
     const booked = run.settled.get(reservation.reqId);
-    if (booked !== undefined) return { refund: reservation.estimate - booked }; // 幂等重放
+    if (booked !== undefined) return { refund: reservation.estimate - booked, overrun: false }; // 幂等重放
     const scope = this.scopeState(ref);
-    run.used += actual - reservation.estimate;
-    scope.sessionUsed += actual - reservation.estimate;
+    const delta = actual - reservation.estimate;
+    let overrun = false;
+    run.used = tidy(run.used + delta);
+    if (scope.limits.run !== undefined && run.used > scope.limits.run) {
+      run.used = scope.limits.run; // 夹到限额：余量 0，不出现负数
+      overrun = true;
+    }
+    scope.sessionUsed = tidy(scope.sessionUsed + delta);
+    if (scope.limits.session !== undefined && scope.sessionUsed > scope.limits.session) {
+      scope.sessionUsed = scope.limits.session;
+      overrun = true;
+    }
     run.settled.set(reservation.reqId, actual);
     const refund = reservation.estimate - actual;
     await this.ledger.append(ref, "BUDGET_SETTLED", {
@@ -154,8 +174,9 @@ export class Budgeter {
       refund,
       runRemaining: remaining(scope.limits.run, run.used),
       sessionRemaining: remaining(scope.limits.session, scope.sessionUsed),
+      ...(overrun ? { overrun: true as const } : {}),
     });
-    return { refund };
+    return { refund, overrun };
   }
 
   /** 查询剩余额度与已耗用量（Cell 只读本 run）。 */
@@ -215,4 +236,9 @@ export class Budgeter {
 
 function remaining(limit: number | undefined, used: number): number | null {
   return limit === undefined ? null : limit - used;
+}
+
+/** 计量是金额/抽象单位：收掉浮点求和噪声（0.7 不该长成 0.7000000000000002）。 */
+function tidy(n: number): number {
+  return Math.round(n * 1e12) / 1e12;
 }

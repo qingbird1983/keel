@@ -1,0 +1,28 @@
+# Phase 4 切片②装配夹具：五 kind 全家桶（engine + model + capability + policy + observation）
+version: 1
+name: local-workspace
+scope:
+  agentId: local
+  sessionId: main
+plugins:
+  - id: model-mock
+    kind: model
+    manifest: ../modules/model.json
+    module: ../modules/model.mjs
+  - id: engine-react
+    kind: engine
+    manifest: ../modules/engine.json
+    module: ../modules/engine.mjs
+  - id: pid-probe
+    kind: capability
+    manifest: ../modules/pid.json
+    module: ../modules/pid.mjs
+  - id: danger-guard
+    kind: policy
+    manifest: ../../../../packages/plugins/param-guard/keel-plugin.json
+    module: ../../../../packages/plugins/param-guard/dist/index.js
+  # observation 无运行时：module 字段指向探针模块，装配期不得 import
+  - id: audit-log
+    kind: observation
+    manifest: ../modules/observation.json
+    module: ../modules/wild.mjs

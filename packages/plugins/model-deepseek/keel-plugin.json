@@ -1,0 +1,43 @@
+{
+  "kind": "model",
+  "meta": {
+    "name": "model-deepseek",
+    "version": "1.0.0",
+    "title": "DeepSeek Model",
+    "description": "第二实现：直连 HTTP+SSE、零三方依赖；手动验证、不进 CI、不承诺生产可用（Phase 4 K4）"
+  },
+  "permissions": [],
+  "resources": {},
+  "compensation": { "templates": [] },
+  "model": {
+    "provider": "deepseek",
+    "protocol": "http-sse",
+    "models": ["deepseek-flash", "deepseek-v4-pro"],
+    "endpoint": "https://api.deepseek.com",
+    "auth": { "ref": "DEEPSEEK_API_KEY" },
+    "pricing": {
+      "deepseek-flash": {
+        "unit": "usd_per_mtok",
+        "offPeak": { "inputCached": 0.003, "inputUncached": 0.15, "output": 0.6 },
+        "peak": { "inputCached": 0.006, "inputUncached": 0.3, "output": 1.2 },
+        "peakWindows": [
+          { "days": "mon-fri", "utc": "01:00-04:00" },
+          { "days": "mon-fri", "utc": "06:00-10:00" }
+        ],
+        "unknownTier": "peak"
+      },
+      "deepseek-v4-pro": {
+        "unit": "usd_per_mtok",
+        "offPeak": { "inputCached": 0.022, "inputUncached": 0.66, "output": 1.98 },
+        "peak": { "inputCached": 0.044, "inputUncached": 1.32, "output": 3.96 },
+        "peakWindows": [
+          { "days": "mon-fri", "utc": "01:00-04:00" },
+          { "days": "mon-fri", "utc": "06:00-10:00" }
+        ],
+        "unknownTier": "peak"
+      }
+    },
+    "timeouts": { "idleMs": 30000 }
+  },
+  "compat": { "keelContract": "^1.0" }
+}

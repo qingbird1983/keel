@@ -1,0 +1,12 @@
+# Phase 4 切片③ 装配夹具：只装 model kind（宿主内模块），供计量/预算/超时 e2e 使用。
+# 密钥只查存在性：测试在 beforeAll 里设 KEEL_MODEL_MOCK_KEY（假值，守 D4 形状）。
+version: 1
+name: model-kind
+scope:
+  agentId: model-kind
+  sessionId: main
+plugins:
+  - id: model-mock
+    kind: model
+    manifest: ../../../../packages/plugins/model-mock/keel-plugin.json
+    module: ../../../../packages/plugins/model-mock/dist/index.js

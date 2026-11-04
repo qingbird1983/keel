@@ -83,6 +83,69 @@ describe("keel CLI（bin 冒烟）", () => {
     expect(r.stdout).toContain("mismatch=0");
   }, 90_000);
 
+  it("validate --profile：满编 profile 只校验不拉起（exit 0）", () => {
+    process.env.KEEL_TEST_MODEL_KEY = "sk-test-cli-profile";
+    const r = run(["validate", "--profile", "tests/fixtures/profile/all-kinds/profile.yaml"]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("ACCEPT");
+    expect(r.stdout).toContain("(5 plugins)");
+  }, 60_000);
+
+  it("validate --profile：坏 manifest 混进 profile → REJECT（五步校验零豁免）", () => {
+    const r = run(["validate", "--profile", "tests/fixtures/profile/bad-manifest/profile.yaml"]);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain("REJECT");
+    expect(r.stdout).toContain("SCHED/MANIFEST-INVALID");
+  }, 60_000);
+
+  it("run --profile：一份清单拉起 capability 并逐插件落装配记录（D1 的 CLI 入口）", () => {
+    const r = run([
+      "run",
+      "--profile",
+      "tests/fixtures/profile/scope-echo/profile.yaml",
+      "--tool",
+      "echo",
+      "--rounds",
+      "2",
+    ]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("profile: scope-echo (1 plugins)");
+    expect(r.stdout).toContain("status:  halted");
+    expect(r.stdout).toContain("ASSEMBLY_RECORDED×1");
+  }, 90_000);
+
+  it("run --profile：engine 驱动 headless 闭环（engine.step → 模型 → 工具 → 终结）", () => {
+    process.env.KEEL_MODEL_MOCK_KEY = "sk-test-cli-engine";
+    const r = run([
+      "run",
+      "--profile",
+      "tests/fixtures/profile/react-loop/profile.yaml",
+      "--input",
+      JSON.stringify({ tool: "echo", arguments: { text: "cli" }, final: "cli-done" }),
+    ]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("profile: react-loop (4 plugins)");
+    expect(r.stdout).toContain("status:  halted");
+    // 两步模型调用 + 一次工具执行：engine 只返回意图，执行仍走 Core 通道。
+    expect(r.stdout).toContain("MODEL_USAGE×2");
+    expect(r.stdout).toContain("TOOL_RESULT×1");
+    expect(r.stdout).toContain("TURN_INPUT×1");
+  }, 90_000);
+
+  it("run --profile 与 --manifest 互斥（参数错误退出 2）", () => {
+    const r = run([
+      "run",
+      "--profile",
+      "tests/fixtures/profile/scope-echo/profile.yaml",
+      "--manifest",
+      "docs/design/phase-1/schema/examples/capability-webfetch.json",
+      "--plugin",
+      "tests/fixtures/ok-plugin.mjs",
+    ]);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("mutually exclusive");
+  }, 60_000);
+
   it("replay：决策序列样例可读，归因关键事件在输出中（A6 入口）", () => {
     const r = run([
       "replay",

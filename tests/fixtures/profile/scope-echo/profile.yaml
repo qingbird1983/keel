@@ -1,0 +1,8 @@
+# 跨 scope 回归夹具 A：真件 echo 经 profile 拉起
+version: 1
+name: scope-echo
+plugins:
+  - id: echo
+    kind: capability
+    manifest: ../../../../packages/plugins/echo/keel-plugin.json
+    module: ../../../../packages/plugins/echo/dist/index.js

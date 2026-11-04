@@ -9,8 +9,8 @@
   "properties": {
     "$schema": { "type": "string" },
     "kind": {
-      "enum": ["capability", "policy", "observation"],
-      "description": "插件类型：能力（Cell 内运行）/ 策略（受控 hook）/ 观测（只读账本）"
+      "enum": ["capability", "policy", "observation", "model", "engine"],
+      "description": "插件类型：能力（Cell 内运行）/ 策略（受控 hook）/ 观测（只读账本）/ 模型（宿主驻留、持密钥）/ 引擎（Cell 内的决策循环）"
     },
     "meta": {
       "type": "object",
@@ -281,6 +281,101 @@
       "minItems": 1,
       "items": { "type": "string", "minLength": 1 },
       "description": "observation 专用：只读事件订阅模式列表"
+    },
+    "model": {
+      "type": "object",
+      "required": ["provider", "protocol", "models", "auth", "pricing"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "provider 名（kebab-case，仅用于诊断/记录）"
+        },
+        "protocol": {
+          "enum": ["http-sse", "mock"],
+          "description": "上游协议；未知值拒绝（不猜语义）"
+        },
+        "models": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "provider 现行模型名（非空）；一个模块可服务多个模型名"
+        },
+        "endpoint": {
+          "type": "string",
+          "pattern": "^https://|^http://127\\.0\\.0\\.1",
+          "description": "protocol=http-sse 时必填；https，或本地回环 http://127.0.0.1（装配器做条件必填）"
+        },
+        "auth": {
+          "type": "object",
+          "required": ["ref"],
+          "additionalProperties": false,
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[A-Z_][A-Z0-9_]*$",
+              "description": "环境变量名（引用名，非明文）；装配器只做 presence-only 检查，每次调用前 per-request resolve"
+            }
+          }
+        },
+        "pricing": {
+          "type": "object",
+          "description": "按模型分表：键集合必须与 models 完全一致、三桶非负有限、unit 只有 usd_per_mtok（装配器语义校验，R13）"
+        },
+        "timeouts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "idleMs": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 300000,
+              "description": "可选空闲看门狗；≤ 契约 §7 总时限（300s 档）——装配器语义复核"
+            }
+          }
+        }
+      }
+    },
+    "engine": {
+      "type": "object",
+      "required": ["loop", "model", "tools", "maxSteps"],
+      "additionalProperties": false,
+      "properties": {
+        "loop": {
+          "const": "react",
+          "description": "循环形态；首版仅 react（未知值拒绝）"
+        },
+        "model": {
+          "type": "object",
+          "required": ["ref", "name"],
+          "additionalProperties": false,
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$",
+              "description": "profile 内 model 插件 id；装配期必须命中"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "该 model 插件 models 列表之一"
+            }
+          }
+        },
+        "tools": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "允许请求的工具名；每个名字装配期恰好一个能力插件提供（重名整份拒绝）"
+        },
+        "maxSteps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "步数上限（最后一道闸，与预算独立）"
+        }
+      }
     }
   },
   "allOf": [
@@ -316,6 +411,38 @@
         "properties": {
           "permissions": { "maxItems": 0 },
           "hooks": { "maxItems": 0 },
+          "resources": { "maxProperties": 0 },
+          "compensation": { "properties": { "templates": { "maxItems": 0 } } },
+          "migration": { "maxProperties": 0 },
+          "governance": { "maxProperties": 0 },
+          "trust": { "maxProperties": 0 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "model" } } },
+      "then": {
+        "required": ["model"],
+        "properties": {
+          "permissions": { "maxItems": 0 },
+          "hooks": { "maxItems": 0 },
+          "subscriptions": { "maxItems": 0 },
+          "resources": { "maxProperties": 0 },
+          "compensation": { "properties": { "templates": { "maxItems": 0 } } },
+          "migration": { "maxProperties": 0 },
+          "governance": { "maxProperties": 0 },
+          "trust": { "maxProperties": 0 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "engine" } } },
+      "then": {
+        "required": ["engine"],
+        "properties": {
+          "permissions": { "maxItems": 1 },
+          "hooks": { "maxItems": 0 },
+          "subscriptions": { "maxItems": 0 },
           "resources": { "maxProperties": 0 },
           "compensation": { "properties": { "templates": { "maxItems": 0 } } },
           "migration": { "maxProperties": 0 },

@@ -1,10 +1,19 @@
 # packages/plugins —— Keel 原生标杆插件
 
-Phase 3 的原生 manifest 插件目录（[合同](../../docs/roadmap/phase-3-native-ecosystem.md) §2 目录定案）。首批三件套：`echo` / `file-write` / `param-guard`（需求卡见 [02 稿](../../docs/design/phase-3/02-review-mechanization.md) §4）。
+原生 manifest 插件目录（[Phase 3 合同](../../docs/roadmap/phase-3-native-ecosystem.md) §2 目录定案；
+Phase 4 起增加 model / engine 标杆，见 [02 稿](../../docs/design/phase-4/02-model-kind.md) / [03 稿](../../docs/design/phase-4/03-engine-kind.md)）。
 
+- **Phase 3 三件套**：`echo` / `file-write` / `param-guard`（需求卡见 [02 稿](../../docs/design/phase-3/02-review-mechanization.md) §4）
+- **Phase 4 model**：`model-mock`（确定性剧本，**进 CI**，承载 D2/D4/D6 断言）与
+  `model-deepseek`（第二实现，直连 HTTP+SSE、**手动验证、不进 CI、不承诺生产可用**，合同 K4）
+- **Phase 4 engine**：`engine-react`（最小 ReAct 标杆，跑在 Cell 进程；每步只调模型并返回
+  工具调用意图/终结摘要，工具执行与记账仍由 Core 一条链完成，见 [03 稿](../../docs/design/phase-4/03-engine-kind.md)）
 - 每个插件是 workspace 包（private、零三方依赖）；manifest 是插件行为的唯一事实源
-- 转正前置：禁面扫描零命中（`node scripts/scan-native-plugins.mjs`）+ `REVIEW.md` 逐条留痕
+- 转正前置：禁面扫描零命中（`node scripts/scan-native-plugins.mjs`，按 kind 分规则集）+ `REVIEW.md` 逐条留痕
 - 本文件是占位说明（空目录不入库）；切片② 起落插件
+
+> model kind 的模块是**宿主进程内**可信代码（要持密钥），不 spawn Cell；它只报三桶用量，
+> 费用由 Core 按 manifest 价格表算——模块自报 `cost` 会被网关拒绝。
 
 ## 写一个带副作用的工具（切片③起）
 

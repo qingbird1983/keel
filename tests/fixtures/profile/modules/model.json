@@ -1,0 +1,26 @@
+{
+  "kind": "model",
+  "meta": {
+    "name": "model-mock",
+    "version": "1.0.0",
+    "title": "Mock Model",
+    "description": "Profile 装配夹具：model 是宿主进程内模块（不 spawn Cell）"
+  },
+  "permissions": [],
+  "resources": {},
+  "compensation": { "templates": [] },
+  "model": {
+    "provider": "mock",
+    "protocol": "mock",
+    "models": ["mock-chat"],
+    "auth": { "ref": "KEEL_TEST_MODEL_KEY" },
+    "pricing": {
+      "mock-chat": {
+        "unit": "usd_per_mtok",
+        "offPeak": { "inputCached": 0.1, "inputUncached": 0.2, "output": 0.4 }
+      }
+    },
+    "timeouts": { "idleMs": 30000 }
+  },
+  "compat": { "keelContract": "^1.0" }
+}

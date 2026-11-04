@@ -10,11 +10,16 @@
  */
 
 import type { RunRef } from "./events.js";
+import type { ModelPricing } from "./pricing.js";
 
-/** 上游产出的一片：`cost` 是该片的权威计量（可为 0），`usage` 可只在末片给出。 */
+/**
+ * 上游产出的一片：`cost` 是该片的权威计量（旧路径；可为 0），`usage` 可只在末片给出。
+ * `kind:"model"` 装配路径**不读** `cost`（费用由 Core 按 manifest 价格表算），
+ * 模块带 `cost` 会被网关当作协议违规拒绝。
+ */
 export interface StreamPart {
   chunk: unknown;
-  cost: number;
+  cost?: number;
   usage?: unknown;
 }
 
@@ -40,6 +45,8 @@ export interface StreamSession {
   finalized: boolean;
   /** finalize 时是否截断（true = 已产出部分结算，ADR-0013 决策 4）。 */
   truncated: boolean;
+  /** 已注册模型的 manifest 价格表（Phase 4 切片③）；缺省 = 旧的"每片自带 cost"路径。 */
+  pricing?: ModelPricing;
 }
 
 /** 时限默认值 = 契约 §7 既有三档（**不新增时限数**；构造参数只是测试注入位）。 */

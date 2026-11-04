@@ -29,6 +29,8 @@ export {
   type CompensationExecInput,
   type CompensationHandler,
   type EffectDeclaration,
+  type EngineStepContext,
+  type EngineStepHandler,
   type PolicyHookHandler,
   type PluginSetupContext,
   type RegisteredToolView,

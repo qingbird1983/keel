@@ -105,6 +105,26 @@ describe("Budgeter（契约 §4.3 / 验收 A7）", () => {
     });
   });
 
+  it("单次实结超预扣：用量如实、预算夹到限额（不出现负数）、overrun 入账", async () => {
+    const { ledger, budget } = harness();
+    budget.configure({ agentId: "agent-1", sessionId: "sess-1" }, { run: 50, session: 50 });
+    const r = await budget.reserve(ref, "req-1", 10);
+    const settled = await budget.settle(ref, r.reservationId, 70);
+    expect(settled).toEqual({ refund: -60, overrun: true });
+
+    const q = budget.query(ref);
+    expect(q.run).toEqual({ limit: 50, used: 50, remaining: 0 }); // 夹到限额，不是 -20
+    expect(q.session).toEqual({ limit: 50, used: 50, remaining: 0 });
+    const settledEvent = (await ledger.read({ runId: "run-1" })).events.find(
+      (e) => e.type === "BUDGET_SETTLED",
+    );
+    expect(settledEvent?.payload).toMatchObject({ actual: 70, refund: -60, overrun: true });
+    // 之后该 scope 按耗尽处置拒绝新的预扣
+    await expect(budget.reserve(ref, "req-2", 1)).rejects.toMatchObject({
+      code: "BUDGET/EXHAUSTED",
+    });
+  });
+
   it("configure 校验：负数/非有限限额 → BUDGET/INVALID-LIMIT", () => {
     const { budget } = harness();
     expect(() => budget.configure(ref, { run: -1 })).toThrowError(KeelError);

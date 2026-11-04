@@ -12,6 +12,8 @@ export {
   EVENT_SCHEMA_VERSION,
   EVENT_TYPES,
   SCHEMA_VERSION,
+  SURFACE_EVENT_TYPES,
+  isSurfaceEventType,
   scopeKey,
   type AssemblyRecordedPayload,
   type AuthDeniedPayload,
@@ -32,15 +34,38 @@ export {
   type IdempotencyStrategy,
   type LedgerEvent,
   type ModelInvokedPayload,
+  type ModelMessagePayload,
+  type ModelUsageBuckets,
   type ModelUsagePayload,
   type RunLifecyclePayload,
   type RunRef,
   type Scope,
   type StateSnapshotRefPayload,
+  type SurfaceEventType,
+  type SurfaceOp,
+  type SurfaceToolCall,
   type ToolInvokePayload,
   type ToolResultPayload,
   type ToolSchemaChangedPayload,
+  type TurnInputPayload,
 } from "./events.js";
+export {
+  SURFACE_PROJECTION_VERSION,
+  appendModelMessage,
+  appendTurnInput,
+  projectSurface,
+  type SurfaceMessage,
+} from "./surface.js";
+export {
+  priceUsage,
+  pricingTier,
+  readUsageBuckets,
+  type ModelPricing,
+  type PeakWindow,
+  type PricingTier,
+  type PricingTierName,
+  type UsageBuckets,
+} from "./pricing.js";
 export { globMatch } from "./glob.js";
 export {
   Ledger,
@@ -79,9 +104,11 @@ export {
   type VerdictMap,
 } from "./hooks.js";
 export {
+  MODEL_INVOKE_TIMEOUT_MS,
   ModelGateway,
   type ModelInvokeRequest,
   type ModelInvokeResult,
+  type ModelRegistration,
   type ModelUpstream,
   type StreamPage,
 } from "./gateway.js";
@@ -101,6 +128,7 @@ export {
   type DriverAction,
   type DriverDecision,
   type PendingCompensator,
+  type RoundContext,
   type RunDriver,
   type RunManifest,
   type RunState,

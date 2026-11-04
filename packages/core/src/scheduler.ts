@@ -27,6 +27,7 @@ import {
   type LedgerEvent,
   type RunRef,
   type ToolSchemaChangedPayload,
+  type TurnInputPayload,
 } from "./events.js";
 import { Ledger, type CheckpointInfo, type LedgerAppendOptions } from "./ledger.js";
 
@@ -41,7 +42,16 @@ export type ToolExecutor = (call: {
 >;
 
 export type DriverAction =
-  | { kind: "tool"; tool: string; params: unknown }
+  | {
+      kind: "tool";
+      tool: string;
+      params: unknown;
+      /**
+       * 发起方给出的工具调用标识（Phase 4 切片④）：engine 的 ReAct 决策带模型生成的
+       * `toolCalls[].id`，下一轮投影靠它把结果配回调用。缺省 = Core 生成随机标识。
+       */
+      toolCallId?: string;
+    }
   | {
       kind: "model";
       reqId: string;
@@ -74,6 +84,17 @@ export interface DriverDecision {
   done?: boolean;
   summary: unknown;
   actions?: DriverAction[];
+  /**
+   * 本决策显式引用的关键事件 seq（Phase 4 切片④ D5）：调度器把它与自身已写事件合并后
+   * 作为 `DECISION.basedOn`。engine 驱动用它引用本步的 `MODEL_INVOKED` / `MODEL_USAGE` /
+   * `MODEL_MESSAGE`（这些由网关/表面写入直写，不在调度器的 `h.events` 里）。
+   */
+  basedOn?: number[];
+  /**
+   * `done:true` 时的收束原因码（Phase 4 切片④）：`MAX_STEPS` 等结构性上限落
+   * `RUN_HALTED{reasonCode}`，与"正常完成"（`reason:"completed"`）区分开。
+   */
+  haltReason?: string;
 }
 
 /** 决策来源：Host 装配时注入的 Agent 程序（非插件，不能改轮序列）。 */
@@ -98,10 +119,19 @@ export interface RunManifest {
   executor: ToolExecutor;
   driver: RunDriver;
   compensator?: PendingCompensator;
-  /** 装配审计基线（切片③：存在时作为本 run 首事件 ASSEMBLY_RECORDED 落账）。 */
-  assembly?: AssemblyRecordedPayload;
+  /**
+   * 装配审计基线（切片③：存在时作为本 run 首事件 ASSEMBLY_RECORDED 落账）。
+   * Phase 4 切片②：profile 装配 = 逐插件一条，按声明序作为 **首批** 事件写入（01 稿 P6）。
+   * 单件路径仍传单条（与旧账本逐字节一致）。
+   */
+  assembly?: AssemblyRecordedPayload | AssemblyRecordedPayload[];
   /** 恢复延续（契约 §4.1 注记⑦）：RUN_RECOVERED 于新 run 首事件槽写入。 */
   recoveredFrom?: { runId: string; seq: number };
+  /**
+   * run 起始的用户/系统输入（Phase 4 切片④，R1）：由调度器在 `RUN_STARTED` 之后、
+   * 首轮之前写入 `TURN_INPUT`——表面事件只有 Core 能写，engine/插件没有账本入口。
+   */
+  turnInput?: TurnInputPayload;
 }
 
 /** 状态机位置（契约 run.status；recovering 随切片④恢复器启用）。 */
@@ -251,8 +281,15 @@ export class Scheduler {
 
   private async loop(h: RunHandle): Promise<void> {
     try {
-      // 装配审计基线（切片③）：run 首事件（seq 1）
-      if (h.manifest.assembly) await this.emit(h, "ASSEMBLY_RECORDED", h.manifest.assembly);
+      // 装配审计基线（切片③）：run 首事件（seq 1）。
+      // Phase 4 切片②：profile 装配逐插件写，按声明序作为 run 的**首批**事件（01 稿 P6）。
+      const records =
+        h.manifest.assembly === undefined
+          ? []
+          : Array.isArray(h.manifest.assembly)
+            ? h.manifest.assembly
+            : [h.manifest.assembly];
+      for (const record of records) await this.emit(h, "ASSEMBLY_RECORDED", record);
       // 恢复延续（契约 §4.1 注记⑦）：RUN_RECOVERED 先于 RUN_STARTED
       if (h.manifest.recoveredFrom) {
         await this.emit(h, "RUN_RECOVERED", {
@@ -261,6 +298,8 @@ export class Scheduler {
         });
       }
       await this.emit(h, "RUN_STARTED", {});
+      // run 起始输入（Phase 4 切片④）：表面事件族的第一条，先于首轮。
+      if (h.manifest.turnInput) await this.emit(h, "TURN_INPUT", h.manifest.turnInput);
       for (;;) {
         if (h.cancelRequested) {
           if (h.abortCode !== undefined) await this.failRun(h, h.abortCode, h.abortMessage);
@@ -272,11 +311,15 @@ export class Scheduler {
         break; // 终态已在 round 内落账
       }
     } catch (err) {
-      await this.failRun(
-        h,
-        err instanceof KeelError ? err.code : "DRIVER-ERROR",
-        err instanceof Error ? err.message : String(err),
-      );
+      // reasonCode 是载荷级字符串：驱动方可以带契约外的原因码（ENGINE_PROTOCOL /
+      // ENGINE_EXITED / MAX_STEPS 等，R8），但错误对象仍必须是"带 code 的结构化错误"。
+      const code =
+        err instanceof KeelError
+          ? err.code
+          : typeof (err as { code?: unknown })?.code === "string"
+            ? (err as { code: string }).code
+            : "DRIVER-ERROR";
+      await this.failRun(h, code, err instanceof Error ? err.message : String(err));
     }
     h.settle(this.snapshot(h));
   }
@@ -301,13 +344,16 @@ export class Scheduler {
     });
     // throughSeq 由**账本在写入点**盖章（stampSeqBeforeAs）：这里 h.events 只有调度器自己写的 seq，
     // 授权/预算/网关/效果/快照那几路直写事件不在其中——"决策看得见什么"的答案是上界，不是列举。
+    // basedOn = 调度器已写事件 ∪ 决策方显式引用（engine 的模型事件是直写，不在 h.events）；
+    // 排序去重后交给账本盖 throughSeq（上界仍由账本在执行期盖章）。
+    const basedOn = [...new Set([...h.events, ...(decision.basedOn ?? [])])].sort((a, b) => a - b);
     await this.emit(
       h,
       "DECISION",
       {
         round: h.round,
         summary: decision.summary,
-        basedOn: [...h.events],
+        basedOn,
       } satisfies DecisionPayload,
       { stampSeqBeforeAs: "throughSeq" },
     );
@@ -374,10 +420,17 @@ export class Scheduler {
       return "stop";
     }
     if (decision.done || stopAdvised) {
-      await this.emit(h, "RUN_HALTED", {
-        reason: decision.done ? "completed" : "stop-advised",
-      });
-      h.state = "halted";
+      // 结构性上限（如 MAX_STEPS）走 reasonCode；正常完成仍是 reason（旧账本形状不变）。
+      if (decision.done && decision.haltReason !== undefined) {
+        await this.emit(h, "RUN_HALTED", { reasonCode: decision.haltReason });
+        h.state = "halted";
+        h.reasonCode = decision.haltReason;
+      } else {
+        await this.emit(h, "RUN_HALTED", {
+          reason: decision.done ? "completed" : "stop-advised",
+        });
+        h.state = "halted";
+      }
       return "stop";
     }
     return "continue";
@@ -423,7 +476,8 @@ export class Scheduler {
     }
 
     // 工具：Core 授权 → hook① 否决权 → 执行（hook③ 重试钳制 ≤3 次）
-    const toolCallId = randomUUID();
+    // toolCallId 优先用决策方给的（engine 的模型 tool_call id）；缺省 Core 生成。
+    const toolCallId = action.toolCallId ?? randomUUID();
     const d = await this.auth.check(ref, manifest.subject, "tool.invoke", action.tool);
     if (!d.allowed) return this.deniedTool(h, action, "core", d.reason);
     const approval = await this.hooks.call(ref, "toolApproval", h.round, {
@@ -453,6 +507,8 @@ export class Scheduler {
         durationMs: this.now() - t0,
         resultDigest: res.status === "ok" ? res.result : undefined,
         error: res.status === "ok" ? undefined : res.error,
+        // 表面投影的关联键（E4）：模型消息里的 toolCalls[].id 与这里必须能对上。
+        toolCallId,
       });
       if (res.status === "ok") return { action, ok: true, resultDigest: res.result };
       const advice = await this.hooks.call(ref, "retryAdvice", h.round, {
@@ -482,6 +538,7 @@ export class Scheduler {
       status: "error",
       durationMs: 0,
       error: { code: "AUTH/DENIED", by, reason },
+      ...(action.toolCallId !== undefined ? { toolCallId: action.toolCallId } : {}),
     });
     return { action, ok: false, error: { code: "AUTH/DENIED", by } };
   }

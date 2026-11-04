@@ -1,0 +1,19 @@
+{
+  "kind": "engine",
+  "meta": {
+    "name": "engine-react",
+    "version": "1.0.0",
+    "title": "React Engine",
+    "description": "Profile 装配夹具：engine 必须跑在 Cell 进程里"
+  },
+  "permissions": [{ "cap": "model.adapter", "reason": "每步经网关调用模型" }],
+  "resources": {},
+  "compensation": { "templates": [] },
+  "engine": {
+    "loop": "react",
+    "model": { "ref": "model-mock", "name": "mock-chat" },
+    "tools": ["pid"],
+    "maxSteps": 8
+  },
+  "compat": { "keelContract": "^1.0" }
+}

@@ -59,6 +59,15 @@ const schemaPath = path.join(
   "schema",
   "keel-plugin.schema.json",
 );
+/** Profile 结构 Schema（Phase 4 切片②；`keel validate --profile` 与 `keel run --profile` 共用）。 */
+const profileSchemaPath = path.join(
+  repoRoot,
+  "docs",
+  "design",
+  "phase-4",
+  "schema",
+  "keel-profile.schema.json",
+);
 /**
  * 策略插件的进程入口（切片④，ADR-0012）：与能力舱同 supervisor、同帧协议，
  * 但受理面只有 `policy.hook`，且不注入任何主动接口。
@@ -80,6 +89,10 @@ export function assertDist(): void {
 
 export function loadSchema(): unknown {
   return JSON.parse(readFileSync(schemaPath, "utf-8"));
+}
+
+export function loadProfileSchema(): unknown {
+  return JSON.parse(readFileSync(profileSchemaPath, "utf-8"));
 }
 
 export function assembleManifest(raw: unknown): LoadedManifest {
@@ -187,12 +200,16 @@ export interface Runtime {
   supervisor: CellSupervisor;
   compensator: CompensationExecutor;
   recovery: RecoveryManager;
+  /** 插话总线（Phase 4 切片②：profile 装配在全部就绪后才向它注册策略 hook）。 */
+  hooks: HookBus;
   /** record-only / 升级告警缝的收集器（scenario 断言用）。 */
   alerts: AlertRecord[];
   /** 本进程内未能持久化的快照（非空 = "重启可恢复"这条主张对本次运行不成立，CLI 要报出来）。 */
   snapshotFailures: SnapshotFailureRecord[];
   /** runId → 在途 Cell（onCheckpoint 快照索取缝的查找表，切片④）。 */
   bindings: Map<string, { scope: Scope; cell: SupervisedCell }>;
+  /** 本运行中 engine 的 Cell（Phase 4 切片④：退出原因码映射为 ENGINE_EXITED）。 */
+  engineCells: Set<SupervisedCell>;
   /** 已接线的策略舱（切片④ 回填项 ①）：close 时一并收束，装配审计从这里的 summary 组载荷。 */
   policies: PolicyBinding[];
   close(): Promise<void>;
@@ -269,14 +286,17 @@ export async function buildRuntime(
     supervisor: null as unknown as CellSupervisor,
     compensator: null as unknown as CompensationExecutor,
     recovery: null as unknown as RecoveryManager,
+    hooks: null as unknown as HookBus,
     alerts: [],
     snapshotFailures: [],
     bindings: new Map(),
+    engineCells: new Set(),
     policies: [],
     close: async () => undefined,
   };
   // 插话总线在装配期就接线（handler 注册是装配动作，运行期不换装——hooks.ts 既有口径）
   const hookBus = new HookBus(ledger);
+  rt.hooks = hookBus;
   rt.scheduler = new Scheduler(
     { ledger, auth, budget, ctx, hooks: hookBus, gateway },
     {
@@ -319,7 +339,11 @@ export async function buildRuntime(
     toolKillGraceMs: 5_000,
     onCellExit: (e) => {
       const ref = e.cell.ref;
-      if (ref) void rt.scheduler.abort(ref.runId, e.reasonCode, e.message);
+      if (!ref) return;
+      // engine Cell 的退出在 reasonCode 上与普通能力舱区分（R8 / 03 稿 E6）：
+      // 契约错误码集合不变，变的是载荷级原因码。
+      const reasonCode = rt.engineCells.has(e.cell) ? "ENGINE_EXITED" : e.reasonCode;
+      void rt.scheduler.abort(ref.runId, reasonCode, e.message);
     },
   });
   /**
@@ -444,6 +468,7 @@ export async function closeRuntime(rt: Runtime): Promise<void> {
   // 策略舱不属于任何 run（不进 bindings），但它同样是进程资源：收束覆盖所有 spawn 源（P-003）
   await Promise.allSettled(rt.policies.map((b) => b.cell.drainAndReap()));
   rt.bindings.clear();
+  rt.engineCells.clear();
   rt.policies = [];
   await rt.ledger.close();
 }

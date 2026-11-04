@@ -21,18 +21,36 @@ export {
   Assembler,
   BOUNDARY_CAPS,
   KINDS,
+  MODEL_TOTAL_TIMEOUT_MAX_MS,
   TOOL_CALL_TIMEOUT_MAX_MS,
   rangeContains,
   type AssemblerOptions,
   type CompensationTemplateDecl,
+  type EngineDecl,
   type GovernanceEffectDecl,
   type GovernanceGuardDecl,
   type GovernanceToolDecl,
   type LoadedManifest,
   type ManifestKind,
   type MigrationDecl,
+  type ModelDecl,
+  type ModelPricing,
+  type PeakWindow,
   type PermissionDecl,
+  type PricingTier,
 } from "./assembler.js";
+export {
+  assembleProfile,
+  loadProfile,
+  type AssembledProfilePlugin,
+  type AssembleProfileOptions,
+  type LoadProfileOptions,
+  type ProfileAssembly,
+  type ProfilePlan,
+  type ProfilePluginPlan,
+} from "./profile/assemble.js";
+export { parseYamlSubset } from "./profile/parse.js";
+export { validateProfileDocument } from "./profile/schema.js";
 export { compileGovernancePlan } from "./governance.js";
 export {
   AssemblyManager,
@@ -45,6 +63,7 @@ export {
 export {
   CELL_EXIT_REASON,
   CellSupervisor,
+  ENGINE_STEP_TIMEOUT_MS,
   SupervisedCell,
   type CellExit,
   type CellExitClass,
@@ -52,6 +71,15 @@ export {
   type DrainOutcome,
   type SupervisorOptions,
 } from "./supervisor.js";
+export {
+  EngineDriver,
+  EngineProtocolError,
+  GracefulExhaustion,
+  modelEventsOf,
+  type EngineDriverOptions,
+  type EngineStepInput,
+  type EngineStepResponse,
+} from "./engine-driver.js";
 export { serveCellChannel, type CellChannelBinding, type CellServerDeps } from "./cell-server.js";
 export { manifestAuthRules, capabilitysWithoutRuntimeOp } from "./permission-rules.js";
 export {

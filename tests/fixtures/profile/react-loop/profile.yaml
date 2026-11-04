@@ -1,0 +1,25 @@
+# Phase 4 切片④装配夹具：engine + model + capability 的 headless ReAct 闭环（CLI 冒烟用）。
+# 模型密钥只查存在性：测试在 beforeAll 里设 KEEL_MODEL_MOCK_KEY（假值，守 D4 形状）。
+version: 1
+name: react-loop
+scope:
+  agentId: react
+  sessionId: main
+plugins:
+  - id: model-mock
+    kind: model
+    manifest: ../../../../packages/plugins/model-mock/keel-plugin.json
+    module: ../../../../packages/plugins/model-mock/dist/index.js
+  - id: engine-react
+    kind: engine
+    manifest: ../../../../packages/plugins/engine-react/keel-plugin.json
+    module: ../../../../packages/plugins/engine-react/dist/index.js
+  - id: echo
+    kind: capability
+    manifest: ../../../../packages/plugins/echo/keel-plugin.json
+    module: ../../../../packages/plugins/echo/dist/index.js
+  # 全家桶闭环（D1 复核）：策略舱也在环内，对 echo 无影响。
+  - id: danger-guard
+    kind: policy
+    manifest: ../../../../packages/plugins/param-guard/keel-plugin.json
+    module: ../../../../packages/plugins/param-guard/dist/index.js

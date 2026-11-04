@@ -1,0 +1,8 @@
+# 五步校验零豁免夹具：mix 一份越界 manifest（net.fetch 缺 allow）进 profile
+version: 1
+name: bad-profile
+plugins:
+  - id: bad-cap
+    kind: capability
+    manifest: ./bad.json
+    module: ../modules/pid.mjs
