@@ -62,6 +62,8 @@
 5. 三份设计稿回填"实施注记"（与 Phase 3 同口径：只补事实，不改决策）。
 
 > 实施注记（2026-11-04，切片①收尾）：第 3 步已落地——`scripts/scan-native-plugins.mjs` 增加 `E1-net` / `E2-env` / `E3-ledger` / `E4-hook` / `E5-key` / `M1-cost` 六条按 kind 生效的判据；kind 从插件目录的 `keel-plugin.json` 读取，读不到只跑全局规则（清单本身归装配期判死）。门禁测试补"判据齐全 + 逐条毒样本（带 kind 清单）+ 干净 engine/model 样本零命中"三组，全仓 56 文件 422 测试通过、实扫三件套零命中。第 4 步（三篇 ADR）同批完成（[0022](../adr/ADR-0022-manifest-kind-extension.md) / [0023](../adr/ADR-0023-engine-step-channel.md) / [0024](../adr/ADR-0024-surface-event-family.md)）。R1~R13 的代码实施仍归切片②③④。
+>
+> 实施注记（2026-11-04，切片②）：**R2 与 R9~R13 已落地**——manifest schema 扩五值 + model/engine 两段 `if/then`；装配器新增 `validateModel` / `validateEngine`（engine 能力白名单、`auth.ref` presence-only、价格表键集合与三桶/峰谷、`idleMs` 上限、`maxSteps` 区间）；profile schema + 严格 YAML 子集解析器 + 六步装配 + 逐插件装配记录（契约 §5 注记已按 R2 修订）。R1/R3~R8 仍归切片③④。`R13` 里"engine 工具恰好一个提供者"用**真实注册结果**在 profile 装配器复核（01 稿 §9）。
 
 ## 7. 自检清单
 

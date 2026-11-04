@@ -31,3 +31,12 @@
 ## 归属
 
 Phase 3 切片③（2026-11-03）；有代码改动（`schema-validator.ts` + 测试）；新设计见 [ADR-0015](../../docs/adr/ADR-0015-manifest-governance-and-cell-aop.md) §1 与 [04 稿](../../docs/design/phase-3/04-cell-runtime-aop.md) §4.2。
+
+## 再次发生（2026-11-04，Phase 4 切片②）
+
+给 `model.pricing` 写 Schema 时用了 `minProperties: 1`（想把“空价格表”挡在结构层），
+校验器直接报 `unsupported schema keywords: minProperties`——这次是**明确失败而非静默放过**，
+但把一条本来想交给装配器的语义校验误放进了 Schema。处置：删掉 `minProperties`，
+价格表键集合/非空由 `Assembler.validateModel` 语义校验（与动态键集合同一处置）。
+新增判据：**公开 Schema 只允许出现 `SUPPORTED` 集合内的关键词**；想加新关键词先扩校验器并配负样本，
+否则一律留在装配器。

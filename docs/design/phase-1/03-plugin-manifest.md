@@ -39,19 +39,21 @@ DSH 症状 V5（热插拔依赖全局注册表突变）的根源：插件进入�
 
 ## 4. Manifest 结构总览
 
-| 节              | 必填               | 内容                                                                                                                    | 约束来源                |               |                  |
-| --------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------- | ----------------------- | ------------- | ---------------- |
-| `kind`          | ✅                 | `capability`                                                                                                            | `policy`                | `observation` | 条件分支（§5.6） |
-| `meta`          | ✅                 | name / version（semver 精确）/ title / description                                                                      | Schema                  |               |                  |
-| `permissions`   | ✅                 | 能力词表项 + allow 限定符                                                                                               | C-D1；词表见 §5.2       |               |                  |
-| `resources`     | ✅                 | toolCallTimeoutMs（capability 必填）/ memoryMbSoft / maxToolCallsPerRound；**policy/observation 必须为空对象** **`{}`** | C-D3                    |               |                  |
-| `compensation`  | ✅                 | templates\[]（kind → class/action/idempotency/probe）                                                                   | C-M1；语义对齐状态机 §9 |               |                  |
-| `compat`        | ✅                 | keelContract 版本范围                                                                                                   | C-D2                    |               |                  |
-| `migration`     | 可选               | from 范围 + steps\[]（有状态插件升级迁移）                                                                              | C-D2；执行者见 §5.5     |               |                  |
-| `hooks`         | policy 必填        | 契约 §4.8 四 hook 的非空子集                                                                                            | 契约白名单              |               |                  |
-| `subscriptions` | observation 必填   | 只读事件订阅模式列表                                                                                                    | 契约 §3.3               |               |                  |
-| `governance`    | 可选（capability） | tools\[]（工具 → guard / effects 切面绑定）；2026-11-03 追加                                                            | ADR-0015；§5.7          |               |                  |
-| `trust`         | 可选（capability） | `{rawIo?: boolean}`——manifest 申请、宿主授予；默认拒绝；2026-11-03 追加（R5）                                           | ADR-0019；§5.8          |               |                  |
+| 节              | 必填               | 内容                                                                                                                    | 约束来源                |     |     |
+| --------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------- | ----------------------- | --- | --- |
+| `kind`          | ✅                 | `capability` / `policy` / `observation` / `model` / `engine`                                                            | 条件分支（§5.6）        |     |     |
+| `meta`          | ✅                 | name / version（semver 精确）/ title / description                                                                      | Schema                  |     |     |
+| `permissions`   | ✅                 | 能力词表项 + allow 限定符                                                                                               | C-D1；词表见 §5.2       |     |     |
+| `resources`     | ✅                 | toolCallTimeoutMs（capability 必填）/ memoryMbSoft / maxToolCallsPerRound；**policy/observation 必须为空对象** **`{}`** | C-D3                    |     |     |
+| `compensation`  | ✅                 | templates\[]（kind → class/action/idempotency/probe）                                                                   | C-M1；语义对齐状态机 §9 |     |     |
+| `compat`        | ✅                 | keelContract 版本范围                                                                                                   | C-D2                    |     |     |
+| `migration`     | 可选               | from 范围 + steps\[]（有状态插件升级迁移）                                                                              | C-D2；执行者见 §5.5     |     |     |
+| `hooks`         | policy 必填        | 契约 §4.8 四 hook 的非空子集                                                                                            | 契约白名单              |     |     |
+| `subscriptions` | observation 必填   | 只读事件订阅模式列表                                                                                                    | 契约 §3.3               |     |     |
+| `governance`    | 可选（capability） | tools\[]（工具 → guard / effects 切面绑定）；2026-11-03 追加                                                            | ADR-0015；§5.7          |     |     |
+| `trust`         | 可选（capability） | `{rawIo?: boolean}`——manifest 申请、宿主授予；默认拒绝；2026-11-03 追加（R5）                                           | ADR-0019；§5.8          |     |     |
+| `model`         | model 必填         | provider / protocol / models / endpoint / auth.ref / pricing / timeouts；2026-11-04 追加（Phase 4）                     | ADR-0022；§5.9          |     |     |
+| `engine`        | engine 必填        | loop / model.ref+name / tools / maxSteps；2026-11-04 追加（Phase 4）                                                    | ADR-0022；§5.10         |     |     |
 
 ## 5. 各节详解
 
@@ -73,6 +75,8 @@ DSH 症状 V5（热插拔依赖全局注册表突变）的根源：插件进入�
 allow 的必填性由装配器语义校验执行，Schema 层不强制——这是结构校验与语义校验分层的设计选择（C-M2），不是 Schema 遗漏。
 
 > 实现注记（2026-11-03 Phase 2 切片①，[ADR-0010](../../adr/ADR-0010-runtime-tool-registration-channel.md)）：词表**不增项**，`tool.provide` 的语义从"装载期代码内清单"扩到"运行期可注册/撤名"（跨通道 op `tool.register`/`tool.remove`，契约 §4.6）。本项 `allow` 由"不需要"变为"**可选收窄**"：缺省 = `*`（清单在代码内），给出 `allow` 则按 glob 限定可注册的工具名。同时明确：**词表项若无对应运行期 op 就不产出授权规则**（`memory.backend` 当前即如此）——声明不等于能力，运行期裁决只认有通道的项；把 manifest 声明编译成规则的动作在宿主（`permission-rules`），完整的"从运行观察合成声明"仍是 Phase 2 切片②。
+
+> 语义规则（2026-11-04 Phase 4 切片②，[ADR-0022](../../adr/ADR-0022-manifest-kind-extension.md) / 03 稿 E8）：**词表仍不增项**。`kind:"engine"` 的 `permissions` 只允许 `model.adapter`（最多一项）；出现任何其他 cap（含 `tool.provide`、`fs.read`、`net.fetch`）即整份拒绝，由装配器语义校验执行，不靠评审核对。engine 的工具执行是 Core→能力 Cell 的既有 `tool.exec`，engine 自己**不持有**工具执行能力。
 
 ### 5.3 resources（C-D3）
 
@@ -123,6 +127,8 @@ allow 的必填性由装配器语义校验执行，Schema 层不强制——这�
 - observation：`subscriptions` 必填非空；`permissions` 必须为空数组（只读，契约 §3.3）；禁 `migration`（同上）。
 - capability 的 `governance` 可选；policy / observation 出现 `governance` 即拒（`maxProperties: 0`）。
 - capability 的 `trust` 可选；policy / observation 出现 `trust` 即拒（`maxProperties: 0`）。
+- model（2026-11-04 追加）：`model` 段必填；`permissions` / `resources` / `compensation.templates` / `hooks` / `subscriptions` / `governance` / `trust` / `migration` 必须为空——它是宿主进程内的可信模块（持密钥），不面向 Cell 通道声明能力；时限在 `model.timeouts`，价格在 `model.pricing`。
+- engine（2026-11-04 追加）：`engine` 段必填；`permissions` 最多一项且只能是 `model.adapter`（装配器语义校验）；`resources` / `compensation.templates` / `hooks` / `subscriptions` / `governance` / `trust` / `migration` 必须为空——engine 不产副作用、不自审、不持密钥。
 
 ### 5.7 governance（2026-11-03 追加，ADR-0015）
 
@@ -140,6 +146,39 @@ allow 的必填性由装配器语义校验执行，Schema 层不强制——这�
 - 授予后 `LoadedManifest.trust = "raw"`，并写入 `ASSEMBLY_RECORDED.trust`（缺省 = mediated，旧账本按 mediated 读）。
 - raw IO 在当前进程后端**不被系统调用拦截**；它只是“显式受信 + 审计 + 不享受内置补偿”的标记。真正的隔离靠 Cell 进程 + 后续容器后端；Node 权限模型只作可选纵深防御。
 
+### 5.9 model（2026-11-04 追加，Phase 4；ADR-0022）
+
+`kind:"model"` 是**宿主进程内的可信模块**（不 spawn Cell、持密钥），manifest 只声明"这是什么上游、密钥引用名、价格表、时限"；实现代码在模块里（`create({model, secrets}) → ModelUpstream`）。
+
+| 字段                    | 必填                       | 约束                                                                                                                                  |
+| ----------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `provider`              | 是                         | kebab-case，仅用于诊断/记录                                                                                                           |
+| `protocol`              | 是                         | `"http-sse"` \| `"mock"`；未知值拒绝                                                                                                  |
+| `models`                | 是                         | 非空、无重复；provider 现行模型名（示例 `deepseek-flash`；`deepseek-chat`/`deepseek-reasoner` 已停用，不出现在可执行示例里）          |
+| `endpoint`              | protocol=`http-sse` 时必填 | `https://`；本地回环测试允许 `http://127.0.0.1`（装配器做条件必填）                                                                   |
+| `auth.ref`              | 是                         | 环境变量名（引用名，非明文）；pattern 拒绝 `sk-` 形态。装配期只做 **presence-only** 检查，错误只写 ref 名；调用前 per-request resolve |
+| `pricing.<模型名>`      | 是                         | 键集合必须与 `models` **完全一致**；`unit` 首版只 `usd_per_mtok`                                                                      |
+| `pricing.*.offPeak`     | 是                         | 三桶 `inputCached` / `inputUncached` / `output`，非负有限数                                                                           |
+| `pricing.*.peak`        | 否                         | 峰价；存在时 `peakWindows` 必填。费用由 Core 按宿主时钟判档，未知档落 `unknownTier`（缺省 `"peak"` 保守计费）                         |
+| `pricing.*.peakWindows` | 否                         | `{days:"mon-fri", utc:"HH:MM-HH:MM"}`；法定节假日不建模                                                                               |
+| `timeouts.idleMs`       | 否                         | 正整数，≤ 契约 §7 总时限（300s 档）；装配器语义复核                                                                                   |
+
+语义规则：**模块只报 usage，不报 cost**；`kind:"model"` 装配路径拒绝模块返回的 `cost`（02 稿 M3，切片③实施）。价格表按模型分表、三桶 × 峰谷，单桶单价会把缓存命中算错约 50 倍——这是硬约束，不是优化项。
+
+### 5.10 engine（2026-11-04 追加，Phase 4；ADR-0022）
+
+`kind:"engine"` 跑在 Cell 进程里，决策逻辑在 Cell、回合推进在 Core（每步一次 `engine.step`）。
+
+| 字段         | 必填 | 约束                                                                 |
+| ------------ | ---- | -------------------------------------------------------------------- |
+| `loop`       | 是   | 首版仅 `"react"`；未知值拒绝（不猜语义）                             |
+| `model.ref`  | 是   | profile 内 model 插件的 `id`；装配期必须命中                         |
+| `model.name` | 是   | 该插件 `models` 列表之一                                             |
+| `tools`      | 是   | 非空、无重复；每个名字装配期**恰好一个**能力插件提供（重名整份拒绝） |
+| `maxSteps`   | 是   | 1~100；超限装配期拒绝                                                |
+
+`tools` 的提供者归属用**真实注册结果**复核（Profile 装配器在全部 Cell 就绪后按 scope 建"工具 → Cell"表），不靠 manifest 猜；未列出的工具即使存在也不在 engine 的可见面内。
+
 ## 6. 装配与校验流程（fail-closed，C-M3）
 
 装配器五步（任一失败 = 拒绝装配，写 `SCHED/MANIFEST-INVALID`）：
@@ -151,6 +190,8 @@ allow 的必填性由装配器语义校验执行，Schema 层不强制——这�
 5. **记录**：装配清单入账本（权限、补偿 class、record-only 标记）——审计基线。
 
 > 实现注记（2026-11-02 切片③，收口 N3）：第 5 步落地为账本事件 `ASSEMBLY_RECORDED`（契约 §5），由调度器在 `run.start` 时作为该 run 首事件写入；run 前失败的装配尝试不入账本（run-scoped 账本无宿主作用域），由装配器错误返回承载。
+>
+> 实现注记（2026-11-04 Phase 4 切片②，[01 稿](../../design/phase-4/01-profile-assembly.md) P6）：profile 装配时第 5 步变为**逐插件一条**记录，按声明序作为 run 的**首批**事件写入（仍是 run 启动时，不是装配时）；载荷追加可选 `profile:{name,version}` 与 `plugin:{id}`。五步校验本身零豁免、零改写——profile 只是多次调用同一装配器。
 
 **热装配切换时序（V5 的正面表达）**：
 

@@ -120,3 +120,12 @@ Schema 文件：`docs/design/phase-4/schema/keel-profile.schema.json`（新目�
 - **P1（2026-11-04）**：`profile.yaml` + 严格 YAML 子集解析器（零依赖）。
 - **P4（2026-11-04 随整稿过闸）**：六步装配顺序与"全部就绪才开放受理"照准。
 - **P6（2026-11-04 随整稿过闸）**：装配记录改为"逐插件 N 条 + `profile`/`plugin` 两个追加字段"照准（契约 §5 注记按 04 稿 R2 修订）。
+
+## 9. 实施注记（2026-11-04，切片②）
+
+- 代码落在 `packages/host/src/profile/`：`parse.ts`（严格 YAML 子集，~230 行）、`schema.ts`（复用既有关键词子集校验器）、`assemble.ts`（`loadProfile` 1~3 步 + `assembleProfile` 4~6 步）。没有新建 `packages/profile`（P9）。
+- 工具归属不用 manifest 猜：`wireCell` 新增可选 `onToolChange` 观察回调，装配器按 `scope + tool` 建"工具 → Cell"表；重名 → 整份拒绝，engine 的 `tools` 用同一张表复核"恰好一个提供者"（03 稿 E9）。
+- 组合执行器按 run scope 路由到能力 Cell；未找到工具返回 `SCHED/NOT-FOUND` 错误结果（不猜、不广播）。
+- cell-runtime 默认入口的 bootstrap 校验从"`toolCallTimeoutMs` 必须为真值"改为"必须是 number"：`0` 是合法值（engine/策略舱不受理 `tool.exec`）；把 0 当缺省会让 `resources` 必须为空的 kind 一装载即 crash。
+- `keel validate --profile` 只做 1~3 步；`keel run --profile` 做完整六步。含 engine 的 profile 在切片②明确拒绝起 run（`engine.step` 属切片④），不用 demo driver 假装跑过。
+- 红测：`packages/host/test/profile.test.ts`（解析器/交叉校验/R13）+ `tests/profile-assembly-e2e.test.ts`（D1-a~e，真进程）；`apps/keel/test/cli.test.ts` 补 validate/run profile 四条。
