@@ -17,6 +17,13 @@ import { Budgeter, type Reservation } from "./budget.js";
 import { type ModelInvokedPayload, type ModelUsagePayload, type RunRef } from "./events.js";
 import { Ledger } from "./ledger.js";
 import {
+  priceUsage,
+  readUsageBuckets,
+  type ModelPricing,
+  type PricingTierName,
+  type UsageBuckets,
+} from "./pricing.js";
+import {
   STREAM_DEADLINE_MS,
   STREAM_DEFAULT_LIMIT,
   STREAM_MAX_BUFFERED,
@@ -31,8 +38,12 @@ export interface ModelUpstream {
   invoke(req: { model: string; params: unknown }): Promise<{
     result: unknown;
     usage: unknown;
-    /** 权威计量（预算器计量单位）；实结以此为准。 */
-    cost: number;
+    /**
+     * 权威计量（预算器计量单位）；旧路径实结以此为准。
+     * `kind:"model"` 装配路径**不读**它：模块只报三桶用量，费用由 Core 按 manifest 价格表算，
+     * 带 `cost` 反而会被当作协议违规拒绝（Phase 4 切片③ M3）。
+     */
+    cost?: number;
   }>;
   /**
    * 流式（[ADR-0013](../../../docs/adr/ADR-0013-model-stream-pull-chunking.md) 决策 10）：**可选**。
@@ -79,12 +90,30 @@ interface SettledCall {
   result: ModelInvokeResult;
 }
 
+/** `kind:"model"` 装配路径注册的一条上游（Phase 4 切片③，02 稿 §5）。 */
+export interface ModelRegistration {
+  /** 该插件服务的模型名（manifest `model.models`；一个模块可服务多个）。 */
+  models: string[];
+  upstream: ModelUpstream;
+  /** 该模型的价格表（manifest `model.pricing.<型号>`）；费用由 Core 计算。 */
+  pricing: ModelPricing;
+}
+
+/** 非流式总时限 = 契约 §7 既有的 120s（测试注入位，不是运行期旋钮）。 */
+export const MODEL_INVOKE_TIMEOUT_MS = 120_000;
+
 /** 单次取片的内部结局：判别联合，四种结局各占一支（读方不必再猜"这个 object 是谁"）。 */
 type NextStep =
   | { readonly kind: "part"; readonly part: StreamPart }
   | { readonly kind: "end" }
   | { readonly kind: "stalled" }
   | { readonly kind: "failed"; readonly error: unknown };
+
+/** 非流式上游调用的三种结局（超时是**值**不是异常，保证先 settle 再抛）。 */
+type UpstreamOutcome =
+  | { readonly kind: "ok"; readonly value: Awaited<ReturnType<ModelUpstream["invoke"]>> }
+  | { readonly kind: "error"; readonly error: unknown }
+  | { readonly kind: "timeout" };
 
 export class ModelGateway {
   private readonly ledger: Ledger;
@@ -103,7 +132,10 @@ export class ModelGateway {
    */
   private readonly streamWaitMs: number;
   private readonly streamDeadlineMs: number;
+  private readonly invokeTimeoutMs: number;
   private readonly now: () => number;
+  /** 模型名 → 已注册上游 + 价格表（profile 装配期写入；空 = 旧的单上游路径）。 */
+  private readonly models = new Map<string, ModelRegistration>();
 
   constructor(deps: {
     ledger: Ledger;
@@ -112,6 +144,7 @@ export class ModelGateway {
     upstream: ModelUpstream;
     streamWaitMs?: number;
     streamDeadlineMs?: number;
+    invokeTimeoutMs?: number;
     now?: () => number;
   }) {
     this.ledger = deps.ledger;
@@ -120,7 +153,27 @@ export class ModelGateway {
     this.upstream = deps.upstream;
     this.streamWaitMs = deps.streamWaitMs ?? STREAM_WAIT_MS;
     this.streamDeadlineMs = deps.streamDeadlineMs ?? STREAM_DEADLINE_MS;
+    this.invokeTimeoutMs = deps.invokeTimeoutMs ?? MODEL_INVOKE_TIMEOUT_MS;
     this.now = deps.now ?? (() => Date.now());
+  }
+
+  /**
+   * 注册 `kind:"model"` 插件的上游与价格表（Phase 4 切片③）：一旦有任何注册，
+   * **未注册的模型名一律拒绝**（不回落到宿主演示桩——桩会让"没接上的模型"看起来能用）。
+   * 同名重复注册 = 装配错误（一个模型名只能有一个权威上游）。
+   */
+  registerModel(registration: ModelRegistration, opts?: { replace?: boolean }): void {
+    for (const model of registration.models) {
+      if (this.models.has(model) && opts?.replace !== true) {
+        throw new KeelError("SCHED/MANIFEST-INVALID", "model is registered twice", { model });
+      }
+    }
+    for (const model of registration.models) this.models.set(model, registration);
+  }
+
+  /** 已注册模型名（诊断/测试用）。 */
+  get registeredModels(): string[] {
+    return [...this.models.keys()];
   }
 
   /** model.invoke：授权 → 预扣 → 代理 → 实结（契约 §4.7 / §8 时序）。 */
@@ -133,6 +186,9 @@ export class ModelGateway {
       throw new KeelError("AUTH/DENIED", decision.reason ?? "denied", {
         model: req.model,
       });
+
+    // profile 已注册模型时，未注册的名字不落预扣、不打上游（fail closed）
+    const route = this.resolveModel(req.model);
 
     // 首试以 reqId 预扣；失败试次已 settle(0)，重试派生 `reqId#n` 新 reservation（settle 一次语义）
     const attempt = (this.attempts.get(req.reqId) ?? 0) + 1;
@@ -153,28 +209,76 @@ export class ModelGateway {
       requestDigest: req.params,
     } satisfies ModelInvokedPayload);
 
-    let upstream: Awaited<ReturnType<ModelUpstream["invoke"]>>;
-    try {
-      upstream = await this.upstream.invoke({ model: req.model, params: req.params });
-    } catch (err) {
+    // 总时限（契约 §7 120s）：到点 = 上游失败，全额退还并闭环（不留下悬空预扣）
+    const outcome = await this.callUpstream(route?.upstream ?? this.upstream, {
+      model: req.model,
+      params: req.params,
+    });
+    if (outcome.kind === "timeout") {
+      await this.budget.settle(ref, reservation.reservationId, 0);
+      throw new KeelError("GATEWAY/UPSTREAM-ERROR", "model upstream call timed out", {
+        model: req.model,
+        reason: "INVOKE_TIMEOUT",
+        timeoutMs: this.invokeTimeoutMs,
+      });
+    }
+    if (outcome.kind === "error") {
       await this.budget.settle(ref, reservation.reservationId, 0); // 全额退还
+      // 模块可带稳定 reason（RATE_LIMITED / TOOL_CHOICE_UNSUPPORTED / …）：如实透出便于归因，
+      // 但只接受字符串——不把模块的任意对象当诊断数据写进账本。
+      const reported = (outcome.error as { reason?: unknown } | null)?.reason;
       throw new KeelError("GATEWAY/UPSTREAM-ERROR", "model upstream call failed", {
         model: req.model,
-        cause: err instanceof Error ? err.message : String(err),
+        ...(typeof reported === "string" ? { reason: reported } : {}),
+        cause: outcome.error instanceof Error ? outcome.error.message : String(outcome.error),
+      });
+    }
+    const upstream = outcome.value;
+
+    let cost = upstream.cost;
+    let usageBuckets: UsageBuckets | undefined;
+    let tier: PricingTierName | undefined;
+    if (route) {
+      // 费用权威在 Core（M3）：模块自报 cost = 协议违规，显式拒绝、不静默忽略
+      if (Object.prototype.hasOwnProperty.call(upstream, "cost")) {
+        await this.budget.settle(ref, reservation.reservationId, 0);
+        throw new KeelError("GATEWAY/UPSTREAM-ERROR", "model module must not report cost", {
+          model: req.model,
+          reason: "UPSTREAM_PROVIDED_COST",
+        });
+      }
+      try {
+        usageBuckets = readUsageBuckets(upstream.usage);
+      } catch (err) {
+        await this.budget.settle(ref, reservation.reservationId, 0);
+        throw err;
+      }
+      const priced = priceUsage(route.pricing, usageBuckets, new Date(this.now()));
+      cost = priced.cost;
+      tier = priced.tier;
+    } else if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0) {
+      // 旧路径的权威计量缺失 = 计量不可信：先闭环再报错（不按 0 记账）
+      await this.budget.settle(ref, reservation.reservationId, 0);
+      throw new KeelError("GATEWAY/UPSTREAM-ERROR", "model upstream reported no valid meter", {
+        model: req.model,
+        reason: "UPSTREAM_COST_INVALID",
       });
     }
 
-    await this.budget.settle(ref, reservation.reservationId, upstream.cost);
+    await this.budget.settle(ref, reservation.reservationId, cost);
     await this.ledger.append(ref, "MODEL_USAGE", {
       reqId: req.reqId,
       usage: upstream.usage,
-      cost: upstream.cost,
+      cost,
+      ...(usageBuckets ? { usageBuckets } : {}),
+      ...(tier ? { tier } : {}),
+      ...(route ? { pricedBy: "manifest" as const } : {}),
     } satisfies ModelUsagePayload);
 
     const result: ModelInvokeResult = {
       result: upstream.result,
       usage: upstream.usage,
-      cost: upstream.cost,
+      cost,
       replay: false,
     };
     this.settled.set(req.reqId, { result });
@@ -208,6 +312,8 @@ export class ModelGateway {
     if (!decision.allowed)
       throw new KeelError("AUTH/DENIED", decision.reason ?? "denied", { model: req.model });
 
+    const route = this.resolveModel(req.model);
+
     const reservation = await this.budget.reserve(ref, req.reqId, req.estimate);
     const streamId = this.streams.newStreamId(req.reqId);
     await this.ledger.append(ref, "MODEL_INVOKED", {
@@ -217,7 +323,10 @@ export class ModelGateway {
       streamId,
     } satisfies ModelInvokedPayload);
 
-    const source = this.upstream.stream?.({ model: req.model, params: req.params });
+    const source = (route?.upstream ?? this.upstream).stream?.({
+      model: req.model,
+      params: req.params,
+    });
     if (!source) {
       await this.budget.settle(ref, reservation.reservationId, 0); // 一片都没出：全额退还并闭环
       throw new KeelError("GATEWAY/UPSTREAM-ERROR", "model upstream has no streaming support", {
@@ -239,6 +348,7 @@ export class ModelGateway {
       produced: 0,
       finalized: false,
       truncated: false,
+      ...(route ? { pricing: route.pricing } : {}),
     };
     this.streams.add(session);
     return await this.pump(ref, session, STREAM_DEFAULT_LIMIT);
@@ -297,6 +407,42 @@ export class ModelGateway {
     return { settled: true, cost: page.cost ?? 0, truncated: session.truncated };
   }
 
+  /** 已注册任何 model 插件后，未注册的模型名一律拒绝（不回落到宿主演示桩）。 */
+  private resolveModel(model: string): ModelRegistration | undefined {
+    if (this.models.size === 0) return undefined;
+    const route = this.models.get(model);
+    if (!route) {
+      throw new KeelError("GATEWAY/UPSTREAM-ERROR", "model is not registered in this profile", {
+        model,
+        reason: "MODEL_NOT_REGISTERED",
+      });
+    }
+    return route;
+  }
+
+  /**
+   * 带总时限的上游调用（契约 §7 非流式 120s）。超时与上游抛都收成**值**——
+   * "先 settle(0) 闭环、再报错"的次序不能被异常绕过。
+   */
+  private async callUpstream(
+    upstream: ModelUpstream,
+    req: { model: string; params: unknown },
+  ): Promise<UpstreamOutcome> {
+    const call = upstream.invoke(req);
+    // race 迟到的拒绝不该变成进程级未处理拒绝
+    void call.catch(() => undefined);
+    return await Promise.race([
+      call.then(
+        (value): UpstreamOutcome => ({ kind: "ok", value }),
+        (error: unknown): UpstreamOutcome => ({ kind: "error", error }),
+      ),
+      new Promise<UpstreamOutcome>((resolve) => {
+        const t = setTimeout(() => resolve({ kind: "timeout" }), Math.max(this.invokeTimeoutMs, 1));
+        t.unref?.();
+      }),
+    ]);
+  }
+
   /** 取一片的四种结局：出片 / 上游结束 / 等待超时（= 断流）/ 上游抛（= 上游失败）。 */
   private async nextPart(session: StreamSession, budgetMs: number): Promise<NextStep> {
     const next = session.iterator.next();
@@ -341,9 +487,13 @@ export class ModelGateway {
         return { ...page, chunks };
       }
       const part = step.part;
+      // 费用权威在 Core（M3）：manifest 计价路径里模块带 cost = 协议违规，先闭环再报错
+      if (session.pricing && Object.prototype.hasOwnProperty.call(part, "cost")) {
+        throw await this.closeOnProtocolError(ref, session, "UPSTREAM_PROVIDED_COST");
+      }
       chunks.push(part.chunk);
       session.produced += 1;
-      session.cost += part.cost;
+      if (!session.pricing) session.cost += part.cost ?? 0;
       if (part.usage !== undefined) session.usage = part.usage;
       if (chunks.length >= max) break;
     }
@@ -352,9 +502,26 @@ export class ModelGateway {
       chunks,
       done: false,
       produced: session.produced,
-      cost: session.cost,
+      // manifest 计价 = 终局按三桶总价结算，中间页不给"半截金额"
+      ...(session.pricing ? {} : { cost: session.cost }),
       usage: session.usage,
     };
+  }
+
+  /** 模块协议违规（如自报 cost）：按断流口径闭环已产出部分，再抛给调用方。 */
+  private async closeOnProtocolError(
+    ref: RunRef,
+    session: StreamSession,
+    reason: string,
+  ): Promise<KeelError> {
+    await this.finalize(ref, session, true);
+    return new KeelError("GATEWAY/UPSTREAM-ERROR", "model upstream violated the stream protocol", {
+      model: session.model,
+      reqId: session.reqId,
+      streamId: session.streamId,
+      reason,
+      produced: session.produced,
+    });
   }
 
   /** 断流收束：先 settle + `MODEL_USAGE{truncated:true}`，再决定"有产物就还给调用方、没产物就报失败"。 */
@@ -428,11 +595,33 @@ export class ModelGateway {
     }
     session.finalized = true;
     session.truncated = truncated;
-    await this.budget.settle(ref, session.reservationId, session.cost);
+    let cost = session.cost;
+    let usageBuckets: UsageBuckets | undefined;
+    let tier: PricingTierName | undefined;
+    if (session.pricing) {
+      // 模块没报用量 = 按 0 记（账本仍可见"这条调用没有计量"），有报则必须三桶齐全
+      try {
+        usageBuckets =
+          session.usage === undefined
+            ? { inputCached: 0, inputUncached: 0, output: 0 }
+            : readUsageBuckets(session.usage);
+      } catch (err) {
+        await this.budget.settle(ref, session.reservationId, session.cost); // 先闭环，不留悬空预扣
+        throw err;
+      }
+      const priced = priceUsage(session.pricing, usageBuckets, new Date(this.now()));
+      cost = priced.cost;
+      tier = priced.tier;
+      session.cost = cost;
+    }
+    await this.budget.settle(ref, session.reservationId, cost);
     await this.ledger.append(ref, "MODEL_USAGE", {
       reqId: session.reqId,
       usage: session.usage,
-      cost: session.cost,
+      cost,
+      ...(usageBuckets ? { usageBuckets } : {}),
+      ...(tier ? { tier } : {}),
+      ...(session.pricing ? { pricedBy: "manifest" as const } : {}),
       ...(truncated ? { truncated: true } : {}),
     } satisfies ModelUsagePayload);
     const page: StreamPage = {
@@ -441,7 +630,7 @@ export class ModelGateway {
       done: true,
       produced: session.produced,
       usage: session.usage,
-      cost: session.cost,
+      cost,
       ...(truncated ? { truncated: true } : {}),
     };
     this.settledStreams.set(session.streamId, page);

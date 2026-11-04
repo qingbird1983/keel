@@ -110,9 +110,9 @@ describe("B7④：model.stream 跨通道的分片顺序、断流闭环与不级�
     const from = evs.findIndex((e) => e.type === "MODEL_INVOKED");
     const to = evs.findIndex((e) => e.type === "MODEL_USAGE");
     expect(evs.slice(from + 1, to).map((e) => e.type)).toEqual(["BUDGET_SETTLED"]);
-    // 信封按类型升版：这两类 = 2，其余仍是 1
+    // 信封按类型升版：MODEL_INVOKED = 2（streamId），MODEL_USAGE = 3（桶/档/计价来源）
     expect(evs[from].schemaVersion).toBe(2);
-    expect(evs[to].schemaVersion).toBe(2);
+    expect(evs[to].schemaVersion).toBe(3);
   }, 120_000);
 
   it("舱内主动取消：已交付的一满页结算，之后的 next 只是终局重放", async () => {

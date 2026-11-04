@@ -9,7 +9,16 @@
  * 5. 记录：产出 AssemblyRecordedPayload 载荷（scheduler 于 run.start 首事件落账，切片③注记）
  */
 
-import { CONTRACT_VERSION, KeelError, type AssemblyRecordedPayload } from "@keel/core";
+import {
+  CONTRACT_VERSION,
+  KeelError,
+  type AssemblyRecordedPayload,
+  type ModelPricing,
+  type PeakWindow,
+  type PricingTier,
+} from "@keel/core";
+
+export type { ModelPricing, PeakWindow, PricingTier };
 import { BUILTIN_REFS, RECORD_ONLY_REF } from "./builtins.js";
 import { validateSchema } from "./schema-validator.js";
 
@@ -61,27 +70,6 @@ export interface GovernanceToolDecl {
 export interface MigrationDecl {
   from: string;
   steps: { to: string; action: { type: "hook"; ref: string } }[];
-}
-
-/** 计价三桶（02 稿 M3 / research/02 §6）：命中缓存 / 未命中缓存 / 输出。 */
-export interface PricingTier {
-  inputCached: number;
-  inputUncached: number;
-  output: number;
-}
-
-/** 峰时窗口（UTC；法定节假日不建模，未知档按 `unknownTier` 保守落峰价）。 */
-export interface PeakWindow {
-  days: string;
-  utc: string;
-}
-
-export interface ModelPricing {
-  unit: "usd_per_mtok";
-  offPeak: PricingTier;
-  peak?: PricingTier;
-  peakWindows?: PeakWindow[];
-  unknownTier?: "peak" | "offPeak";
 }
 
 /** manifest `model` 段（02 稿 §4；费用权威在 Core，模块只报 usage）。 */

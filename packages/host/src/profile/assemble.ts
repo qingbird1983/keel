@@ -22,6 +22,7 @@ import {
   scopeKey,
   type AssemblyRecordedPayload,
   type HookBus,
+  type ModelPricing,
   type ModelUpstream,
   type RunRef,
   type Scope,
@@ -169,6 +170,23 @@ export function loadProfile(profilePath: string, opts: LoadProfileOptions): Prof
     });
   }
 
+  // 模型名在**一份 profile 内**必须唯一：engine 只按模型名调用，同名 = 上游不可判定。
+  const servedBy = new Map<string, string>();
+  for (const p of plugins) {
+    if (p.kind !== "model") continue;
+    for (const name of p.manifest.model?.models ?? []) {
+      const prev = servedBy.get(name);
+      if (prev !== undefined) {
+        throw invalid(`model name "${name}" is served twice in this profile`, {
+          stage: "cross-check",
+          model: name,
+          plugins: [prev, p.id],
+        });
+      }
+      servedBy.set(name, p.id);
+    }
+  }
+
   // engine → model 引用校验（03 稿 E9）：ref 必须命中 model 插件，name 必须在该插件 models 里。
   for (const p of plugins) {
     if (p.kind !== "engine") continue;
@@ -304,6 +322,21 @@ export async function assembleProfile(
           });
         }
         p.upstream = created as ModelUpstream;
+        // 费用权威在 Core（02 稿 M3/§5）：价格表随注册交给网关，模块之后只报用量。
+        // 一个模块可服务多个模型名，价格按名分别声明（manifest 已校验键集合 = models）。
+        const decl = p.manifest.model as NonNullable<LoadedManifest["model"]>;
+        for (const name of decl.models) {
+          opts.deps.gateway.registerModel(
+            {
+              models: [name],
+              upstream: p.upstream,
+              pricing: decl.pricing[name] as ModelPricing,
+            },
+            // 一份 profile 内同名模型由 loadProfile 拒绝；跨 profile/跨装配（同一宿主进程里
+            // 多次装配）按"这次装配是这份 run 的权威上游"重绑，不让上一次装配的模块残留。
+            { replace: true },
+          );
+        }
         continue;
       }
       // capability / engine：Cell 进程 + 就绪凭据（ADR-0011）

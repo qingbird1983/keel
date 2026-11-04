@@ -123,3 +123,14 @@
 - **M3（2026-11-04）**：价格表进 manifest、模块只报用量、费用由 Core 计算并结算；`kind:"model"` 装配路径拒绝模块返回 `cost`。
 - **M5（2026-11-04）**：三层治理照准——总时限（复用契约既有数字）+ 可选空闲看门狗（≤ 总时限）+ 单次超支不把预算打成负数（超出即记 `overrun` 并按既有耗尽处置，计量如实）。
 - **整稿（2026-11-04）**：四份设计稿一批过闸，本稿按 M1~M9 定稿。
+
+## 10. 实施注记（2026-11-04，切片③落地）
+
+只补事实，不改决策：
+
+1. **价格表接线**：`ModelGateway.registerModel({models, upstream, pricing})` 由 profile 装配器在 `create()` 校验通过后调用；有注册后，未注册模型名一律 `UPSTREAM_PROVIDED_COST`/`MODEL_NOT_REGISTERED` 式显式拒绝（`GATEWAY/UPSTREAM-ERROR.detail.reason`），不回落宿主演示桩。
+2. **装配期唯一性**：一份 profile 内同名模型 = 整份拒绝（engine 只按名字调用）；跨装配（同宿主进程多次 `assembleProfile`）显式重绑该名字，见 [04 稿](04-contract-revision.md) 切片③注记。
+3. **流式计价**：模块每片报**累计**三桶，网关在终局按最后一片计价；中间页不返回"半截金额"。模块带 `cost` 片 = 协议违规（按断流口径结算已产出部分后报错）。
+4. **空闲看门狗**：`model.timeouts.idleMs` 由模块在两次取片之间 rearm；mock 用 `pauseAfterFirstMs` 剧本复现，e2e 断言 `produced/cost/truncated` 可对账。
+5. **两个实现**：`packages/plugins/model-mock`（CI）+ `packages/plugins/model-deepseek`（手动脚本，未执行真实请求）；扫描零命中，REVIEW 留痕在各插件目录。
+6. **证据**：`tests/model-kind-e2e.test.ts` 12 例（D2/D4/D6）+ 包内单测（6 例）+ `packages/core/test/{pricing,gateway-priced,budget}.test.ts`；六道门禁见阶段看板。

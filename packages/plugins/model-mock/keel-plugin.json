@@ -1,0 +1,29 @@
+{
+  "kind": "model",
+  "meta": {
+    "name": "model-mock",
+    "version": "1.0.0",
+    "title": "Model Mock",
+    "description": "确定性模型剧本（Phase 4 切片③）：进 CI，承载计量/预算/超时/断流与密钥红线断言"
+  },
+  "permissions": [],
+  "resources": {},
+  "compensation": { "templates": [] },
+  "model": {
+    "provider": "mock",
+    "protocol": "mock",
+    "models": ["mock-chat"],
+    "auth": { "ref": "KEEL_MODEL_MOCK_KEY" },
+    "pricing": {
+      "mock-chat": {
+        "unit": "usd_per_mtok",
+        "offPeak": { "inputCached": 0.1, "inputUncached": 0.2, "output": 0.4 },
+        "peak": { "inputCached": 0.2, "inputUncached": 0.4, "output": 0.8 },
+        "peakWindows": [{ "days": "mon-fri", "utc": "01:00-04:00" }],
+        "unknownTier": "peak"
+      }
+    },
+    "timeouts": { "idleMs": 200 }
+  },
+  "compat": { "keelContract": "^1.0" }
+}

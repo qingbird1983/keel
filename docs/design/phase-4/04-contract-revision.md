@@ -64,6 +64,8 @@
 > 实施注记（2026-11-04，切片①收尾）：第 3 步已落地——`scripts/scan-native-plugins.mjs` 增加 `E1-net` / `E2-env` / `E3-ledger` / `E4-hook` / `E5-key` / `M1-cost` 六条按 kind 生效的判据；kind 从插件目录的 `keel-plugin.json` 读取，读不到只跑全局规则（清单本身归装配期判死）。门禁测试补"判据齐全 + 逐条毒样本（带 kind 清单）+ 干净 engine/model 样本零命中"三组，全仓 56 文件 422 测试通过、实扫三件套零命中。第 4 步（三篇 ADR）同批完成（[0022](../adr/ADR-0022-manifest-kind-extension.md) / [0023](../adr/ADR-0023-engine-step-channel.md) / [0024](../adr/ADR-0024-surface-event-family.md)）。R1~R13 的代码实施仍归切片②③④。
 >
 > 实施注记（2026-11-04，切片②）：**R2 与 R9~R13 已落地**——manifest schema 扩五值 + model/engine 两段 `if/then`；装配器新增 `validateModel` / `validateEngine`（engine 能力白名单、`auth.ref` presence-only、价格表键集合与三桶/峰谷、`idleMs` 上限、`maxSteps` 区间）；profile schema + 严格 YAML 子集解析器 + 六步装配 + 逐插件装配记录（契约 §5 注记已按 R2 修订）。R1/R3~R8 仍归切片③④。`R13` 里"engine 工具恰好一个提供者"用**真实注册结果**在 profile 装配器复核（01 稿 §9）。
+>
+> 实施注记（2026-11-04，切片③）：**R1 / R3 / R4 / R5 已落地，R6~R8 仍归切片④**。① R1/R3：`TURN_INPUT` / `MODEL_MESSAGE` 进事件表、载荷形状 + `SURFACE_EVENT_TYPES` 封闭白名单（`TOOL_RESULT` 为第三类）+ Core 侧写入函数；`surfaceOp` 只定形状、不实现。② R4：`packages/core/src/pricing.ts` 按桶/峰谷计价；网关 `registerModel({models, upstream, pricing})` 接受 profile 装配期的注册，`kind:"model"` 路径拒绝模块自报 cost、未注册模型名一律拒绝；`MODEL_USAGE` 升 v3。③ R5：非流式 120s 由网关强制（注入位只给测试）；`idleMs` 由模块按分片 rearm；`Budgeter.settle` 超预扣时把用量夹到限额并记 `BUDGET_SETTLED{overrun:true}`（`BUDGET_SETTLED` 升 v2，计量如实）。④ 修订清单外新增两项实现细节：**一份 profile 内同名模型 = 整份拒绝**（engine 只按名字调用，同名则上游不可判定）；**跨装配重绑**（同一宿主进程多次装配时，后装配者显式 `replace` 该模型名，避免测试/多 run 场景残留旧模块）。⑤ 两个实现落地：`packages/plugins/model-mock`（进 CI，6 单测 + 12 集成例）与 `packages/plugins/model-deepseek`（手动脚本 `scripts/verify-model-deepseek.mjs`，不进 CI；本次无密钥，未执行真实请求）。
 
 ## 7. 自检清单
 
