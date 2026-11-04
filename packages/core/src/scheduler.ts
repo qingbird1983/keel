@@ -171,7 +171,9 @@ export class Scheduler {
           recoveredFromSeq: h.manifest.recoveredFrom.seq,
         });
       }
-      await this.emit(h, "RUN_STARTED", {});
+      await this.emit(h, "RUN_STARTED", {
+        ...(h.manifest.sessionRun !== undefined ? { sessionRun: h.manifest.sessionRun } : {}),
+      });
       // run 起始输入（Phase 4 切片④）：表面事件族的第一条，先于首轮。
       if (h.manifest.turnInput) await this.emit(h, "TURN_INPUT", h.manifest.turnInput);
       for (;;) {

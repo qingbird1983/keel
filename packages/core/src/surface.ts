@@ -6,6 +6,7 @@
  */
 
 import type { Ledger } from "./ledger.js";
+import type { SessionEvent } from "./session.js";
 import { isSurfaceEventType } from "./events.js";
 import type {
   LedgerEvent,
@@ -19,8 +20,11 @@ import type {
 /**
  * 表面投影的版本号（ADR-0021 决策 2：投影带版本，重算结果与版本绑定）。
  * 改投影规则必须递增并留下重算依据。
+ *
+ * v2（Phase 5 R4）：规则集扩到跨 run 会话流（`projectSession`）；压缩标记的折叠
+ * 属同一规则集，随切片④落地（ADR-0026）。
  */
-export const SURFACE_PROJECTION_VERSION = 1;
+export const SURFACE_PROJECTION_VERSION = 2;
 
 /**
  * 模型可见的一条消息（03 稿 E4 的最小形状）。
@@ -45,43 +49,61 @@ export interface SurfaceMessage {
 export function projectSurface(events: readonly LedgerEvent[]): SurfaceMessage[] {
   const out: SurfaceMessage[] = [];
   for (const ev of events) {
-    // 封闭白名单先挡一道：新增事件类型不会因为 switch 漏了 default 而混进模型视图。
-    if (!isSurfaceEventType(ev.type)) continue;
-    switch (ev.type) {
-      case "TURN_INPUT": {
-        const p = ev.payload as TurnInputPayload;
-        out.push({ role: p.role, content: p.content });
-        break;
-      }
-      case "MODEL_MESSAGE": {
-        const p = ev.payload as ModelMessagePayload;
-        out.push({
-          role: "assistant",
-          content: p.content,
-          ...(p.reasoningContent !== undefined ? { reasoning: p.reasoningContent } : {}),
-          ...(p.toolCalls !== undefined ? { toolCalls: p.toolCalls } : {}),
-        });
-        break;
-      }
-      case "TOOL_RESULT": {
-        const p = ev.payload as ToolResultPayload;
-        out.push({
-          role: "tool",
-          content: JSON.stringify(
-            p.status === "ok"
-              ? { status: p.status, result: p.resultDigest ?? null }
-              : { status: p.status, error: p.error ?? null },
-          ),
-          ...(p.toolCallId !== undefined ? { toolCallId: p.toolCallId } : {}),
-        });
-        break;
-      }
-      default:
-        // 白名单内的类型必须在这里有投影分支；新增白名单成员时 TypeScript 会在这里报错。
-        break;
-    }
+    const message = projectEvent(ev);
+    if (message) out.push(message);
   }
   return out;
+}
+
+/**
+ * 会话投影（Phase 5 R4）：同一会话的多个 run 共用一条模型视图。
+ *
+ * 顺序由调用方保证（`SessionReader.read` 已按会话流排序）；本函数仍只吃白名单，
+ * 不读 runId、不看时间——同一事件流 + 同一版本 = 同一输出（E1 的重算断言）。
+ * 压缩标记的折叠随切片④落地（ADR-0026），届时本函数增加还原开关。
+ */
+export function projectSession(events: readonly SessionEvent[]): SurfaceMessage[] {
+  const out: SurfaceMessage[] = [];
+  for (const se of events) {
+    const message = projectEvent(se.event);
+    if (message) out.push(message);
+  }
+  return out;
+}
+
+/** 单条事件的表面映射；白名单之外一律 null（新增类型不会因 switch 漏 default 混进视图）。 */
+function projectEvent(ev: LedgerEvent): SurfaceMessage | null {
+  if (!isSurfaceEventType(ev.type)) return null;
+  switch (ev.type) {
+    case "TURN_INPUT": {
+      const p = ev.payload as TurnInputPayload;
+      return { role: p.role, content: p.content };
+    }
+    case "MODEL_MESSAGE": {
+      const p = ev.payload as ModelMessagePayload;
+      return {
+        role: "assistant",
+        content: p.content,
+        ...(p.reasoningContent !== undefined ? { reasoning: p.reasoningContent } : {}),
+        ...(p.toolCalls !== undefined ? { toolCalls: p.toolCalls } : {}),
+      };
+    }
+    case "TOOL_RESULT": {
+      const p = ev.payload as ToolResultPayload;
+      return {
+        role: "tool",
+        content: JSON.stringify(
+          p.status === "ok"
+            ? { status: p.status, result: p.resultDigest ?? null }
+            : { status: p.status, error: p.error ?? null },
+        ),
+        ...(p.toolCallId !== undefined ? { toolCallId: p.toolCallId } : {}),
+      };
+    }
+    default:
+      // 白名单内的类型必须在这里有投影分支；新增白名单成员时 TypeScript 会在这里报错。
+      return null;
+  }
 }
 
 /** 写一条 run 起始/追加的用户或系统输入。 */

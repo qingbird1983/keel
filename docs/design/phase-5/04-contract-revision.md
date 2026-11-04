@@ -82,3 +82,14 @@
 3. R8/R9 + T3（续跑与恢复）；
 4. R5 + T4 + T8（压缩与 CLI 收口）；
 5. 两篇 ADR 定稿、01~03 回填"实施注记"（只补事实，不改决策）。
+
+## 8. 实施注记（2026-11-04，切片②）
+
+- **已关闭**：R1（`RUN_STARTED` 载荷 v2 + `sessionRun`）、R2（`ledger.readRunMeta` / `listRuns` / `listAgents` / `listSessions`）、R3（`SessionReader` + 复合游标）、R4（`SURFACE_PROJECTION_VERSION = 2` + `projectSession`）、R6（`SessionLease` + `SCHED/BACKPRESSURE`）、R7（`projectSessionBudget` + `Budgeter.seedSessionUsage`）、C1（`--session`）、C3/C4（`sessions list|show`）。
+- **未开工（按顺序留给后续切片）**：R5/R8/R9（压缩事件、首轮前缝、toolCallId 前缀）归切片③/④；C2（`--compact`）归切片④。
+- **清单外实现细节（三处，均为形状澄清而非决策变更）**：
+  1. `SessionEvent.runOrdinal` = **会话流中的位置**（1 起）——新 run 等于 `sessionRun`，旧账本无编号但仍占位置；定址仍以 `(runId, seq)` 为准。01 稿 §3.1 的"序号"在旧账本上没有值，位置是唯一可用的稳定值。
+  2. `projectSession(events)` **暂不带** `includeCompacted` 参数——压缩标记还不存在，带一个被静默忽略的参数比不带更危险；切片④ 加参数属追加式签名变更。
+  3. `loadProfile` 新增可选 `sessionId`：profile 的插件 scope 在**装载期**就已固化（`p.scope?.sessionId ?? scope.sessionId`），装配后再改 `plan.scope` 不会传播到插件；运行期覆盖必须走装载选项。
+- **工具债未清（如实记录）**：根 `tests/` 的类型检查覆盖试过一版 `tests/tsconfig.json`（paths 指向各包 src），实测暴露大量**既有**错误——集中在已归档的 cordis 测试（相对导入缺 `.js`、隐式 any）、另有 `engine-kind-e2e` 一处断言强转。修复面超出本片范围，已撤回该文件并登记 backlog；不把"新增的 tests 目录 tsconfig"留成一片红。
+- **证据**：`pnpm lint` 0 error；`pnpm format:check` 通过；`pnpm -r run typecheck` 通过；`pnpm test` **69 文件 506 测试**全绿（新增 5 文件 21 测试：会话读取 6、投影 4、租约 4、会话预算 3、会话端到端 4）；`node scripts/scan-native-plugins.mjs` clean。

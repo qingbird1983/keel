@@ -62,6 +62,21 @@ export interface CheckpointInfo {
   round: number;
 }
 
+/**
+ * 单个 run 的元信息（Phase 5 R2）：会话读取面的只读入口。
+ * **不改写路径**——只读首段取 `RUN_STARTED`、读末段取最后一条事件判终态。
+ *
+ * 旧账本（Phase 4 及以前）没有 `sessionRun` → null，由会话读取层按
+ * `startedAt` + `runId` 兜底排序（01 稿 §3.1 兼容规则）。
+ */
+export interface RunMeta {
+  runId: string;
+  sessionRun: number | null;
+  startedAt: number | null;
+  terminal: "halted" | "failed" | "none";
+  lastSeq: number;
+}
+
 interface RunWriter {
   ref: RunRef;
   segNo: number;
@@ -216,6 +231,75 @@ export class Ledger {
     return { events, nextCursor: null };
   }
 
+  /* ── 会话读取面（Phase 5 R2/R3）：只读，不改变写路径 ───────────────── */
+
+  /** 某 agent 下的会话 id 列表（目录布局即索引，不物化索引文件）。 */
+  async listSessions(agentId: string): Promise<string[]> {
+    assertId("agentId", agentId);
+    return (await safeReaddir(path.join(this.rootDir, agentId))).sort();
+  }
+
+  /** 数据目录下的 agent id 列表（`keel sessions list` 用）。 */
+  async listAgents(): Promise<string[]> {
+    return (await safeReaddir(this.rootDir)).sort();
+  }
+
+  /** 某会话下的 runId 列表：只认含账本段的目录（`.lease` 之类的文件不算）。 */
+  async listRuns(agentId: string, sessionId: string): Promise<string[]> {
+    assertId("agentId", agentId);
+    assertId("sessionId", sessionId);
+    const out: string[] = [];
+    for (const runId of await safeReaddir(path.join(this.rootDir, agentId, sessionId))) {
+      const segs = await this.segmentNos(this.runDir({ agentId, sessionId, runId }));
+      if (segs.length > 0) out.push(runId);
+    }
+    return out.sort();
+  }
+
+  /** 单个 run 的元信息（只读；尾部撕裂按既有语义止于最后一条完整行）。 */
+  async readRunMeta(ref: RunRef): Promise<RunMeta> {
+    assertId("runId", ref.runId);
+    const dir = this.runDir(ref);
+    const segs = await this.segmentNos(dir);
+    if (segs.length === 0) {
+      throw new KeelError("LEDGER/CURSOR-INVALID", "unknown runId", { runId: ref.runId });
+    }
+    let started: LedgerEvent | null = null;
+    const firstText = await readFile(path.join(dir, segName(segs[0]!)), "utf8");
+    for (const raw of firstText.split("\n")) {
+      if (raw === "") continue;
+      let ev: LedgerEvent;
+      try {
+        ev = JSON.parse(raw) as LedgerEvent;
+      } catch {
+        break; // 首段撕裂（几乎不可能）：按"没有 RUN_STARTED"读
+      }
+      if (ev.type === "RUN_STARTED") {
+        started = ev;
+        break;
+      }
+    }
+    let last: LedgerEvent | null = null;
+    const lastText = await readFile(path.join(dir, segName(segs[segs.length - 1]!)), "utf8");
+    for (const raw of lastText.split("\n")) {
+      if (raw === "") continue;
+      try {
+        last = JSON.parse(raw) as LedgerEvent;
+      } catch {
+        break; // 尾部撕裂：止于最后完整行（ADR-0004）
+      }
+    }
+    const p = started?.payload as { sessionRun?: unknown } | undefined;
+    return {
+      runId: ref.runId,
+      sessionRun: typeof p?.sessionRun === "number" ? p.sessionRun : null,
+      startedAt: started?.ts ?? null,
+      terminal:
+        last?.type === "RUN_HALTED" ? "halted" : last?.type === "RUN_FAILED" ? "failed" : "none",
+      lastSeq: last?.seq ?? 0,
+    };
+  }
+
   /** 关闭全部段文件句柄（standards/04 §3 确定性释放；close 后不得再写）。 */
   async close(): Promise<void> {
     const ws = [...this.writers.values()];
@@ -235,6 +319,22 @@ export class Ledger {
     if (filter.seqFrom !== undefined && ev.seq < filter.seqFrom) return false;
     if (filter.seqTo !== undefined && ev.seq > filter.seqTo) return false;
     return true;
+  }
+
+  /** run 目录下的段号（升序）；不存在/空目录 = []。 */
+  private async segmentNos(dir: string): Promise<number[]> {
+    let names: string[];
+    try {
+      names = await readdir(dir);
+    } catch {
+      return [];
+    }
+    const out: number[] = [];
+    for (const name of names) {
+      const m = /^seg-(\d{6})\.jsonl$/.exec(name);
+      if (m) out.push(Number(m[1]));
+    }
+    return out.sort((a, b) => a - b);
   }
 
   private async scanCheckpoint(ref: RunRef): Promise<CheckpointInfo | null> {

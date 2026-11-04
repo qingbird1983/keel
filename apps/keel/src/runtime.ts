@@ -412,6 +412,8 @@ export interface WireRunOptions {
   /** 接补偿执行器（run 模式 = 全 Run 回滚）；缺省不接（效果留待恢复投影，A3 场景用）。 */
   withCompensator?: boolean;
   recoveredFrom?: { runId: string; seq: number };
+  /** 会话内运行序号（Phase 5 切片②；缺省不写，账本形状与 Phase 4 一致）。 */
+  sessionRun?: number;
   /** 恢复挂载态：非 undefined 时经 cell.migrate 挂载（契约 §4.5 切片④注记，serve 前执行）。 */
   mountState?: unknown;
 }
@@ -456,6 +458,7 @@ export async function wireRun(rt: Runtime, opts: WireRunOptions): Promise<WiredR
       ? (mode) => rt.compensator.compensate(ref, { mode })
       : undefined,
     recoveredFrom: opts.recoveredFrom,
+    ...(opts.sessionRun !== undefined ? { sessionRun: opts.sessionRun } : {}),
   });
   cell.attachRun(ref);
   rt.bindings.set(ref.runId, { scope, cell });

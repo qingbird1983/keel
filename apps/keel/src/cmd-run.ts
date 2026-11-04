@@ -7,12 +7,23 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { RunDriver } from "@keel/core";
+import {
+  SessionReader,
+  projectSession,
+  type Ledger,
+  type RunDriver,
+  type SessionEvent,
+  type SessionRef,
+  type SurfaceMessage,
+} from "@keel/core";
 import {
   Assembler,
   EngineDriver,
+  SessionLease,
   assembleProfile,
   loadProfile,
+  projectSessionBudget,
+  type LeaseHandle,
   type PolicySpec,
   type ProfileAssembly,
 } from "@keel/host";
@@ -58,6 +69,11 @@ export interface RunOptions {
    * mock 剧本把计划写成 JSON（`{tool, arguments, final}`）；真实模型直接读自然语言。
    */
   input?: string;
+  /**
+   * 会话 id（Phase 5 切片②）：同一会话的多次 run 共用一条表面投影历史。
+   * 缺省保持既有行为（单件 `sess-${runId}`；profile 用清单里的 `scope.sessionId`）。
+   */
+  session?: string;
 }
 
 /** @returns 退出码：0 = 终态 halted；1 = 其他终态/异常。 */
@@ -89,6 +105,7 @@ export async function cmdRun(opts: RunOptions): Promise<number> {
     policies: policySpecs,
     snapshotDir,
   });
+  let lease: LeaseHandle | undefined;
   try {
     const tool = opts.tool ?? "ok";
     const total = opts.rounds ?? 2;
@@ -99,7 +116,20 @@ export async function cmdRun(opts: RunOptions): Promise<number> {
           : { done: true, summary: "demo-end" },
     };
     const runId = `run-${randomUUID().slice(0, 8)}`;
-    const run = await wireRun(rt, { runId, driver, manifest, pluginPath });
+    const sessionRef: SessionRef = {
+      agentId: "keel-cli",
+      sessionId: opts.session ?? `sess-${runId}`,
+    };
+    const session = await prepareSession(rt.ledger, dataDir, sessionRef, runId, rt.budget);
+    lease = session.lease;
+    const run = await wireRun(rt, {
+      runId,
+      scope: sessionRef,
+      driver,
+      manifest,
+      pluginPath,
+      sessionRun: session.sessionRun,
+    });
     const status = await run.done;
     const events = await readRun(rt, runId);
     const counts = new Map<string, number>();
@@ -130,12 +160,66 @@ export async function cmdRun(opts: RunOptions): Promise<number> {
     }
     return status.state === "halted" && rt.snapshotFailures.length === 0 ? 0 : 1;
   } finally {
+    if (lease) await lease.release();
     await closeRuntime(rt);
     if (!opts.dataDir) {
       await rm(dataDir, { recursive: true, force: true });
       // 派生的快照目录跟着账本临时目录一起清（不留一堆没人读的内容在临时区）
       if (!opts.snapshotDir) await rm(snapshotDir, { recursive: true, force: true });
     }
+  }
+}
+
+interface SessionContext {
+  lease: LeaseHandle;
+  history: SurfaceMessage[];
+  sessionRun: number;
+}
+
+/**
+ * 会话绑定（Phase 5 切片②）：抢租约（先于任何写与装配）→ 终态检查 → 历史投影 →
+ * 会话预算回填 → 下一个运行序号。
+ */
+async function prepareSession(
+  ledger: Ledger,
+  dataDir: string,
+  ref: SessionRef,
+  runId: string,
+  budget: { seedSessionUsage(scope: SessionRef, used: number): void },
+): Promise<SessionContext> {
+  const lease = await new SessionLease({ rootDir: dataDir }).acquire(ref, runId);
+  const reader = new SessionReader(ledger);
+  try {
+    const runs = await reader.runs(ref);
+    const last = runs[runs.length - 1];
+    if (last && last.terminal === "none") {
+      // 崩溃恢复的自动接线归切片③；本片先把"不假装能续"说清楚（不写任何东西）。
+      throw new Error(
+        `session ${ref.agentId}/${ref.sessionId} has an unfinished run ${last.runId}; ` +
+          `run "keel recover --run ${last.runId}" first (auto-recovery lands in slice 3)`,
+      );
+    }
+    const events = await readAllSession(reader, ref);
+    budget.seedSessionUsage(ref, projectSessionBudget(events));
+    return {
+      lease,
+      history: projectSession(events),
+      sessionRun: runs.reduce((max, r) => Math.max(max, r.sessionRun ?? 0), 0) + 1,
+    };
+  } catch (err) {
+    await lease.release();
+    throw err;
+  }
+}
+
+async function readAllSession(reader: SessionReader, ref: SessionRef): Promise<SessionEvent[]> {
+  const out: SessionEvent[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await reader.read(ref, {}, cursor);
+    out.push(...page.events);
+    if (!page.nextCursor) return out;
+    cursor = page.nextCursor;
   }
 }
 
@@ -149,6 +233,7 @@ async function runProfile(profilePath: string, opts: RunOptions): Promise<number
   const plan = loadProfile(profilePath, {
     profileSchema: loadProfileSchema(),
     assembler: new Assembler({ schema: loadSchema() }),
+    sessionId: opts.session,
   });
   const dataDir = opts.dataDir ?? (await mkdtemp(path.join(tmpdir(), "keel-profile-")));
   const snapshotDir = snapshotDirOf(dataDir, opts.snapshotDir);
@@ -160,8 +245,15 @@ async function runProfile(profilePath: string, opts: RunOptions): Promise<number
   );
   const rt = await buildRuntime(dataDir, { policy, snapshotDir });
   let assembly: ProfileAssembly | undefined;
+  let lease: LeaseHandle | undefined;
   try {
     const runId = `run-${randomUUID().slice(0, 8)}`;
+    const sessionRef: SessionRef = {
+      agentId: plan.scope.agentId,
+      sessionId: plan.scope.sessionId,
+    };
+    const session = await prepareSession(rt.ledger, dataDir, sessionRef, runId, rt.budget);
+    lease = session.lease;
     assembly = await assembleProfile(plan, {
       supervisor: rt.supervisor,
       deps: {
@@ -182,6 +274,7 @@ async function runProfile(profilePath: string, opts: RunOptions): Promise<number
           engine: assembly.engine.decl,
           ledger: rt.ledger,
           ref: assembly.ref,
+          history: session.history,
         })
       : {
           decide: async (c) =>
@@ -195,6 +288,7 @@ async function runProfile(profilePath: string, opts: RunOptions): Promise<number
       executor: assembly.executor,
       driver,
       assembly: assembly.records,
+      sessionRun: session.sessionRun,
       // engine 驱动必须有起始输入（表面投影的第一条）；能力型清单保持旧形状。
       ...(assembly.engine
         ? { turnInput: { role: "user" as const, content: opts.input ?? "run the profile" } }
@@ -222,6 +316,7 @@ async function runProfile(profilePath: string, opts: RunOptions): Promise<number
     }
     return status.state === "halted" && rt.snapshotFailures.length === 0 ? 0 : 1;
   } finally {
+    if (lease) await lease.release();
     if (assembly) await assembly.close();
     rt.bindings.clear();
     await closeRuntime(rt);

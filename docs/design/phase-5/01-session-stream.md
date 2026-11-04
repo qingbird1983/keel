@@ -157,3 +157,10 @@ function projectSession(
 - 风险 2：旧账本同毫秒并发导致顺序不确定——已在契约注记声明；新账本靠 `sessionRun` 消除。
 - 风险 3：租约在硬杀（`SIGKILL`）后残留——TTL 兜底；测试用注入时钟覆盖"过期即接管"。
 - 待决：无（K2 已拍板选 A，[ADR-0025](../../adr/ADR-0025-session-stream-addressing.md) 定稿；本稿即最终口径）。
+
+## 7. 实施注记（2026-11-04，切片②）
+
+- `SessionEvent.runOrdinal` 落成**会话流位置**（1 起）：新 run 等于 `sessionRun`，旧账本没有编号但仍占位置；定址仍以 `(runId, seq)` 为准（R3 的复合键）。
+- 版本覆盖选项落成 `loadProfile` 的可选 `sessionId`——profile 的插件 scope 在**装载期**就把顶层默认值固化了，装配后再改 `plan.scope` 不会传播到插件（详见 [04 稿](04-contract-revision.md) §8）。
+- `sessions show --agent` 会核对会话存在性：读不到 = 拒绝，不返回"看起来空"的会话（E4 零泄漏）。
+- 切片②未做：`--compact`（C2）、`includeCompacted` 还原开关、心跳续期（TTL 覆盖单次 run 即可）；均按 04 稿顺序留后续切片。

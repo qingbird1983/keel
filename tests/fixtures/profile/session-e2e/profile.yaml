@@ -1,0 +1,20 @@
+# Phase 5 切片②装配夹具：会话续跑（跨 run 历史 + 单活）。
+# 模型模块把"看到的历史条数"写进回答，E1 用它证明 run2 真的看见了 run1。
+version: 1
+name: session-e2e
+scope:
+  agentId: session-agent
+  sessionId: main
+plugins:
+  - id: session-model
+    kind: model
+    manifest: ../modules/session-model.json
+    module: ../modules/session-model.mjs
+  - id: session-engine
+    kind: engine
+    manifest: ../modules/session-engine.json
+    module: ../../../../packages/plugins/engine-react/dist/index.js
+  - id: echo
+    kind: capability
+    manifest: ../../../../packages/plugins/echo/keel-plugin.json
+    module: ../../../../packages/plugins/echo/dist/index.js

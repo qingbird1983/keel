@@ -11,16 +11,21 @@ import { cmdRecover } from "./cmd-recover.js";
 import { cmdReplay } from "./cmd-replay.js";
 import { cmdRun } from "./cmd-run.js";
 import { cmdScenario } from "./cmd-scenario.js";
+import { cmdSessions } from "./cmd-sessions.js";
 import { cmdValidate } from "./cmd-validate.js";
 
 const USAGE = `keel — Phase 1 验收场景执行入口（命令面见 docs/design/phase-1/04-cli-benchmarks-fixtures.md §2）
 
 用法：
-  keel run --manifest <path> --plugin <path> [--tool ok] [--rounds 2] [--data-dir <dir>] [--snapshots <dir>]
+  keel run --manifest <path> --plugin <path> [--session <id>] [--tool ok] [--rounds 2] [--data-dir <dir>] [--snapshots <dir>]
           [--policy-manifest <path> --policy-module <path>]…（成对、可重复；策略舱见 ADR-0012）
-  keel run --profile <profile.yaml> [--input <text>] [--tool ok] [--rounds 2] [--data-dir <dir>] [--snapshots <dir>]
+  keel run --profile <profile.yaml> [--session <id>] [--input <text>] [--tool ok] [--rounds 2] [--data-dir <dir>] [--snapshots <dir>]
           （Phase 4：一份清单拉起全家桶；--manifest/--plugin 与 --profile 互斥；
            含 engine 的清单由引擎驱动，--input 是这次 run 的起始输入）
+          （Phase 5：--session 让多次 run 共用一条会话历史；同会话同时只允许一个 run）
+  keel sessions list --data-dir <dir> [--agent <id>] [--json]
+  keel sessions show --data-dir <dir> --session <id> [--agent <id>] [--raw] [--json]
+          （Phase 5：默认打印模型视图；--raw 原始事件流）
   keel recover --data-dir <dir> --run <runId> [--snapshots <dir>] [--plugin <path>] [--manifest <path>] [--tool get-state]
   keel replay --data-dir <dir> --run <runId>
   keel validate (--manifest <path> | --dir <dir> | --profile <path>) [--expect accept|reject]
@@ -109,6 +114,7 @@ export async function main(argv: string[]): Promise<number> {
           policyManifests,
           policyModules,
           input: str(a.input) || undefined,
+          session: str(a.session) || undefined,
         });
       }
       case "recover":
@@ -139,6 +145,21 @@ export async function main(argv: string[]): Promise<number> {
           dataDir: str(a["data-dir"]) || undefined,
           toolTimeoutMs: optNum(a["tool-timeout"]),
         });
+      case "sessions": {
+        const action = rest[0];
+        if (action !== "list" && action !== "show") {
+          console.error("sessions: list|show");
+          return 2;
+        }
+        return await cmdSessions({
+          action,
+          dataDir: str(a["data-dir"]) || undefined,
+          agent: str(a.agent) || undefined,
+          session: str(a.session) || undefined,
+          raw: a.raw === true,
+          json: a.json === true,
+        });
+      }
       case "hotswap":
         return await cmdHotswap({ dataDir: str(a["data-dir"]) || undefined });
       case "bench":

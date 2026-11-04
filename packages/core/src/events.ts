@@ -59,6 +59,8 @@ export type EventType = (typeof EVENT_TYPES)[number];
 export const EVENT_SCHEMA_VERSION: Partial<Record<EventType, number>> = {
   /** v2 = 追加依据上界 `throughSeq`（[ADR-0008](../../../docs/adr/ADR-0008-decision-attribution-upper-bound.md) 决策 2）。 */
   DECISION: 2,
+  /** v2 = 追加 `sessionRun`（Phase 5 R1：会话内运行序号，旧账本缺省）。 */
+  RUN_STARTED: 2,
   /** v2 = 流式会话追加 `streamId`（[ADR-0013](../../../docs/adr/ADR-0013-model-stream-pull-chunking.md) 决策 3/8）。 */
   MODEL_INVOKED: 2,
   /**
@@ -106,6 +108,11 @@ export interface RunLifecyclePayload {
   /** RUN_RECOVERED 专用：延续后的新 runId 与恢复自的一致点 seq。 */
   newRunId?: string;
   recoveredFromSeq?: number;
+  /**
+   * RUN_STARTED 专用（Phase 5 R1，ADR-0025）：会话内单调的运行序号。
+   * 旧账本缺省 → 读方按 `RUN_STARTED.ts` + `runId` 兜底排序（兼容规则见 01 稿 §3.1）。
+   */
+  sessionRun?: number;
 }
 
 /**

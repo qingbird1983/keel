@@ -108,6 +108,11 @@ export interface RunManifest {
    * 首轮之前写入 `TURN_INPUT`——表面事件只有 Core 能写，engine/插件没有账本入口。
    */
   turnInput?: TurnInputPayload;
+  /**
+   * 会话内运行序号（Phase 5 R1，ADR-0025）：宿主在会话租约内分配，随 `RUN_STARTED`
+   * 落账（载荷 v2）。缺省 = 单件路径/旧调用方，不写该字段（账本形状与 Phase 4 一致）。
+   */
+  sessionRun?: number;
 }
 
 /** 状态机位置（契约 run.status；recovering 随切片④恢复器启用）。 */

@@ -53,9 +53,20 @@ export {
   SURFACE_PROJECTION_VERSION,
   appendModelMessage,
   appendTurnInput,
+  projectSession,
   projectSurface,
   type SurfaceMessage,
 } from "./surface.js";
+export {
+  SessionReader,
+  orderRuns,
+  type SessionEvent,
+  type SessionPage,
+  type SessionReadFilter,
+  type SessionRef,
+  type SessionRunInfo,
+  type SessionSummary,
+} from "./session.js";
 export {
   priceUsage,
   pricingTier,
@@ -74,6 +85,7 @@ export {
   type LedgerOptions,
   type LedgerPage,
   type LedgerReadFilter,
+  type RunMeta,
 } from "./ledger.js";
 export {
   Authorizer,

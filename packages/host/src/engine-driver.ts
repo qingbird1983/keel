@@ -23,6 +23,7 @@ import {
   type RoundContext,
   type RunDriver,
   type RunRef,
+  type SurfaceMessage,
   type SurfaceToolCall,
 } from "@keel/core";
 import type { EngineDecl } from "./assembler.js";
@@ -89,6 +90,11 @@ export interface EngineDriverOptions {
   engine: EngineDecl;
   ledger: Ledger;
   ref: RunRef;
+  /**
+   * 会话历史（Phase 5 切片②，ADR-0025 / 01 稿 §3.5）：本 run 之前同一会话的模型视图。
+   * 由 Core 在启动前用 `projectSession` 算好并注入——engine 仍然不读账本、不跨 run。
+   */
+  history?: SurfaceMessage[];
 }
 
 function codedError(code: string, message: string, detail?: unknown): Error {
@@ -127,12 +133,14 @@ export class EngineDriver implements RunDriver {
   private readonly engine: EngineDecl;
   private readonly ledger: Ledger;
   private readonly ref: RunRef;
+  private readonly history: SurfaceMessage[];
 
   constructor(opts: EngineDriverOptions) {
     this.cell = opts.cell;
     this.engine = opts.engine;
     this.ledger = opts.ledger;
     this.ref = opts.ref;
+    this.history = opts.history ?? [];
   }
 
   async decide(ctx: RoundContext): Promise<DriverDecision> {
@@ -142,7 +150,8 @@ export class EngineDriver implements RunDriver {
     }
 
     const events = (await this.ledger.read({ runId: this.ref.runId })).events;
-    const messages = projectSurface(events);
+    // 会话历史在前、本 run 新增表面事件在后（跨 run 顺序由 Core 保证）。
+    const messages = [...this.history, ...projectSurface(events)];
     const toolNames = new Set(this.engine.tools);
     const tools = ctx.tools
       .filter((t) => toolNames.has(t.name))
