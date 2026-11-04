@@ -1,0 +1,8 @@
+# 跨 scope 回归夹具 B：另一 scope 只有 pid 工具，看不到 A 的 echo
+version: 1
+name: scope-pid
+plugins:
+  - id: pid-probe
+    kind: capability
+    manifest: ../modules/pid.json
+    module: ../modules/pid.mjs

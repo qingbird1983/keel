@@ -39,6 +39,11 @@ export interface CellChannelBinding {
   templates: Map<string, CompensationTemplateDecl>;
   /** 本 Run 的装配权限基线（workspace.write 的路径复核依据；缺省 = 全部拒绝）。 */
   permissions?: RunPermissionView[];
+  /**
+   * 工具注册/撤名通知（Phase 4 切片②）：Profile 装配器据此建立"工具 → Cell"归属，
+   * 用作组合执行器的路由与重名复核。只是观察回调，不改变裁决与分区写入。
+   */
+  onToolChange?: (change: { name: string; registered: boolean }) => void;
 }
 
 export interface CellServerDeps {
@@ -146,6 +151,7 @@ async function registerTool(
     schemaVersion: (current?.schemaVersion ?? 0) + 1,
     schema: p.schema ?? null,
   });
+  binding.onToolChange?.({ name, registered: true });
   return { name, schemaVersion: (current?.schemaVersion ?? 0) + 1 };
 }
 
@@ -164,7 +170,10 @@ async function removeTool(
     });
   }
   const existed = deps.ctx.discover(binding.ref).some((t) => t.name === name);
-  if (existed) deps.ctx.removeTool(binding.scope, name);
+  if (existed) {
+    deps.ctx.removeTool(binding.scope, name);
+    binding.onToolChange?.({ name, registered: false });
+  }
   return existed;
 }
 

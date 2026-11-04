@@ -13,7 +13,7 @@ import { CONTRACT_VERSION, KeelError, type AssemblyRecordedPayload } from "@keel
 import { BUILTIN_REFS, RECORD_ONLY_REF } from "./builtins.js";
 import { validateSchema } from "./schema-validator.js";
 
-export const KINDS = ["capability", "policy", "observation"] as const;
+export const KINDS = ["capability", "policy", "observation", "model", "engine"] as const;
 export type ManifestKind = (typeof KINDS)[number];
 
 /**
@@ -63,6 +63,49 @@ export interface MigrationDecl {
   steps: { to: string; action: { type: "hook"; ref: string } }[];
 }
 
+/** 计价三桶（02 稿 M3 / research/02 §6）：命中缓存 / 未命中缓存 / 输出。 */
+export interface PricingTier {
+  inputCached: number;
+  inputUncached: number;
+  output: number;
+}
+
+/** 峰时窗口（UTC；法定节假日不建模，未知档按 `unknownTier` 保守落峰价）。 */
+export interface PeakWindow {
+  days: string;
+  utc: string;
+}
+
+export interface ModelPricing {
+  unit: "usd_per_mtok";
+  offPeak: PricingTier;
+  peak?: PricingTier;
+  peakWindows?: PeakWindow[];
+  unknownTier?: "peak" | "offPeak";
+}
+
+/** manifest `model` 段（02 稿 §4；费用权威在 Core，模块只报 usage）。 */
+export interface ModelDecl {
+  provider: string;
+  protocol: "http-sse" | "mock";
+  models: string[];
+  endpoint?: string;
+  auth: { ref: string };
+  pricing: Record<string, ModelPricing>;
+  timeouts?: { idleMs?: number };
+}
+
+/** manifest `engine` 段（03 稿 §4；决策在 Cell、推进在 Core）。 */
+export interface EngineDecl {
+  loop: "react";
+  model: { ref: string; name: string };
+  tools: string[];
+  maxSteps: number;
+}
+
+/** 模型调用总时限上限（契约 §7 流式总长 300s；idleMs ≤ 总时限，02 稿 M5）。 */
+export const MODEL_TOTAL_TIMEOUT_MAX_MS = 300_000;
+
 /** manifest 原始形（Schema 校验通过后的形状）。 */
 interface RawManifest {
   kind: ManifestKind;
@@ -78,6 +121,10 @@ interface RawManifest {
   trust?: { rawIo?: boolean };
   /** capability 专用治理切面（ADR-0015）。 */
   governance?: { tools: GovernanceToolDecl[] };
+  /** model 专用声明（Phase 4 切片②，ADR-0022）。 */
+  model?: ModelDecl;
+  /** engine 专用声明（Phase 4 切片②，ADR-0022）。 */
+  engine?: EngineDecl;
 }
 
 interface RawTemplate {
@@ -102,6 +149,10 @@ export interface LoadedManifest {
   subscriptions: string[];
   /** 治理切面声明（无 = null；宿主据此编译 CellGovernancePlan）。 */
   governance: GovernanceToolDecl[] | null;
+  /** model 段（非 model = null；宿主模块构造材料）。 */
+  model: ModelDecl | null;
+  /** engine 段（非 engine = null；`engine.step` 的静态边界）。 */
+  engine: EngineDecl | null;
   /** 宿主授予的信任层级（ADR-0019；缺省 mediated）。 */
   trust: "mediated" | "raw";
   compat: RawManifest["compat"];
@@ -119,6 +170,11 @@ export interface AssemblerOptions {
    * 不把“申请”当“授予”；宿主/评审显式打开才放行。
    */
   allowRawIo?: boolean;
+  /**
+   * `model.auth.ref` 的 presence-only 探针（02 稿 M6 / R13）：只看"宿主环境里有没有这个名字"，
+   * 不读取、不缓存、不记录值。缺省读 `process.env`。
+   */
+  secretPresent?: (ref: string) => boolean;
 }
 
 function invalid(message: string, detail: unknown): KeelError {
@@ -129,11 +185,18 @@ export class Assembler {
   private readonly schema: unknown;
   private readonly contractVersion: string;
   private readonly allowRawIo: boolean;
+  private readonly secretPresent: (ref: string) => boolean;
 
   constructor(opts: AssemblerOptions) {
     this.schema = opts.schema;
     this.contractVersion = opts.contractVersion ?? CONTRACT_VERSION;
     this.allowRawIo = opts.allowRawIo ?? false;
+    this.secretPresent =
+      opts.secretPresent ??
+      ((ref) => {
+        const v = process.env[ref];
+        return typeof v === "string" && v.length > 0;
+      });
   }
 
   /** 五步校验；返回装配产物。 */
@@ -156,6 +219,8 @@ export class Assembler {
       hooks: m.hooks ?? [],
       subscriptions: m.subscriptions ?? [],
       governance: m.governance?.tools ?? null,
+      model: m.model ?? null,
+      engine: m.engine ?? null,
       trust,
       compat: m.compat,
       record: {
@@ -186,6 +251,9 @@ export class Assembler {
 
     // 第 1 步补充（切片③，ADR-0015）：治理切面的语义校验（Schema 无法表达的部分）
     if (m.governance) this.validateGovernance(m);
+    // 第 1 步补充（Phase 4 切片②，ADR-0022 / R13）：model / engine 段的语义校验
+    if (m.kind === "model") this.validateModel(m);
+    if (m.kind === "engine") this.validateEngine(m);
 
     // 第 1 步补充（R5，ADR-0019）：raw IO 是“申请 + 授予”，申请不等于授予
     if (m.trust?.rawIo === true && !this.allowRawIo) {
@@ -265,6 +333,125 @@ export class Assembler {
       }
     }
     return m;
+  }
+
+  /**
+   * `kind:"model"` 语义校验（02 稿 §4 / R13）：Schema 管形状，这里管"两张皮"——
+   * 价格表键集合 = models、三桶非负有限、峰时窗口随 peak 出现、密钥只查存在性。
+   */
+  private validateModel(m: RawManifest): void {
+    const d = m.model;
+    if (!d) throw invalid("model manifest requires a model section", { plugin: m.meta.name });
+    if (new Set(d.models).size !== d.models.length) {
+      throw invalid("model.models contains duplicates", { models: d.models });
+    }
+    if (d.protocol === "http-sse" && (d.endpoint === undefined || d.endpoint === "")) {
+      throw invalid("protocol http-sse requires endpoint", { plugin: m.meta.name });
+    }
+    if (!this.secretPresent(d.auth.ref)) {
+      // presence-only：错误只写引用名，绝不回显任何值（02 稿 M6 / D4）
+      throw invalid("model secret reference is absent from the host environment", {
+        plugin: m.meta.name,
+        ref: d.auth.ref,
+      });
+    }
+    const declared = new Set(d.models);
+    const priced = Object.keys(d.pricing);
+    if (priced.length !== declared.size || !priced.every((name) => declared.has(name))) {
+      throw invalid("pricing keys must equal model.models", {
+        plugin: m.meta.name,
+        models: d.models,
+        priced,
+      });
+    }
+    for (const name of d.models) {
+      const p = d.pricing[name] as ModelPricing;
+      if (p.unit !== "usd_per_mtok") {
+        throw invalid(`pricing unit must be usd_per_mtok (model "${name}")`, {
+          model: name,
+          unit: p.unit,
+        });
+      }
+      this.validateTier(p.offPeak, name, "offPeak");
+      if (p.peak !== undefined) {
+        this.validateTier(p.peak, name, "peak");
+        if (!p.peakWindows || p.peakWindows.length === 0) {
+          throw invalid(`pricing peak requires peakWindows (model "${name}")`, { model: name });
+        }
+      }
+      for (const w of p.peakWindows ?? []) {
+        if (!/^[a-z]{3}-[a-z]{3}$/.test(w.days)) {
+          throw invalid(`invalid peakWindows.days (model "${name}")`, {
+            model: name,
+            days: w.days,
+          });
+        }
+        if (!/^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/.test(w.utc)) {
+          throw invalid(`invalid peakWindows.utc (model "${name}")`, { model: name, utc: w.utc });
+        }
+      }
+      if (p.unknownTier !== undefined && p.unknownTier !== "peak" && p.unknownTier !== "offPeak") {
+        throw invalid(`invalid unknownTier (model "${name}")`, {
+          model: name,
+          unknownTier: p.unknownTier,
+        });
+      }
+    }
+    const idle = d.timeouts?.idleMs;
+    if (idle !== undefined) {
+      if (!Number.isInteger(idle) || idle <= 0) {
+        throw invalid("timeouts.idleMs must be a positive integer", { idleMs: idle });
+      }
+      if (idle > MODEL_TOTAL_TIMEOUT_MAX_MS) {
+        throw invalid("timeouts.idleMs exceeds the model total timeout", {
+          idleMs: idle,
+          max: MODEL_TOTAL_TIMEOUT_MAX_MS,
+        });
+      }
+    }
+  }
+
+  private validateTier(tier: PricingTier, model: string, label: string): void {
+    for (const bucket of ["inputCached", "inputUncached", "output"] as const) {
+      const v = tier?.[bucket];
+      if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
+        throw invalid(`pricing ${label}.${bucket} must be a non-negative finite number`, {
+          model,
+          tier: label,
+          bucket,
+          value: v,
+        });
+      }
+    }
+  }
+
+  /**
+   * `kind:"engine"` 语义校验（03 稿 E8 / R10 / R12）：能力封闭 + 工具清单自洽。
+   * 工具"恰好一个能力插件提供"需要 profile 的插件集合与真实注册结果，归 Profile 装配器
+   * （`profile/assemble.ts`）在就绪后复核；这里只保证声明本身自洽。
+   */
+  private validateEngine(m: RawManifest): void {
+    const d = m.engine;
+    if (!d) throw invalid("engine manifest requires an engine section", { plugin: m.meta.name });
+    const bad = m.permissions.map((p) => p.cap).filter((cap) => cap !== "model.adapter");
+    if (bad.length > 0) {
+      throw invalid("engine permissions may only declare model.adapter", {
+        plugin: m.meta.name,
+        caps: bad,
+      });
+    }
+    if (m.permissions.filter((p) => p.cap === "model.adapter").length > 1) {
+      throw invalid("engine may declare model.adapter at most once", { plugin: m.meta.name });
+    }
+    if (d.loop !== "react") {
+      throw invalid('engine.loop must be "react"', { loop: d.loop });
+    }
+    if (new Set(d.tools).size !== d.tools.length) {
+      throw invalid("engine.tools contains duplicates", { tools: d.tools });
+    }
+    if (!Number.isInteger(d.maxSteps) || d.maxSteps < 1 || d.maxSteps > 100) {
+      throw invalid("engine.maxSteps must be an integer in [1, 100]", { maxSteps: d.maxSteps });
+    }
   }
 
   /**

@@ -1,0 +1,13 @@
+{
+  "kind": "capability",
+  "meta": {
+    "name": "pid-probe",
+    "version": "1.0.0",
+    "title": "PID Probe",
+    "description": "Profile 装配夹具：返回子进程 pid，用于隔离环境断言"
+  },
+  "permissions": [{ "cap": "tool.provide", "reason": "提供只读工具 pid" }],
+  "resources": { "toolCallTimeoutMs": 10000 },
+  "compensation": { "templates": [] },
+  "compat": { "keelContract": "^1.0" }
+}

@@ -59,6 +59,15 @@ const schemaPath = path.join(
   "schema",
   "keel-plugin.schema.json",
 );
+/** Profile 结构 Schema（Phase 4 切片②；`keel validate --profile` 与 `keel run --profile` 共用）。 */
+const profileSchemaPath = path.join(
+  repoRoot,
+  "docs",
+  "design",
+  "phase-4",
+  "schema",
+  "keel-profile.schema.json",
+);
 /**
  * 策略插件的进程入口（切片④，ADR-0012）：与能力舱同 supervisor、同帧协议，
  * 但受理面只有 `policy.hook`，且不注入任何主动接口。
@@ -80,6 +89,10 @@ export function assertDist(): void {
 
 export function loadSchema(): unknown {
   return JSON.parse(readFileSync(schemaPath, "utf-8"));
+}
+
+export function loadProfileSchema(): unknown {
+  return JSON.parse(readFileSync(profileSchemaPath, "utf-8"));
 }
 
 export function assembleManifest(raw: unknown): LoadedManifest {
@@ -187,6 +200,8 @@ export interface Runtime {
   supervisor: CellSupervisor;
   compensator: CompensationExecutor;
   recovery: RecoveryManager;
+  /** 插话总线（Phase 4 切片②：profile 装配在全部就绪后才向它注册策略 hook）。 */
+  hooks: HookBus;
   /** record-only / 升级告警缝的收集器（scenario 断言用）。 */
   alerts: AlertRecord[];
   /** 本进程内未能持久化的快照（非空 = "重启可恢复"这条主张对本次运行不成立，CLI 要报出来）。 */
@@ -269,6 +284,7 @@ export async function buildRuntime(
     supervisor: null as unknown as CellSupervisor,
     compensator: null as unknown as CompensationExecutor,
     recovery: null as unknown as RecoveryManager,
+    hooks: null as unknown as HookBus,
     alerts: [],
     snapshotFailures: [],
     bindings: new Map(),
@@ -277,6 +293,7 @@ export async function buildRuntime(
   };
   // 插话总线在装配期就接线（handler 注册是装配动作，运行期不换装——hooks.ts 既有口径）
   const hookBus = new HookBus(ledger);
+  rt.hooks = hookBus;
   rt.scheduler = new Scheduler(
     { ledger, auth, budget, ctx, hooks: hookBus, gateway },
     {

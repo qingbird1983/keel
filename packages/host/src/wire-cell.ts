@@ -35,6 +35,8 @@ export interface WireCellParams {
   cellEntry?: string;
   tracker?: EffectTracker;
   readyTimeoutMs?: number;
+  /** 工具注册/撤名通知（Phase 4 切片②：Profile 装配器的归属表；缺省无回调）。 */
+  onToolChange?: (cell: SupervisedCell, change: { name: string; registered: boolean }) => void;
 }
 
 export interface WiredCell {
@@ -59,6 +61,7 @@ export async function wireCell(p: WireCellParams): Promise<WiredCell> {
       subject: p.subject,
       templates: new Map(p.manifest.templates.map((t) => [t.kind, t])),
       permissions: p.manifest.permissions,
+      ...(p.onToolChange ? { onToolChange: (change) => p.onToolChange?.(cell, change) } : {}),
     },
     { ...p.deps, tracker },
   );

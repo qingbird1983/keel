@@ -18,9 +18,11 @@ const USAGE = `keel — Phase 1 验收场景执行入口（命令面见 docs/des
 用法：
   keel run --manifest <path> --plugin <path> [--tool ok] [--rounds 2] [--data-dir <dir>] [--snapshots <dir>]
           [--policy-manifest <path> --policy-module <path>]…（成对、可重复；策略舱见 ADR-0012）
+  keel run --profile <profile.yaml> [--tool ok] [--rounds 2] [--data-dir <dir>] [--snapshots <dir>]
+          （Phase 4：一份清单拉起全家桶；--manifest/--plugin 与 --profile 互斥）
   keel recover --data-dir <dir> --run <runId> [--snapshots <dir>] [--plugin <path>] [--manifest <path>] [--tool get-state]
   keel replay --data-dir <dir> --run <runId>
-  keel validate (--manifest <path> | --dir <dir>) [--expect accept|reject]
+  keel validate (--manifest <path> | --dir <dir> | --profile <path>) [--expect accept|reject]
   keel observe --plugin <path> [--entry legacy|default] [--out <dir>] [--tool-timeout 5000] [--data-dir <dir>]
   keel hotswap [--data-dir <dir>]
   keel bench
@@ -80,9 +82,25 @@ export async function main(argv: string[]): Promise<number> {
           );
           return 2;
         }
+        const profile = str(a.profile);
+        const manifest = str(a.manifest);
+        const plugin = str(a.plugin);
+        if (profile !== "" && (manifest !== "" || plugin !== "")) {
+          console.error(
+            "--profile cannot be combined with --manifest/--plugin (mutually exclusive)",
+          );
+          return 2;
+        }
+        if (profile !== "" && (policyManifests.length > 0 || policyModules.length > 0)) {
+          console.error(
+            "--profile declares policies in the profile file; --policy-manifest/--policy-module do not apply",
+          );
+          return 2;
+        }
         return await cmdRun({
-          manifest: str(a.manifest),
-          plugin: str(a.plugin),
+          manifest: manifest || undefined,
+          plugin: plugin || undefined,
+          profile: profile || undefined,
           tool: str(a.tool) || undefined,
           rounds: optNum(a.rounds),
           dataDir: str(a["data-dir"]) || undefined,
@@ -107,6 +125,7 @@ export async function main(argv: string[]): Promise<number> {
         return await cmdValidate({
           manifest: str(a.manifest) || undefined,
           dir: str(a.dir) || undefined,
+          profile: str(a.profile) || undefined,
           expect: expect === "accept" || expect === "reject" ? expect : undefined,
         });
       }

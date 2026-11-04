@@ -57,7 +57,9 @@ void (async () => {
   } catch {
     crash(new Error("invalid bootstrap argv"));
   }
-  if (!boot.pluginPath || !boot.toolCallTimeoutMs) {
+  // 0 是合法值（Phase 4 engine kind）：engine 只受理 engine.step，不受理 tool.exec——
+  // 与策略舱的 0 同义；把 0 当"缺省"会让 resources 为空对象的 kind 一装载即 crash。
+  if (!boot.pluginPath || typeof boot.toolCallTimeoutMs !== "number") {
     crash(new Error("incomplete bootstrap"));
   }
   const mod = (await import(pathToFileURL(boot.pluginPath).href)) as PluginModule;

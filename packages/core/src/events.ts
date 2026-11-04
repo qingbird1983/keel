@@ -109,6 +109,13 @@ export interface AssemblyRecordedPayload {
    * 动机是 V6 的可回答性——策略不插话时账本对它零记录，"绑了但没说话"必须还能与"根本没绑"分辨。
    */
   policies?: { name: string; version: string; hooks: string[] }[];
+  /**
+   * Profile 装配面追加（Phase 4 切片②，01 稿 P6）：这份记录来自哪份装配清单。
+   * 旧账本缺省 = 单件 `--manifest` 路径，仍按"无 profile"读。
+   */
+  profile?: { name: string; version: number };
+  /** Profile 里该插件的清单 id（同一 manifest 可在不同 profile 位置出现）。 */
+  plugin?: { id: string };
 }
 
 export interface RoundPayload {

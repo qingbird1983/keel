@@ -1,0 +1,14 @@
+{
+  "kind": "observation",
+  "meta": {
+    "name": "audit-log",
+    "version": "1.0.0",
+    "title": "Audit Log",
+    "description": "Profile 装配夹具：observation 无运行时，不得 import 模块"
+  },
+  "permissions": [],
+  "resources": {},
+  "compensation": { "templates": [] },
+  "subscriptions": ["RUN_*"],
+  "compat": { "keelContract": "^1.0" }
+}

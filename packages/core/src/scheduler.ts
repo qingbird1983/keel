@@ -98,8 +98,12 @@ export interface RunManifest {
   executor: ToolExecutor;
   driver: RunDriver;
   compensator?: PendingCompensator;
-  /** 装配审计基线（切片③：存在时作为本 run 首事件 ASSEMBLY_RECORDED 落账）。 */
-  assembly?: AssemblyRecordedPayload;
+  /**
+   * 装配审计基线（切片③：存在时作为本 run 首事件 ASSEMBLY_RECORDED 落账）。
+   * Phase 4 切片②：profile 装配 = 逐插件一条，按声明序作为 **首批** 事件写入（01 稿 P6）。
+   * 单件路径仍传单条（与旧账本逐字节一致）。
+   */
+  assembly?: AssemblyRecordedPayload | AssemblyRecordedPayload[];
   /** 恢复延续（契约 §4.1 注记⑦）：RUN_RECOVERED 于新 run 首事件槽写入。 */
   recoveredFrom?: { runId: string; seq: number };
 }
@@ -251,8 +255,15 @@ export class Scheduler {
 
   private async loop(h: RunHandle): Promise<void> {
     try {
-      // 装配审计基线（切片③）：run 首事件（seq 1）
-      if (h.manifest.assembly) await this.emit(h, "ASSEMBLY_RECORDED", h.manifest.assembly);
+      // 装配审计基线（切片③）：run 首事件（seq 1）。
+      // Phase 4 切片②：profile 装配逐插件写，按声明序作为 run 的**首批**事件（01 稿 P6）。
+      const records =
+        h.manifest.assembly === undefined
+          ? []
+          : Array.isArray(h.manifest.assembly)
+            ? h.manifest.assembly
+            : [h.manifest.assembly];
+      for (const record of records) await this.emit(h, "ASSEMBLY_RECORDED", record);
       // 恢复延续（契约 §4.1 注记⑦）：RUN_RECOVERED 先于 RUN_STARTED
       if (h.manifest.recoveredFrom) {
         await this.emit(h, "RUN_RECOVERED", {
