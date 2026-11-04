@@ -107,3 +107,17 @@ engine 插件**跑在哪、谁驱动、每一步怎么和 Core 交换、上下�
 
 - **E1（2026-11-04）**：决策在 Cell、推进在 Core（`engine.step` 每步一往返）；**不**新开 Cell→Core 的工具执行通道。
 - **E3（2026-11-04 随整稿过闸）**：`engine.step` 的请求/响应字段与"一步取 300s 档"照准。
+
+## 10. 实施注记（2026-11-04，切片④落地）
+
+只补事实，不改决策：
+
+1. **通道落点**：`engine.step` 是 Cell 侧 `startCell` 受理面的一项（与 `tool.exec` / `cell.snapshot` 同级）；报关单 `engine` 段随 bootstrap 送达，模块导出 `step(input, ctx)` 由入口在 `markReady()` 前登记。宿主侧 `SupervisedCell.stepEngine()` 走既有 `call`（收尾期拒新、在途计入 drain），时限 = 契约 300s 档（`ENGINE_STEP_TIMEOUT_MS`）。
+2. **响应追加 `message?`（E3 的封闭形状 +1 字段）**：模型回答正文由 engine 在一步内拿到，但**表面事件只有 Core 能写**。因此应答形状为 `{decision, message?}`，`message` 携带 `{content, reasoningContent?, toolCalls?, usageRef?}`，由 Core 落 `MODEL_MESSAGE` 后再写 `DECISION`。其余未知字段仍一律拒绝。
+3. **关联键**：`TOOL_RESULT` 载荷追加可选 `toolCallId`，`DriverAction` 的 tool 分支接受决策方给的 `toolCallId`（缺省仍由 Core 生成）。没有这个键，第二轮的模型视图无法把工具结果配回调用（E4 的消息形状里 `toolCallId` 是硬字段）。
+4. **起始输入**：`TURN_INPUT` 由调度器在 `RUN_STARTED` 之后、首轮之前写（`RunManifest.turnInput`）——表面事件写权仍只在 Core。
+5. **归因与上限**：`DriverDecision` 追加 `basedOn`（engine 用它显式引用本步的 `MODEL_INVOKED` / `MODEL_USAGE` / `MODEL_MESSAGE`）与 `haltReason`（`MAX_STEPS` 落 `RUN_HALTED{reasonCode}`）。调度器把两者与自身已写事件合并去重后交账本盖 `throughSeq`。
+6. **失败映射**：`engine.step` 通道断 / 收尾期拒新 → `RUN_FAILED{reasonCode:"ENGINE_EXITED"}`；超时 → `TRANSPORT/TIMEOUT`；预算耗尽 → hard-stop 走既有 `BUDGET/EXHAUSTED` 失败收束、graceful 走 `RUN_HALTED{reasonCode:"BUDGET/EXHAUSTED-GRACEFUL"}`。错误码集合不变。
+7. **预算估算**：引擎没有价格表，每步给保守预扣单位 1；实结与超支处置仍在 Core（M5）。这是实现口径，不是新的运行期旋钮。
+8. **profile 全家桶的补偿修正**：`CompensationExecutor.readPermissions` 原只读**第一条** `ASSEMBLY_RECORDED`；profile 是逐插件一条（01 稿 P6），全家桶下会把"权限在能力插件那条"读成"无允许路径"，导致 `fs.remove` 必然升级。已改为合并本 run 全部装配记录的权限（按 cap+allow 去重），并补坑条 P-022。
+9. **证据**：`tests/engine-kind-e2e.test.ts` 9 例（D3 多步闭环 / D3 崩溃半径 / D5 归因 / D2 预算 / 协议封闭 ×3 / D4 密钥）；`packages/plugins/engine-react/test` 4 例；CLI 冒烟 1 例；扫描器对 `engine-react` 零命中。
