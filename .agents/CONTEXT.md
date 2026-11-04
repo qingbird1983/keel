@@ -1,68 +1,52 @@
-# 工作上下文交接卡
+﻿# 工作上下文交接卡
 
 > 模板文件：每轮会话收尾**整体重写**本卡（覆盖式，不追加），≤ 150 行（规范见 `.agents/README.md`）。
 
-- 更新：2026-11-04（会话主题：**Phase 4 完成——切片④ engine kind、D1~D7 验收、`phase-4.end` 打标并 merge**）
+- 更新：2026-11-04（会话主题：**Phase 5 立项——合同定稿、切片①四稿 + ADR-0025/0026，两次闸全过**）
 
 ## 当前阶段与状态（对照 roadmap 看板）
 
-- Phase 1 ✅ / Phase 2 ✅（提前收口）/ Phase 3 ✅ / **Phase 4 ✅ 完成（`phase-4.end` tag 已打，分支已 merge 到 main）**
-- 切片①~④全部完成：
-  - 切片①：合同/四份设计稿/ADR-0021~0024/禁面扫描扩展
-  - 切片②：Profile 装配面（严格 YAML 子集、六步装配、五 kind 隔离、逐插件记录、`validate/run --profile`）
-  - 切片③：model kind（manifest 价格表三桶/峰谷、`MODEL_USAGE` v3、超预扣不穿透预算、三层超时、表面事件族）
-  - 切片④：engine kind（`engine.step` 每步一往返、纯投影上下文、`DECISION.basedOn` 含模型事件、
-    kill 引擎舱故障半径、`engine-react` 标杆、`keel run --profile` 接引擎驱动、D1~D7 复核）
-- 设计输入：`docs/research/01`（DSH 数据流）、`docs/research/02`（DeepSeek API），均冻结
-- 阶段报告：`docs/design/phase-4/report.md`（D1~D7 全过）；`phase-4.end` 已打，分支已 merge 到 main
+- Phase 1 ✅ / Phase 2 ✅（提前收口）/ Phase 3 ✅ / Phase 4 ✅（`phase-4.end` 已打并 merge）
+- **Phase 5 已开工，切片① ✅ 完成**（分支 `docs/phase5-charter`，4 次提交，**未合并**）：
+  - 合同定稿：[phase-5-session-continuity.md](../docs/roadmap/phase-5-session-continuity.md)（K1~K6 已确认）
+  - 四份设计稿：[01 会话流](../docs/design/phase-5/01-session-stream.md) / [02 续跑与恢复](../docs/design/phase-5/02-resume-and-recovery.md) / [03 压缩](../docs/design/phase-5/03-compaction.md) / [04 修订清单](../docs/design/phase-5/04-contract-revision.md)
+  - 两篇 ADR 定稿：[0025 定址](../docs/adr/ADR-0025-session-stream-addressing.md)（选 A 复合键）/ [0026 压缩](../docs/adr/ADR-0026-compaction-as-view.md)（选新增 `SURFACE_COMPACTED`）
+- Phase 5 范围：会话流 + 跨 run 投影 + 续跑/崩溃恢复 + 会话预算连续性 + 压缩首版；验收 E1~E7（E1/E2/E3 一票否决）
 
 ## 本轮关键结论（别丢）
 
-- **控制权分层**：决策在 engine Cell（一步内调模型、返回 `{decision,message?}`），推进/工具执行/
-  记账在 Core。**没有** Cell→Core 的工具执行通道；engine 无账本/表面写入口（结构上做不到）。
-- **表面投影**：`projectSurface(events)` 纯函数、只吃 `SURFACE_EVENT_TYPES` 白名单
-  （`TURN_INPUT`/`MODEL_MESSAGE`/`TOOL_RESULT`）；版本号 `SURFACE_PROJECTION_VERSION=1`；
-  `TURN_INPUT` 由调度器经 `RunManifest.turnInput` 写。
-- **关联键**：`TOOL_RESULT.toolCallId` ↔ `MODEL_MESSAGE.toolCalls[].id`；`DriverAction.toolCallId`
-  优先用模型给的，缺省 Core 生成。
-- **归因**：`DriverDecision.basedOn` 合并进 `DECISION.basedOn`（模型事件是网关直写，不在
-  `h.events` 里）；`throughSeq` 仍由账本盖章。`haltReason:"MAX_STEPS"` → `RUN_HALTED{reasonCode}`。
-- **失败映射**：`engine.step` 通道断 / 收尾拒新（`SCHED/BACKPRESSURE`）→ `RUN_FAILED{ENGINE_EXITED}`；
-  超时 → `TRANSPORT/TIMEOUT`；预算 hard-stop → `BUDGET/EXHAUSTED`，graceful → `RUN_HALTED{BUDGET/EXHAUSTED-GRACEFUL}`。
-  **错误码零新增**（reasonCode 是载荷级字符串）。
-- **预算估算**：engine 无价格表，每步预扣单位 1；实结/超支仍在 Core。
-- **P-022 修正**：profile 装配记录逐插件一条，补偿执行器必须合并**全部**记录的权限
-  （原只读第一条 → 能力插件排在后面时 `fs.remove` 必然升级）。
-- **模型名全局注册**：同一宿主多次装配同名模型 = 后装配者替换上游实例（P-020 延伸）；
-  测试/多 profile 场景必须用同一份 model 声明或显式预期重绑。
+- **会话 = `(agentId, sessionId)` 下按 `sessionRun` 排序的 run 序列**；事件地址保持 `(runId, seq)`（ADR-0025 选 A），信封与 `basedOn`/`throughSeq` 的 run 内口径不动。`sessionRun` 落 `RUN_STARTED` 追加字段（载荷 v2）。
+- **同会话单活**：租约文件 `.lease`（`O_EXCL` + TTL + pid 存活），冲突复用 `SCHED/BACKPRESSURE`、**拒绝路径零写入**、错误码零新增。
+- **续跑 vs 恢复**：前一个 run 有终态 = 续跑（历史 = 全量会话投影）；无终态 = 恢复（补偿 → 快照 → 新 run），历史**截到该 run 最后一个 `CHECKPOINT.seq`**——一致点之后的效果会被补偿回滚，给模型看会造成"视图与副作用不一致"。
+- **压缩是视图操作**：新增表面事件 `SURFACE_COMPACTED`（白名单三类 → 四类），摘要调用走既有网关（`MODEL_*` 成对、预算/超时/失败），原始事件永留，`includeCompacted` 可还原。`surfaceOp` 保持预留给 `redact`。
+- **压缩命令并入下一次 run**：`keel run --compact`（不提供独立 `keel compact`——账本拒绝向已终结 run 追加）；阈值取最近一次 `MODEL_USAGE` 输入桶，默认 128000。
+- **会话预算**：`used = Σ BUDGET_SETTLED.actual + Σ 未结算 reservation.estimate`；会话绑定时一次性投影并 seed 给 `Budgeter`，运行期仍用内存态。
+- **投影 v2**：`projectSession` 跨 run 拼接；`toolCallId` 由 Core 生成时带 `runId` 短前缀，避免跨 run 撞号。
 
 ## 已验证 / 未验证
 
-- 已验证：六道门禁全绿（format / lint / typecheck+build / test **64 文件 485 测试** / 扫描实扫零命中）；
-  D3 多步闭环 + 真写盘 + 补偿回放 + kill 故障半径；D5 归因与投影重算；D2 预算熔断；协议封闭三例；
-  CLI 四插件全家桶经引擎驱动；Phase 1~3 承载测试零退化
-- 已补验（2026-11-04）：`model-deepseek` 真实请求——`deepseek-flash` 非流式 + 流式各一次成功
-  （用量/峰谷档位/SSE 末块用量与价格表口径一致；仍不进 CI，见 02 稿 §11）
-- 未验证：`engine.step` 300s 到点语义（由网关/通道既有用例覆盖）；跨 run 会话/压缩/UI（合同 §2 不做）
+- 已验证（本轮）：`prettier --check docs CHANGELOG.md` 全通过；新文档体量在预算内（ADR 72/74 行、设计稿 84~159 行、合同 125 行）；两次闸的所有者确认已回填合同 §8 / 两份 ADR / docs/README。
+- **未验证**：本轮**零代码改动**，代码门禁（lint/typecheck/build/test/扫描）未跑也无需跑（铁律 1）。
+- 既有欠账未变：根 `tests/` 不在任何包 tsconfig include 内（类型检查缺口）。
 
 ## 下一步（按优先级）
 
-1. 下阶段立项：跨 run 会话持久化/压缩、`kind:"ui"`/桌面壳、多 Agent（均须先写 ADR / 走 backlog）
-2. 既有欠账：根 `tests/` 不在任何包 tsconfig include 内（类型检查缺口）
+1. **切片②（下一步）**：会话流端到端。按 [04 稿](../docs/design/phase-5/04-contract-revision.md) 实施顺序：R1/R2/R7 + T5/T7 → R3/R4/R6 + T1/T2；红测先行。核心落点：`core/ledger.readRunMeta`、`core/session.ts`、`surface.projectSession`（v2）、`budget.seedSessionUsage`、`host/session/`（Store + Lease）、CLI `--session` / `sessions`。
+2. 切片③：崩溃后的会话恢复（`RecoveryManager` + 一致点截断 + engine 驱动接历史）；切片④：压缩（R5/R8/R9 + T3/T4/T8）。
+3. 工具债：切片①/② 顺手清根 `tests/` 的 tsconfig 覆盖。
+4. 所有者决定：`docs/phase5-charter` merge 时机；`phase-5.end` 时机。
 
 ## 关键提醒（坑/规范/易错点）
 
-- **装配记录不止一条**：[P-022](pitfalls/P-022-装配记录逐插件化后补偿只读第一条.md)——任何按类型取
-  `events[0]` 的读者都要重新核对
-- **注册表先定作用域**：[P-020](pitfalls/P-020-模型按名注册把跨装配重绑当成重复.md)——一份 profile 内同名拒绝，
-  同宿主再装配显式重绑
+- **设计稿链接别照抄旧稿**：[P-023](pitfalls/P-023-设计稿相对链接按docs根写会断.md)——`docs/design/phase-N/` 里要用 `../../adr/`；phase-3/4 的 `../adr/` 是历史债，未修（别跟着抄）
+- **拍板问法**：[S-002](skills/S-002-两案对比的拍板问法.md)——问方案名、不重复 ADR 字母；回填时按名字记录
+- **装配记录不止一条**：[P-022](pitfalls/P-022-装配记录逐插件化后补偿只读第一条.md)
+- **注册表先定作用域**：[P-020](pitfalls/P-020-模型按名注册把跨装配重绑当成重复.md)
 - **金额累加要收浮点尾**：[P-021](pitfalls/P-021-金额浮点求和噪声让预算断言飘.md)
 - **数值哨兵不要用 falsy**：[P-019](pitfalls/P-019-把0当缺省值导致空resources插件装载即崩.md)
 - **Schema 只能用关键词子集**：[P-014](pitfalls/P-014-自研Schema子集把动态键映射当成已支持.md)
-- **改文本只用 edit/write 工具**：[P-017](pitfalls/P-017-powershell改写破坏编码.md)；
-  Windows 控制台输出中文是乱码，不代表文件坏了（用 read 工具核对）
-- **外部事实必须带来源 URL + 检索日期**：[P-018](pitfalls/P-018-外部API事实过期.md)；
-  `deepseek-chat`/`deepseek-reasoner` 已停用，只许出现在"已停用"说明里
-- **ADR 只增不改**；docs 新增必须登记 `docs/README.md`；CHANGELOG 新在前、面向非技术读者（本轮 0.1.059）
-- **体量**：docs 75 篇（软上限 150）；`.agents` 34 个文件（上限 40，不含 vendored）；CONTEXT ≤150 行
-- 踩坑索引：[pitfalls/](pitfalls/)（P-001~P-022）；方法索引：[skills/](skills/README.md)（S-001）
+- **改文本只用 edit/write 工具**：[P-017](pitfalls/P-017-powershell改写破坏编码.md)；Windows 控制台中文乱码不代表文件坏了（用 read 核对）
+- **外部事实带来源与检索日期**：[P-018](pitfalls/P-018-外部API事实过期.md)；`deepseek-chat`/`deepseek-reasoner` 已停用
+- **ADR 只增不改**；docs 新增必须登记 `docs/README.md`；CHANGELOG 新在前（本轮 0.1.063）
+- **体量**：docs 79 篇（软上限 150）；`.agents` 34 个文件（上限 40，不含 vendored）；CONTEXT ≤150 行
+- 踩坑索引：[pitfalls/](pitfalls/)（P-001~P-023）；方法索引：[skills/](skills/README.md)（S-001~S-002）
